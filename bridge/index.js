@@ -51,8 +51,7 @@ const PUBLIC_PATHS = new Set(["/v1/health", "/v1/handshake"]);
  * 从 storages/workspace.json 读，不猜 process.cwd()：
  * Electron 进程的 cwd 是 profile 目录，根本不是用户以为的"工作区"。
  */
-function detectWorkspaceRoots() {
-  try {
+function detectWorkspaceRoots() {  try {
     const file = path.join(dshHome(), "storages", "workspace.json");
     const doc = readJson(file, null);
     const table = doc?.tables?.workspaces ?? {};
@@ -109,8 +108,7 @@ function jsonError(res, error) {
   res.end(text);
 }
 
-function readBody(req, limit = MAX_JSON_BYTES) {
-  return new Promise((resolve, reject) => {
+function readBody(req, limit = MAX_JSON_BYTES) {  return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on("data", (chunk) => {
@@ -177,6 +175,24 @@ export function apply(ctx, config = {}) {
 function applyBridge(ctx, config) {
   // 状态目录可以先搬走：必须在 ensurePairState 之前生效
   if (config.stateDir) setStateDirOverride(config.stateDir);
+
+  // 请求 / 错误日志写文件：DSH 桌面版没有日志目录，console 输出拿不到，
+  // 手机端出问题时这是唯一的现场证据。
+  let logPath = null;
+  function logLine(entry) {
+    try {
+      if (!logPath) logPath = path.join(stateDir(), "bridge.log");
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      try {
+        if (fs.statSync(logPath).size > 2 * 1024 * 1024) fs.writeFileSync(logPath, "");
+      } catch {
+        /* 文件还不存在 */
+      }
+      fs.appendFileSync(logPath, JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n");
+    } catch {
+      /* 日志失败不能影响主流程 */
+    }
+  }
 
   const cfg = {
     port: config.port === 0 ? 0 : Number(config.port) || 8765,
@@ -562,8 +578,13 @@ function applyBridge(ctx, config) {
       let sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId : null;
       let created = false;
       if (!sessionId) {
-        const made = await ctrl.create({});
-        sessionId = String(made?.sessionId || "");
+        try {
+          const made = await ctrl.create({});
+          sessionId = String(made?.sessionId || "");
+        } catch (error) {
+          logLine({ step: "create", error: String(error?.message || error).slice(0, 400) });
+          throw error;
+        }
         if (!sessionId) throw new HttpError(500, "create-failed", "新建会话失败");
         created = true;
       }
@@ -571,15 +592,27 @@ function applyBridge(ctx, config) {
       // 注意：ctx.sessionController 是 Typert Remote 门面，签名是 prompt(request, signal)。
       // 第二参数必须是 AbortSignal（内部会调 signal.throwIfAborted()），
       // source 由门面自己构造（{kind:"user", rpcId:request.requestId}），不能自己传。
-      const result = await ctrl.prompt(
-        {
+      logLine({ step: "task", sessionId, created, textLen: text.length, requestId });
+      let result;
+      try {
+        result = await ctrl.prompt(
+          {
+            sessionId,
+            content: [{ type: "text", text }],
+            requestId,
+            ...(body.mode === "steer" ? { mode: "steer" } : {}),
+          },
+          AbortSignal.timeout(cfg.approvalTimeoutMs * 4),
+        );
+      } catch (error) {
+        logLine({
+          step: "prompt",
           sessionId,
-          content: [{ type: "text", text }],
-          requestId,
-          ...(body.mode === "steer" ? { mode: "steer" } : {}),
-        },
-        AbortSignal.timeout(cfg.approvalTimeoutMs * 4),
-      );
+          error: String(error?.message || error).slice(0, 400),
+          code: error?.code ?? null,
+        });
+        throw error;
+      }
       return sendJson(res, 200, {
         ok: true,
         sessionId,
@@ -686,7 +719,19 @@ function applyBridge(ctx, config) {
   // ── 启动 ────────────────────────────────────────────────────────────────────
 
   server = http.createServer((req, res) => {
+    const startedAt = Date.now();
+    const route = String(req.url || "").split("?")[0];
+    res.on("finish", () => {
+      // SSE 是长连接，finish 时才记；其余端点这就是一行请求日志
+      logLine({ m: req.method, p: route, s: res.statusCode, ms: Date.now() - startedAt });
+    });
     handle(req, res).catch((error) => {
+      logLine({
+        m: req.method,
+        p: route,
+        err: String(error?.code || error?.name || "error"),
+        msg: String(error?.message || error).slice(0, 400),
+      });
       if (error instanceof SyntaxError) jsonError(res, new HttpError(400, "bad-request", error.message));
       else jsonError(res, error);
     });
