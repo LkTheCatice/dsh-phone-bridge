@@ -1,0 +1,39 @@
+name: DSHRemote
+options:
+  bundleIdPrefix: dev.yg
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+
+targets:
+  DSHRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: DSH 遥控
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: 用于连接你电脑上的 DeepSeek Harness 桥接服务（局域网直连时）
+        # 局域网走 HTTP，但每个请求体都是端到端加密的；外网请走 Tailscale 的 HTTPS
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSupportsIndirectInputEvents: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.yg.dshremote
+        PRODUCT_NAME: DSHRemote
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_BITCODE: NO

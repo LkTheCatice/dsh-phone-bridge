@@ -1,0 +1,16 @@
+# dsh-phone-bridge bundle patch.
+# install.ps1 also inserts this entry into the profile's own cordis.patch.yml;
+# keeping it here documents the exact row the plugin expects.
+- insert:
+    - id: phone-bridge
+      name: dsh-phone-bridge
+      config:
+        port: 8765
+        lanHost: ""
+        askPhone: true
+        approvalTimeoutMs: 90000
+        roots: []
+        notify:
+          kind: ""
+          server: ""
+          key: ""
