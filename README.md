@@ -11,10 +11,12 @@ iPhone (SwiftUI)  ──HTTPS/Tailscale 或 局域网HTTP+E2EE──▶  PC 上�
 
 | 部分 | 状态 |
 |---|---|
-| PC 侧插件（`bridge/`） | ✅ 已实现并验证：7 项加密/协议单测 + 1 个端到端冒烟测试（握手→加密请求→文件读写→越界拒绝）+ `bin/smoke.mjs` 全链路通过 |
-| iOS App（`ios/DSHRemote/`） | ⚠️ 源码完整，**尚未编译验证**（本机无 macOS）。用 GitHub Actions 云编译出 ipa |
+| PC 侧插件（`bridge/`） | ✅ 已在真实 DSH 里跑通：握手、加密请求、38 个真实会话、139 个真实事件帧、真实任务往返（`turn.start → assistant.delta "ok" → turn.end`） |
+| iOS App（`ios/DSHRemote/`） | ✅ 已云编译通过（2026-11-10，GitHub Actions / `macos-latest`），产物 `dist/DSHRemote-unsigned.ipa`（256 KB），待装到手机 |
 | 通知 | ✅ 代码就绪，接 Bark / ntfy，填 key 即用 |
 | 文档 | ✅ 部署、侧载、协议三份 |
+
+> CI 踩坑记录：`runs-on: macos-14` 在免费账户的私有仓库上会被解析成 `macos-14-arm64-us-xl` 并 2 秒直接拒绝；`macos-13` 已退役会永久排队；**用 `macos-latest`**。另外 git 走 HTTPS 要单独配代理（`git config http.proxy http://127.0.0.1:7892`），git 不读系统代理设置。
 
 ## 三步上手
 

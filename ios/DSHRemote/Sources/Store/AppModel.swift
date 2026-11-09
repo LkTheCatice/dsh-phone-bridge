@@ -147,16 +147,12 @@ final class AppModel: ObservableObject {
         case "tool.call":
             let callId = (frame["callId"] as? String) ?? UUID().uuidString
             let name = (frame["name"] as? String) ?? "tool"
-            var detail = ""
-            if let args = frame["args"] {
-                detail = (try? JSONSerialization.data(withJSONObject: args, options: [.prettyPrinted]))
-                    .flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            }
+            let detail = Self.jsonText(frame["args"])
             append(sid, ChatEntry(id: "\(sid)#tool\(callId)", kind: .toolCall, text: name, detail: detail, at: Date(), running: true))
 
         case "tool.result":
             let callId = (frame["callId"] as? String) ?? ""
-            let preview = Self.stringify(frame["preview"])
+            let preview = Self.jsonText(frame["preview"])
             let ok = (frame["ok"] as? Bool) ?? true
             if !callId.isEmpty, var list = entries[sid],
                let idx = list.firstIndex(where: { $0.id == "\(sid)#tool\(callId)" }) {
@@ -187,7 +183,7 @@ final class AppModel: ObservableObject {
             pendingApprovals.removeAll { $0.id == id }
 
         case "turn.end":
-            let reason = Self.stringify(frame["reason"])
+            let reason = Self.jsonText(frame["reason"])
             append(sid, ChatEntry(id: "\(sid)#end\(turn)", kind: .system, text: "本轮结束 · \(reason)", at: Date()))
             for key in entries.keys {
                 guard var list = entries[key] else { continue }
@@ -222,10 +218,17 @@ final class AppModel: ObservableObject {
         entries[sessionId] = list
     }
 
-    private static func stringify(_ value: Any?) -> String {
+    /// 安全地把任意值转成可显示的 JSON 文本。
+    ///
+    /// 关键：`JSONSerialization.data(withJSONObject:)` 对顶层标量（字符串/数字/bool）
+    /// 抛的是 **ObjC 异常（NSException）**，Swift 的 `try?` 捕不到，会直接 SIGABRT。
+    /// DSH 的 `tool.call` 事件里 `args` 经常就是一段 JSON 字符串 —— 就是这个把 App 崩了。
+    /// 所以必须先 `isValidJSONObject` 判断，绝不能让异常冒出去。
+    private static func jsonText(_ value: Any?) -> String {
         guard let value else { return "" }
         if let s = value as? String { return s }
-        if let d = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
+        if JSONSerialization.isValidJSONObject(value),
+           let d = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
            let s = String(data: d, encoding: .utf8) {
             return s
         }
