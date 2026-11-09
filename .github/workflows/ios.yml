@@ -1,4 +1,4 @@
-name: DSHRemote unsigned IPA
+﻿name: DSHRemote unsigned IPA
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-13
     timeout-minutes: 40
     steps:
       - name: Checkout
