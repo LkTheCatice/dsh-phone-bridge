@@ -5,12 +5,25 @@
   "type": "module",
   "description": "Local bridge that lets an iPhone drive DeepSeek Harness sessions over an end-to-end encrypted channel",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
   "engines": {
     "node": ">=20"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ]
     }
   }
 }

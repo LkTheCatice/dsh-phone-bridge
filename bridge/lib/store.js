@@ -172,38 +172,89 @@ export function rotateToken() {
  *
  * @returns {{ok:boolean, known:boolean, count:number, known_name?:string}}
  */
-export function registerClient(fingerprint, name = "iphone", limit = 8) {
+export function registerClient(fingerprint, name = "iphone", limit = 8, autoApprove = false) {
   const file = stateFile("pair.json");
   const doc = readJson(file, null);
-  if (!doc) return { ok: false, known: false, count: 0 };
+  if (!doc) return { ok: false, known: false, count: 0, status: "pending" };
   const now = new Date().toISOString();
   const clients = Array.isArray(doc.clients) ? doc.clients : [];
   const existing = clients.find((c) => c && c.fingerprint === fingerprint);
+
+  let record = existing;
   if (existing) {
     existing.lastSeen = now;
     if (name) existing.name = String(name).slice(0, 40);
+    // 老记录没有 status 字段 → 视为已批准（升级兼容，不能把现有设备踢下线）
+    if (!existing.status) existing.status = "approved";
+    record = existing;
   } else {
-    clients.push({
+    record = {
       fingerprint,
       name: String(name || "iphone").slice(0, 40),
       firstSeen: now,
       lastSeen: now,
-    });
+      // 关键安全默认：新设备必须经过电脑端批准
+      status: autoApprove ? "approved" : "pending",
+    };
+    clients.push(record);
   }
   while (clients.length > limit) clients.shift();
   doc.clients = clients;
   writeJson(file, doc);
+
   return {
     ok: true,
     known: Boolean(existing),
     count: clients.length,
-    known_name: existing?.name,
+    status: record?.status || "pending",
+    known_name: record?.name,
   };
 }
 
 export function listClients() {
   const doc = readJson(stateFile("pair.json"), null);
-  return Array.isArray(doc?.clients) ? doc.clients : [];
+  const clients = Array.isArray(doc?.clients) ? doc.clients : [];
+  // 兼容：老记录默认已批准
+  return clients.map((c) => ({ ...c, status: c.status || "approved" }));
+}
+
+/** 设置某台设备的状态：approved / pending / blocked */
+export function setClientStatus(fingerprint, status) {
+  const file = stateFile("pair.json");
+  const doc = readJson(file, null);
+  if (!doc) return null;
+  const clients = Array.isArray(doc.clients) ? doc.clients : [];
+  const target = clients.find((c) => c && c.fingerprint === fingerprint);
+  if (!target) return null;
+  target.status = status;
+  target.statusChangedAt = new Date().toISOString();
+  doc.clients = clients;
+  writeJson(file, doc);
+  return target;
+}
+
+export function removeClient(fingerprint) {
+  const file = stateFile("pair.json");
+  const doc = readJson(file, null);
+  if (!doc) return false;
+  const clients = Array.isArray(doc.clients) ? doc.clients : [];
+  const before = clients.length;
+  doc.clients = clients.filter((c) => c && c.fingerprint !== fingerprint);
+  writeJson(file, doc);
+  return doc.clients.length !== before;
+}
+
+export function getAutoApprove() {
+  const doc = readJson(stateFile("pair.json"), null);
+  return doc?.autoApproveDevices === true;
+}
+
+export function setAutoApprove(value) {
+  const file = stateFile("pair.json");
+  const doc = readJson(file, null) || { version: 1 };
+  doc.autoApproveDevices = value === true;
+  writeJson(file, doc);
+  return doc.autoApproveDevices;
 }
 
 /** 清空设备名单（不影响 token 与服务器密钥）。 */

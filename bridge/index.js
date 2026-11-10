@@ -20,10 +20,14 @@ import {
   clearClients,
   dshHome,
   ensurePairState,
+  getAutoApprove,
   listClients,
   readJson,
   registerClient,
+  removeClient,
   rotateToken,
+  setAutoApprove,
+  setClientStatus,
   setStateDirOverride,
   stateDir,
 } from "./lib/store.js";
@@ -456,12 +460,157 @@ function applyBridge(ctx, config) {
     req.on("error", cleanup);
   }
 
+  // ── 管理接口（只给本机 DSH 界面用）────────────────────────────────────────
+  //
+  // 安全边界：只接受来自回环地址的请求，因此手机和局域网一律 403。
+  // 不校验 token 是刻意的 —— 能访问 loopback 的只有本机进程，而它们本来就能读
+  // pair.json。真正的安全边界在「设备闸门」（handshake 检查 status）。
+
+  function corsHeaders(res) {
+    res.setHeader("access-control-allow-origin", "*");
+    res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+    res.setHeader("access-control-allow-headers", "content-type");
+    res.setHeader("access-control-max-age", "600");
+  }
+
+  /** 与握手时同一套派生，用来判断某台设备此刻是否在线 */
+  function clientIdFor(fingerprint) {
+    return createHash("sha256")
+      .update(`dsh-phone-bridge|${fingerprint}|${pair.token}`)
+      .digest("base64url")
+      .slice(0, 32);
+  }
+
+  function dropClientRuntime(fingerprint) {
+    const cid = clientIdFor(fingerprint);
+    e2ee.delete(cid);
+    for (const stream of [...streamClients]) {
+      if (stream.id !== cid) continue;
+      try {
+        stream.res.end();
+      } catch {
+        /* 已经断了 */
+      }
+      streamClients.delete(stream);
+    }
+  }
+
+  async function handleAdmin(req, res, url, method, pathname) {
+    corsHeaders(res);
+    if (method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const readJson = async () => {
+      const raw = await readBody(req, 256 * 1024);
+      if (!raw.length) return {};
+      try {
+        return JSON.parse(raw.toString("utf8"));
+      } catch {
+        throw new HttpError(400, "bad-json", "请求体不是 JSON");
+      }
+    };
+
+    if (method === "GET" && pathname === "/admin/devices") {
+      const devices = listClients().map((c) => {
+        const cid = clientIdFor(c.fingerprint);
+        const known = e2ee.has(cid);
+        const streaming = [...streamClients].some((s) => s.id === cid);
+        return {
+          fingerprint: c.fingerprint,
+          name: c.name || "未知设备",
+          status: c.status || "approved",
+          firstSeen: c.firstSeen || null,
+          lastSeen: c.lastSeen || null,
+          statusChangedAt: c.statusChangedAt || null,
+          online: Boolean(known && streaming),
+        };
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        autoApprove: getAutoApprove(),
+        server: {
+          fingerprint: pair.fingerprint,
+          createdAt: pair.createdAt,
+          port: cfg.port,
+          lanHost: cfg.lanHost,
+          e2eeRequired: cfg.requireE2ee,
+          stateDir: stateDir(),
+        },
+        devices,
+        pendingCount: devices.filter((d) => d.status === "pending").length,
+        onlineCount: devices.filter((d) => d.online).length,
+      });
+    }
+
+    if (method === "POST" && pathname === "/admin/devices/status") {
+      const body = await readJson();
+      const fingerprint = String(body.fingerprint || "");
+      const status = String(body.status || "");
+      if (!fingerprint || !["approved", "pending", "blocked"].includes(status)) {
+        throw new HttpError(400, "bad-request", "需要 fingerprint，且 status ∈ approved|pending|blocked");
+      }
+      const updated = setClientStatus(fingerprint, status);
+      if (!updated) throw new HttpError(404, "not-found", "没有这台设备的记录");
+      if (status !== "approved") dropClientRuntime(fingerprint);
+      logLine({ step: "admin/status", device: fingerprint.slice(0, 12), status });
+      return sendJson(res, 200, { ok: true, fingerprint, status });
+    }
+
+    if (method === "POST" && pathname === "/admin/devices/remove") {
+      const body = await readJson();
+      const fingerprint = String(body.fingerprint || "");
+      if (!fingerprint) throw new HttpError(400, "bad-request", "需要 fingerprint");
+      dropClientRuntime(fingerprint);
+      const removed = removeClient(fingerprint);
+      logLine({ step: "admin/remove", device: fingerprint.slice(0, 12), removed });
+      return sendJson(res, 200, { ok: true, removed });
+    }
+
+    if (method === "POST" && pathname === "/admin/settings") {
+      const body = await readJson();
+      if (typeof body.autoApprove === "boolean") setAutoApprove(body.autoApprove);
+      return sendJson(res, 200, { ok: true, autoApprove: getAutoApprove() });
+    }
+
+    if (method === "POST" && pathname === "/admin/rotate-token") {
+      const next = rotateToken();
+      pair.token = next;
+      e2ee.clear();
+      for (const stream of [...streamClients]) {
+        try {
+          stream.res.end();
+        } catch {
+          /* 忽略 */
+        }
+        streamClients.delete(stream);
+      }
+      logLine({ step: "admin/rotate-token" });
+      return sendJson(res, 200, { ok: true, note: "token 已轮换，所有手机需要重新配对" });
+    }
+
+    throw new HttpError(404, "not-found", `管理接口不存在: ${method} ${pathname}`);
+  }
+
   async function handle(req, res) {
     const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
     const pathname = url.pathname;
     const method = (req.method || "GET").toUpperCase();
 
     if (closed) throw new HttpError(503, "closed", "bridge 已关闭");
+
+    // 0) 管理接口：只允许本机回环访问（手机/局域网一律拒绝），免 token 但受来源限制
+    if (pathname.startsWith("/admin/")) {
+      const remote = String(req.socket?.remoteAddress || "");
+      const loopback =
+        remote === "127.0.0.1" ||
+        remote === "::1" ||
+        remote === "::ffff:127.0.0.1";
+      if (!loopback) throw new HttpError(403, "forbidden", "管理接口只允许在本机访问");
+      return handleAdmin(req, res, url, method, pathname);
+    }
 
     // 1) 健康检查：明文、无鉴权，只暴露最小事实
     if (pathname === "/v1/health") {
@@ -493,7 +642,26 @@ function applyBridge(ctx, config) {
       const clientFingerprint = createHash("sha256")
         .update(Buffer.from(clientPub, "base64"))
         .digest("base64url");
-      const registration = registerClient(clientFingerprint, String(body.clientName || "iphone"));
+      const registration = registerClient(
+        clientFingerprint,
+        String(body.clientName || "iphone"),
+        8,
+        getAutoApprove(),
+      );
+
+      // 设备闸门：没批准过的设备一律拦在握手这一步，连 e2ee 都不建立
+      if (registration.status === "blocked") {
+        logLine({ step: "handshake", device: clientFingerprint.slice(0, 12), denied: "blocked" });
+        throw new HttpError(403, "device-blocked", "该设备已被这台电脑拉黑");
+      }
+      if (registration.status !== "approved") {
+        logLine({ step: "handshake", device: clientFingerprint.slice(0, 12), denied: "pending" });
+        throw new HttpError(
+          403,
+          "device-pending",
+          "这台电脑还没批准该设备。请在 DeepSeek Harness 的「设置 → 手机设备」里点允许。",
+        );
+      }
 
       // clientId 必须是**确定性**的：同一台手机（同一公钥）每次握手拿到同一个 id。
       // 以前用 randomUUID()，每次握手都塞一条新记录，超过上限就把最早的那条（往往是
