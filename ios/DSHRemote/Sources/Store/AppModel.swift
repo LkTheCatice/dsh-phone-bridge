@@ -290,6 +290,62 @@ final class AppModel: ObservableObject {
         if let first = sessions.first { selectedSessionId = first.id }
     }
 
+    /// 在电脑上真的新建一个会话（不是只清空本地选择）
+    func createNewSession() async {
+        guard let client else { return }
+        do {
+            let result = try await client.newSession(cwd: roots.first)
+            guard let sid = result["sessionId"] as? String, !sid.isEmpty else {
+                lastError = "服务端没有返回新会话 id"
+                return
+            }
+            selectedSessionId = sid
+            entries[sid] = []
+            await refreshSessions()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func rename(_ sessionId: String, to title: String) async {
+        guard let client else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            _ = try await client.renameSession(sessionId: sessionId, title: trimmed)
+            if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+                sessions[idx].title = trimmed
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func archive(_ sessionId: String, archived: Bool = true) async {
+        guard let client else { return }
+        do {
+            _ = try await client.archiveSession(sessionId: sessionId, archived: archived)
+            sessions.removeAll { $0.id == sessionId }
+            if selectedSessionId == sessionId { selectedSessionId = sessions.first?.id }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// 上传附件到工作区的 uploads/ 下，返回远端绝对路径（发送时塞进消息里）
+    func uploadAttachment(_ data: Data, filename: String) async throws -> String {
+        guard let client else {
+            throw BridgeServerError(status: 0, code: "offline", message: "未连接")
+        }
+        _ = client
+        let root = (roots.first ?? "").replacingOccurrences(of: "\\", with: "/")
+        let stamp = Int(Date().timeIntervalSince1970)
+        let safe = filename.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_")
+        let remote = "\(root)/uploads/\(stamp)-\(safe)"
+        try await upload(localData: data, remotePath: remote)
+        return remote
+    }
+
     func decide(_ approval: ApprovalRow, allow: Bool) async {
         guard let client else { return }
         do {

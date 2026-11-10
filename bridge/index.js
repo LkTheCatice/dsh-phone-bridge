@@ -216,6 +216,7 @@ function applyBridge(ctx, config) {
   let seq = 0;
   let sessionController = null;
   let agentRegistry = null;
+  let workspaceRegistry = null;
   let server = null;
   let closed = false;
   let resolveReady;
@@ -338,6 +339,13 @@ function applyBridge(ctx, config) {
     });
   } catch {
     /* 可选服务 */
+  }
+  try {
+    ctx.inject(["workspaceRegistry"], (scope) => {
+      workspaceRegistry = scope.workspaceRegistry || scope.get?.("workspaceRegistry") || null;
+    });
+  } catch {
+    /* 归档功能会降级 */
   }
 
   async function listSessions() {
@@ -486,7 +494,15 @@ function applyBridge(ctx, config) {
         .update(Buffer.from(clientPub, "base64"))
         .digest("base64url");
       const registration = registerClient(clientFingerprint, String(body.clientName || "iphone"));
-      const clientId = randomUUID();
+
+      // clientId 必须是**确定性**的：同一台手机（同一公钥）每次握手拿到同一个 id。
+      // 以前用 randomUUID()，每次握手都塞一条新记录，超过上限就把最早的那条（往往是
+      // 手机自己）挤掉 —— 于是手机后续请求全变 401 handshake-required。这是必崩的设计。
+      const clientId = createHash("sha256")
+        .update(`dsh-phone-bridge|${clientFingerprint}|${pair.token}`)
+        .digest("base64url")
+        .slice(0, 32);
+
       e2ee.set(clientId, {
         c2s: keys.c2s,
         s2c: keys.s2c,
@@ -494,9 +510,9 @@ function applyBridge(ctx, config) {
         lastSeen: Date.now(),
         name: String(body.clientName || "iphone").slice(0, 40),
       });
-      // 只保留最近的 8 个会话密钥，防内存堆积
-      if (e2ee.size > 8) {
-        const oldest = [...e2ee.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
+      // 上限 32 且按 lastSeen 淘汰：确定性 id 之后这里基本只会有一条（每台设备一条）
+      if (e2ee.size > 32) {
+        const oldest = [...e2ee.entries()].sort((a, b) => a[1].lastSeen - b[1].lastSeen)[0];
         if (oldest) e2ee.delete(oldest[0]);
       }
       return sendJson(res, 200, {
@@ -656,6 +672,51 @@ function applyBridge(ctx, config) {
       return sendJson(res, 200, { ok: true, sessionId }, ctxEnc);
     }
 
+    // ── 会话管理：新建 / 改名 / 归档 ─────────────────────────────────────────
+    if (method === "POST" && pathname === "/v1/session/new") {
+      const body = await readJsonBody();
+      const ctrl = sessionController || ctx.sessionController;
+      if (!ctrl) throw new HttpError(503, "not-ready", "sessionController 尚未就绪");
+      const made = await ctrl.create(body.cwd ? { cwd: String(body.cwd) } : {});
+      const sessionId = String(made?.sessionId || "");
+      if (!sessionId) throw new HttpError(500, "create-failed", "新建会话失败");
+      logLine({ step: "session/new", sessionId });
+      return sendJson(res, 200, { ok: true, sessionId }, ctxEnc);
+    }
+
+    if (method === "POST" && pathname === "/v1/session/rename") {
+      const body = await readJsonBody();
+      const ctrl = sessionController || ctx.sessionController;
+      const sessionId = String(body.sessionId || "");
+      const title = String(body.title || "").trim();
+      if (!ctrl || !sessionId || !title) throw new HttpError(400, "bad-request", "需要 sessionId 与 title");
+      try {
+        const result = await ctrl.rename({ sessionId, title });
+        logLine({ step: "session/rename", sessionId, title });
+        return sendJson(res, 200, { ok: true, sessionId, title: result?.title ?? title }, ctxEnc);
+      } catch (error) {
+        logLine({ step: "session/rename", sessionId, error: String(error?.message || error).slice(0, 300) });
+        throw error;
+      }
+    }
+
+    if (method === "POST" && pathname === "/v1/session/archive") {
+      const body = await readJsonBody();
+      const registry = workspaceRegistry || ctx.workspaceRegistry;
+      const sessionId = String(body.sessionId || "");
+      const wantArchived = body.archived !== false;
+      if (!registry || !sessionId) throw new HttpError(400, "bad-request", "需要 sessionId（且 workspaceRegistry 可用）");
+      try {
+        if (wantArchived) await registry.archiveSession(sessionId);
+        else await registry.unarchiveSession(sessionId);
+        logLine({ step: "session/archive", sessionId, archived: wantArchived });
+        return sendJson(res, 200, { ok: true, sessionId, archived: wantArchived }, ctxEnc);
+      } catch (error) {
+        logLine({ step: "session/archive", sessionId, error: String(error?.message || error).slice(0, 300) });
+        throw error;
+      }
+    }
+
     if (method === "GET" && pathname === "/v1/fs/list") {
       const target = url.searchParams.get("path") || safeFs.allowedRoots()[0];
       return sendJson(res, 200, { ok: true, ...(await safeFs.list(target)) }, ctxEnc);
@@ -718,24 +779,29 @@ function applyBridge(ctx, config) {
 
   // ── 启动 ────────────────────────────────────────────────────────────────────
 
-  server = http.createServer((req, res) => {
-    const startedAt = Date.now();
-    const route = String(req.url || "").split("?")[0];
-    res.on("finish", () => {
-      // SSE 是长连接，finish 时才记；其余端点这就是一行请求日志
-      logLine({ m: req.method, p: route, s: res.statusCode, ms: Date.now() - startedAt });
-    });
-    handle(req, res).catch((error) => {
-      logLine({
-        m: req.method,
-        p: route,
-        err: String(error?.code || error?.name || "error"),
-        msg: String(error?.message || error).slice(0, 400),
+  // 一份 handler，两个监听口共用：手机走内网地址，不能让它绕开日志与错误处理
+  function makeHandler(tag) {
+    return (req, res) => {
+      const startedAt = Date.now();
+      const route = String(req.url || "").split("?")[0];
+      res.on("finish", () => {
+        logLine({ if: tag, m: req.method, p: route, s: res.statusCode, ms: Date.now() - startedAt });
       });
-      if (error instanceof SyntaxError) jsonError(res, new HttpError(400, "bad-request", error.message));
-      else jsonError(res, error);
-    });
-  });
+      handle(req, res).catch((error) => {
+        logLine({
+          if: tag,
+          m: req.method,
+          p: route,
+          err: String(error?.code || error?.name || "error"),
+          msg: String(error?.message || error).slice(0, 400),
+        });
+        if (error instanceof SyntaxError) jsonError(res, new HttpError(400, "bad-request", error.message));
+        else jsonError(res, error);
+      });
+    };
+  }
+
+  server = http.createServer(makeHandler("loopback"));
 
   server.on("clientError", (error, socket) => {
     try {
@@ -780,9 +846,7 @@ function applyBridge(ctx, config) {
     console.log(`[phone-bridge] 配对串: dshnb://pair?host=127.0.0.1&port=${actual}&token=${pair.token}&fp=${pair.fingerprint}`);
     console.log(`[phone-bridge] 状态目录: ${stateDir()}`);
     if (cfg.lanHost) {
-      const lan = http.createServer((req, res) => {
-        handle(req, res).catch((error) => jsonError(res, error));
-      });
+      const lan = http.createServer(makeHandler("lan"));
       lan.listen(actual, cfg.lanHost, () => {
         console.log(`[phone-bridge] 局域网监听 ${cfg.lanHost}:${actual}（内容仍需 E2EE 解密）`);
       });

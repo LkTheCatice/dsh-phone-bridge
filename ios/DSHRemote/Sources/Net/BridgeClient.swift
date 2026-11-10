@@ -212,6 +212,20 @@ final class BridgeClient {
         try await postJSON("/v1/cancel", json: ["sessionId": sessionId])
     }
 
+    func newSession(cwd: String? = nil) async throws -> [String: Any] {
+        var json: [String: Any] = [:]
+        if let cwd, !cwd.isEmpty { json["cwd"] = cwd }
+        return try await postJSON("/v1/session/new", json: json)
+    }
+
+    func renameSession(sessionId: String, title: String) async throws -> [String: Any] {
+        try await postJSON("/v1/session/rename", json: ["sessionId": sessionId, "title": title])
+    }
+
+    func archiveSession(sessionId: String, archived: Bool) async throws -> [String: Any] {
+        try await postJSON("/v1/session/archive", json: ["sessionId": sessionId, "archived": archived])
+    }
+
     func listFiles(path: String) async throws -> [String: Any] {
         try await getJSON("/v1/fs/list", query: [("path", path)])
     }

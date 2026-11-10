@@ -147,6 +147,8 @@ export function createSafeFs({
 
   async function write(target, { offset = 0, truncate = false } = {}, buffer) {
     const real = await resolveAllowed(target, { forWrite: true });
+    // 手机端上传到 uploads/ 这类新目录时，父目录可能还不存在
+    await fsp.mkdir(path.dirname(real), { recursive: true }).catch(() => {});
     const start = Math.max(0, Number(offset) || 0);
     if (start + buffer.length > maxFileBytes) throw new FsDenied(`超过单文件上限 ${maxFileBytes} 字节`);
     const handle = await fsp.open(real, truncate ? "w+" : "r+").catch(async (error) => {
