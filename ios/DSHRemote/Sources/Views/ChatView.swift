@@ -285,7 +285,8 @@ struct ChatBubble: View {
     }
 
     private func contentCard(icon: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let imagePaths = ImageRef.paths(in: entry.text)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.caption2).foregroundStyle(tint)
                 Text(entry.kind == .thinking ? "思考" : "回答")
@@ -293,10 +294,14 @@ struct ChatBubble: View {
                     .foregroundStyle(tint)
                 if entry.running { ProgressView().controlSize(.mini) }
             }
-            Text(entry.text)
+            Text(ImageRef.cleaned(entry.text))
                 .font(.system(.body, design: entry.kind == .thinking ? .monospaced : .default))
                 .foregroundStyle(entry.kind == .thinking ? .secondary : .primary)
                 .textSelection(.enabled)
+            // 文本里提到的图片就地渲染（点开可全屏）
+            ForEach(imagePaths, id: \.self) { path in
+                RemoteImage(path: path)
+            }
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
