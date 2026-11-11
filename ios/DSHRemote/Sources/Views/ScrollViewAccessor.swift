@@ -3,9 +3,9 @@ import UIKit
 
 /// 拿到 SwiftUI ScrollView 背后的 UIScrollView。
 ///
-/// 为什么需要它：`ScrollViewReader.scrollTo` 在惯性滚动进行中会被滚动动画覆盖，
-/// 点了等于没点（实测：按钮 action 确实触发了，但画面不动）。
-/// 只有直接调 UIScrollView 的 `setContentOffset` 才能先掐掉惯性、再定位。
+/// 为什么需要它：`ScrollViewReader.scrollTo` 在惯性减速进行中会被滚动动画覆盖，
+/// 点了等于没点（埋点实测：按钮 action 确实触发了，但画面不动）。
+/// 只有直接操作 UIScrollView 才能真正掐断惯性。
 struct ScrollViewAccessor: UIViewRepresentable {
     let onResolve: (UIScrollView?) -> Void
 
@@ -17,10 +17,19 @@ struct ScrollViewAccessor: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // 视图刚进层级时 superview 还没接好，延一拍再往上找
-        DispatchQueue.main.async {
-            onResolve(uiView.enclosingScrollView())
+        // 视图层级不是一次就绪的：刚进树时 superview 可能还没接上，
+        // 所以分几个时间点重试，直到真的找到 UIScrollView。
+        resolve(uiView)
+        for delay in [0.15, 0.5, 1.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                resolve(uiView)
+            }
         }
+    }
+
+    private func resolve(_ uiView: UIView) {
+        guard let scroll = uiView.enclosingScrollView() else { return }
+        DispatchQueue.main.async { onResolve(scroll) }
     }
 }
 
@@ -37,16 +46,26 @@ extension UIView {
 }
 
 extension UIScrollView {
-    /// 先掐断惯性，再平滑滚到底。
+    /// 先强制掐断惯性，再滚到底。
     ///
-    /// 直接 `setContentOffset(animated:)` 在减速动画进行时不一定生效，
-    /// 所以先来一次 `animated: false` 把 decelerating 状态打断。
-    func stopThenScrollToBottom(animated: Bool = true) {
-        // ① 停在当前位置：这一步会终止正在跑的减速动画
+    /// 关键点：`setContentOffset(_:animated:)` 在减速动画进行时**不一定生效**，
+    /// 必须先用一次 `animated: false` 的原地定位把 decelerating 状态打断；
+    /// 第二步用 `UIView.animate` + `.beginFromCurrentState` 才可靠 ——
+    /// 直接在 animate 外设 contentOffset 会被正在跑的动画盖掉。
+    func stopThenScrollToBottom() {
+        // ① 原地定位：终止减速动画
         setContentOffset(contentOffset, animated: false)
         // ② 算真正的底部
         let visibleHeight = bounds.height - adjustedContentInset.top - adjustedContentInset.bottom
         let maxOffset = max(0, contentSize.height - visibleHeight + adjustedContentInset.bottom)
-        setContentOffset(CGPoint(x: contentOffset.x, y: maxOffset), animated: animated)
+        guard maxOffset > 0 else { return }
+        // ③ 动画滚过去
+        UIView.animate(
+            withDuration: 0.28,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.contentOffset = CGPoint(x: self.contentOffset.x, y: maxOffset)
+        }
     }
 }

@@ -129,24 +129,24 @@ struct ChatView: View {
                     }
                 }
 
-                // 输入栏 + 覆盖在列表底部的浮动按钮。
-                // 按钮挂在 composer 上而不是 ScrollView 里，所以不占列表高度；
-                // 用 padding 定位（不再用 offset 推出 frame），命中区才真实存在。
+                // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
+                // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
+                //   （之前用 offset 把它推出 frame，视觉在、点不到）
+                // - overlay 不参与滚动内容，也不占列表高度
+                // - 位置在聊天区右下，离输入栏还有一段距离，不会压到发送键
+                .overlay(alignment: .bottomTrailing) {
+                    JumpButtonLayer(
+                        state: jump,
+                        entryCount: entries.count,
+                        onTap: { jumpToBottom(proxy) }
+                    )
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 16)
+                    .opacity(jump.needsLayer ? 1 : 0)
+                    .allowsHitTesting(jump.needsLayer)
+                }
+
                 composer
-                    .overlay(alignment: .topTrailing) {
-                        VStack(spacing: 0) {
-                            JumpButtonLayer(
-                                state: jump,
-                                entryCount: entries.count,
-                                onTap: { jumpToBottom(proxy) }
-                            )
-                            .padding(.trailing, 14)
-                            .padding(.bottom, 8)
-                        }
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                        .allowsHitTesting(jump.needsLayer)
-                        .opacity(jump.needsLayer ? 1 : 0)
-                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
             }
@@ -323,14 +323,14 @@ struct ChatView: View {
         jump.atBottom = true
         jump.hasNewBelow = false
 
-        // 优先走 UIKit：setContentOffset 能真正掐断惯性。
-        // 埋点证明按钮 action 是触发的，但 ScrollViewReader.scrollTo 在减速动画
-        // 进行中会被覆盖 —— 这就是「点了没反应」的最后一块。
+        // 优先走 UIKit：setContentOffset 才能真正掐断惯性。
+        // 埋点证明按钮 action 是触发的，问题在 ScrollViewReader.scrollTo
+        // 会被减速动画覆盖 —— 所以这里先原地定位掐断，再动画滚底。
         if let scroll = uiScrollView {
-            scroll.stopThenScrollToBottom(animated: true)
+            scroll.stopThenScrollToBottom()
             return
         }
-        // 极端情况下拿不到 UIScrollView，退回 SwiftUI 的路径
+        // 拿不到 UIScrollView（极少数情况）时退回 SwiftUI 路径
         proxy.scrollTo(last.id, anchor: .bottom)
         withAnimation(.easeOut(duration: 0.18)) {
             proxy.scrollTo(last.id, anchor: .bottom)
