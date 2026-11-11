@@ -57,18 +57,25 @@ struct ChatBubble: View {
     }
 
     private var assistantBlock: some View {
-        let imagePaths = ImageRef.paths(in: entry.text)
-        return VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: "sparkles").font(.caption2).foregroundStyle(Color.accentColor)
                 Text("回答").font(.caption2).foregroundStyle(Color.accentColor)
                 if entry.running { ProgressView().controlSize(.mini) }
             }
-            MarkdownText(raw: ImageRef.cleaned(entry.text))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-            ForEach(imagePaths, id: \.self) { path in
-                RemoteImage(path: path)
+            if entry.running {
+                // 流式期间只渲染纯文本：跳过 Markdown 解析、跳过正则扫图、跳过字符串清洗。
+                // 否则每来一个 delta 都要对全文跑一遍正则 + 解析，输入和滚动都会卡。
+                Text(entry.text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                MarkdownText(raw: ImageRef.cleaned(entry.text))
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                ForEach(ImageRef.paths(in: entry.text), id: \.self) { path in
+                    RemoteImage(path: path)
+                }
             }
         }
         .padding(11)

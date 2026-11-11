@@ -438,14 +438,21 @@ final class AppModel: ObservableObject {
 
     private func upsertStreaming(_ sessionId: String, id: String, kind: ChatEntry.Kind, delta: String, header: String, turn: Int = 0) {
         guard !sessionId.isEmpty else { return }
-        var list = entries[sessionId] ?? []
-        if let idx = list.firstIndex(where: { $0.id == id }) {
-            list[idx].text += delta
-            list[idx].running = true
-        } else {
-            list.append(ChatEntry(id: id, kind: kind, text: (header.isEmpty ? "" : header + "\n") + delta, at: Date(), running: true, turn: turn))
+        // 就地改字典里的数组。之前是「取出来 → 改 → 塞回去」，
+        // 每次 delta 都会 CoW 复制整个数组（几百条），流式输出时开销很明显。
+        if let index = entries[sessionId]?.firstIndex(where: { $0.id == id }) {
+            entries[sessionId]?[index].text += delta
+            entries[sessionId]?[index].running = true
+            return
         }
-        entries[sessionId] = list
+        append(sessionId, ChatEntry(
+            id: id,
+            kind: kind,
+            text: (header.isEmpty ? "" : header + "\n") + delta,
+            at: Date(),
+            running: true,
+            turn: turn
+        ))
     }
 
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）

@@ -80,6 +80,29 @@ struct ChatEntry: Identifiable, Hashable {
     var summary: String? = nil
 }
 
+extension ChatEntry {
+    /// 手写 Hashable：默认合成会把 `folded: [ChatEntry]` 整棵树递归比较，
+    /// SwiftUI 做 diff 时非常贵。只比真正影响显示的那几个字段。
+    static func == (lhs: ChatEntry, rhs: ChatEntry) -> Bool {
+        lhs.id == rhs.id
+            && lhs.kind == rhs.kind
+            && lhs.text == rhs.text
+            && lhs.running == rhs.running
+            && lhs.ok == rhs.ok
+            && lhs.detail == rhs.detail
+            && lhs.summary == rhs.summary
+            && lhs.timeLabel == rhs.timeLabel
+            && lhs.folded.count == rhs.folded.count
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(text)
+        hasher.combine(running)
+        hasher.combine(ok)
+    }
+}
+
 /// ComfyUI 的在线/生图状态
 struct ComfyStatus: Equatable {
     var online = false

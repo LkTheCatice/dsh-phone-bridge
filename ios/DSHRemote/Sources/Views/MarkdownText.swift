@@ -10,7 +10,7 @@ import SwiftUI
 struct MarkdownText: View {
     let raw: String
 
-    private var blocks: [Block] { MarkdownParser.parse(raw) }
+    private var blocks: [Block] { MarkdownCache.blocks(for: raw) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -159,6 +159,30 @@ enum Block: Identifiable {
         case .divider: return "d-\(UUID().uuidString)"
         case let .table(headers, rows): return "t-\(headers.joined())-\(rows.count)"
         }
+    }
+}
+
+/// Markdown 解析结果缓存。
+///
+/// 之前 `blocks` 是 computed property，每次 body 求值都重新解析整段文本。
+/// 流式输出时每秒触发几十次重建 —— 这是卡顿的主因之一。
+/// 这里按原文做定长缓存，滚动历史、重复渲染都能直接命中。
+/// 只在主线程（View body）里调用。
+enum MarkdownCache {
+    private static var storage: [String: [Block]] = [:]
+    private static var order: [String] = []
+    private static let capacity = 60
+
+    static func blocks(for text: String) -> [Block] {
+        if let hit = storage[text] { return hit }
+        let parsed = MarkdownParser.parse(text)
+        storage[text] = parsed
+        order.append(text)
+        while order.count > capacity, let oldest = order.first {
+            order.removeFirst()
+            storage.removeValue(forKey: oldest)
+        }
+        return parsed
     }
 }
 
