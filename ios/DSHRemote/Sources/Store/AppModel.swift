@@ -141,7 +141,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - 帧处理
 
-    private func apply(seq: Int, frame: [String: Any]) {
+    private func apply(seq: Int, frame: [String: Any], isHistory: Bool = false) {
         if seq > lastSeq {
             lastSeq = seq
             // 每 20 帧落一次盘：冷启动时就能从上次的位置续传，
@@ -240,11 +240,14 @@ final class AppModel: ObservableObject {
             // 点开才展开。否则几十轮下来 log 会把聊天记录埋掉。
             foldSteps(sid, turn: turn)
             // DSH 的标题是消息后异步生成的，turn.end 那一刻往往还没写进日志，
-            // 所以延迟几秒再刷一次会话列表，标题才会显示出来
-            Task {
-                await refreshSessions()
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                await refreshSessions()
+            // 所以延迟几秒再刷一次会话列表，标题才会显示出来。
+            // 回填历史时必须跳过：一次历史里几十个 turn.end，否则会刷爆 /v1/sessions
+            if !isHistory {
+                Task {
+                    await refreshSessions()
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await refreshSessions()
+                }
             }
 
         case "user.message":
@@ -617,10 +620,11 @@ final class AppModel: ObservableObject {
         do {
             let raw = try await client.transcript(sessionId: sessionId, limit: limit)
             guard let frames = raw["frames"] as? [[String: Any]] else { return }
-            // 重建：先清空，再按顺序喂给 apply（seq 传 0，不推进实时游标）
+            // 重建：先清空，再按顺序喂给 apply
+            // seq 传 0 不推进实时游标；isHistory=true 避免每个 turn.end 都去刷会话列表
             entries[sessionId] = []
             for frame in frames {
-                apply(seq: 0, frame: frame)
+                apply(seq: 0, frame: frame, isHistory: true)
             }
             historyNote = raw["note"] as? String
         } catch {
