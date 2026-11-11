@@ -90,7 +90,9 @@ struct ChatView: View {
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.vertical, 2)
                             }
-                            ChatBubble(entry: entry).id(entry.id)
+                            ChatBubble(entry: entry)
+                                .equatable()
+                                .id(entry.id)
                         }
                         // 底部标记：用 GeometryReader 上报它在滚动坐标系里的位置。
                         // 之前用 onAppear/onDisappear 判断，但 LazyVStack 会预渲染这一格，

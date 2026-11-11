@@ -1,7 +1,16 @@
 import SwiftUI
-struct ChatBubble: View {
+/// 一条聊天条目。
+///
+/// 显式实现 Equatable 并在调用处用 `.equatable()`：
+/// ChatView 每次 body 重算（发消息、流式输出）都会重新求值 ForEach 里每个元素，
+/// 几百条历史时这部分开销非常可观 —— 加 equatable 后内容没变的条目直接跳过。
+struct ChatBubble: View, Equatable {
     let entry: ChatEntry
     @State private var expanded = false
+
+    static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
+        lhs.entry == rhs.entry
+    }
 
     var body: some View {
         switch entry.kind {
