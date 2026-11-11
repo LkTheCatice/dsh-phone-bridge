@@ -129,7 +129,9 @@ struct ChatView: View {
                         let now = Date()
                         guard now.timeIntervalSince(lastFollowAt) > 0.15 else { return }
                         lastFollowAt = now
+                        let t0 = CFAbsoluteTimeGetCurrent()
                         scrollToEnd(proxy)
+                        model.traceFollow("follow=\(Int((CFAbsoluteTimeGetCurrent() - t0) * 1000))ms n=\(entries.count)")
                     } else {
                         jump.hasNewBelow = true
                     }

@@ -720,34 +720,62 @@ final class AppModel: ObservableObject {
         await refreshSessions()
     }
 
+    /// 临时打点：把耗时发到服务端日志，用来定位「发送瞬间卡死」到底卡在哪一步。
+    /// 定位完就删。
+    private func trace(_ label: String) {
+        pingDiagnostic(label)
+    }
+
+    /// 供视图侧打点
+    func traceFollow(_ label: String) {
+        pingDiagnostic(label)
+    }
+
     func send(text: String, mode: SendMode? = nil) async {
         guard let client else { return }
+        let t0 = CFAbsoluteTimeGetCurrent()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let effective = mode ?? sendMode
+        let t1 = CFAbsoluteTimeGetCurrent()
+        trace("s0-trim=\(Int((t1 - t0) * 1000))ms")
+
         busy = true
         defer { busy = false }
+        let t2 = CFAbsoluteTimeGetCurrent()
+        trace("s1-busy=\(Int((t2 - t1) * 1000))ms")
+
         let target = selectedSessionId
         let sid = target ?? "pending"
         append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: trimmed, at: Date()))
+        let t3 = CFAbsoluteTimeGetCurrent()
+        trace("s2-append=\(Int((t3 - t2) * 1000))ms n=\(entriesStorage[sid]?.count ?? -1)")
         do {
             let result = try await client.sendTask(
                 text: trimmed,
                 sessionId: target,
                 mode: effective == .steer ? "steer" : nil
             )
+            let t4 = CFAbsoluteTimeGetCurrent()
+            trace("s3-task=\(Int((t4 - t3) * 1000))ms")
             if let newId = result["sessionId"] as? String {
                 if selectedSessionId == nil { selectedSessionId = newId }
                 if sid != newId, let moved = entries.removeValue(forKey: "pending") {
                     entries[newId, default: []].append(contentsOf: moved)
                 }
+                let t5 = CFAbsoluteTimeGetCurrent()
+                trace("s4-move=\(Int((t5 - t4) * 1000))ms")
                 await refreshSessions()
+                let t6 = CFAbsoluteTimeGetCurrent()
+                trace("s5-refresh=\(Int((t6 - t5) * 1000))ms")
             }
             lastError = nil
         } catch {
             lastError = error.localizedDescription
             append(selectedSessionId ?? "pending", ChatEntry(id: UUID().uuidString, kind: .system, text: "发送失败：\(error.localizedDescription)", at: Date()))
         }
+        let tEnd = CFAbsoluteTimeGetCurrent()
+        trace("s9-total=\(Int((tEnd - t0) * 1000))ms")
     }
 
     func newSession() async {
