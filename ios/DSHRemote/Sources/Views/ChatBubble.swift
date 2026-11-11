@@ -122,7 +122,9 @@ struct ChatBubble: View {
     /// `> 运行命令 · 摘要` —— 和电脑端一样紧凑的一行，需要时才展开
     private var toolRow: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            // 用 .center 而不是 .firstTextBaseline：ProgressView 没有文字基线，
+            // baseline 对齐会让它往下沉，看着像漂在行外。
+            HStack(spacing: 6) {
                 Text(">")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
@@ -138,6 +140,8 @@ struct ChatBubble: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+
+                Spacer(minLength: 4)
 
                 if entry.running {
                     ProgressView().controlSize(.mini)

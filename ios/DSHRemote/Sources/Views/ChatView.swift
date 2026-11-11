@@ -104,10 +104,11 @@ struct ChatView: View {
                 // - 手机刚发过消息（3 秒内）→ 滚到底，保证能看到自己那条
                 // - 否则（电脑端发的、别的来源）→ 不抢滚动位置，只挂「新消息」提示
                 .onChange(of: entries.count) { _ in
-                    let justSentFromPhone = lastPhoneSendAt.map { Date().timeIntervalSince($0) < 3 } ?? false
-                    if justSentFromPhone && jump.atBottom {
+                    // 贴在底部就跟——不管消息来自手机还是电脑；
+                    // 已经往上翻了就不动它，只挂提示
+                    if jump.atBottom {
                         scrollToEnd(proxy)
-                    } else if !jump.atBottom {
+                    } else {
                         jump.hasNewBelow = true
                     }
                 }
@@ -116,39 +117,36 @@ struct ChatView: View {
                     if jump.atBottom { scrollToEnd(proxy) }
                 }
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
-                // 带滞后阈值：进入用 +40pt、离开必须超过 +140pt 才算离开。
-                // 否则滚动到临界区时 atBottom 会逐帧翻转，按钮的 allowsHitTesting
-                // 跟着抖 —— 手指落下那刻正好关掉就点空了。
+                // 滞后阈值：进入用 +40pt，离开必须滑出 220pt 才算离开 ——
+                // 这样刚往上蹭一点不会立刻冒出按钮（避免遮挡），状态也不会逐帧翻转。
                 .onPreferenceChange(BottomYKey.self) { maxY in
                     let viewport = outer.size.height
                     if maxY <= viewport + 40 {
                         if !jump.atBottom { jump.atBottom = true }
                         if jump.hasNewBelow { jump.hasNewBelow = false }
-                    } else if maxY > viewport + 140 {
+                    } else if maxY > viewport + 220 {
                         if jump.atBottom { jump.atBottom = false }
                     }
                 }
 
-                // 输入栏 + 上方一窄条浮动按钮区。
-                // 按钮必须落在父视图 frame 内部 —— 之前用 overlay + offset 推到 composer
-                // 外面，视觉在、hit testing 却被 bounds 裁掉，所以怎么点都没反应。
-                // 这里给它一条固定高度（36pt）的空位，结构恒定不会引起输入法重建。
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        JumpButtonLayer(
-                            state: jump,
-                            entryCount: entries.count,
-                            onTap: { jumpToBottom(proxy) }
-                        )
+                // 输入栏 + 覆盖在列表底部的浮动按钮。
+                // 按钮挂在 composer 上而不是 ScrollView 里，所以不占列表高度；
+                // 用 padding 定位（不再用 offset 推出 frame），命中区才真实存在。
+                composer
+                    .overlay(alignment: .topTrailing) {
+                        VStack(spacing: 0) {
+                            JumpButtonLayer(
+                                state: jump,
+                                entryCount: entries.count,
+                                onTap: { jumpToBottom(proxy) }
+                            )
+                            .padding(.trailing, 14)
+                            .padding(.bottom, 8)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .allowsHitTesting(jump.needsLayer)
+                        .opacity(jump.needsLayer ? 1 : 0)
                     }
-                    .padding(.horizontal, 14)
-                    .frame(height: 36)
-                    .opacity(jump.needsLayer ? 1 : 0)
-                    .allowsHitTesting(jump.needsLayer)
-
-                    composer
-                }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
             }
