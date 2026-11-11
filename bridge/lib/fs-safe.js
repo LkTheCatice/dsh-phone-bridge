@@ -64,18 +64,30 @@ export function createSafeFs({
     const hostile = looksHostile(abs);
     if (hostile) throw new FsDenied(hostile);
 
+    const rootsList = allowedRoots();
+    if (rootsList.length === 0) throw new FsDenied("没有配置任何允许的根目录");
+
     let real;
     try {
       real = await fsp.realpath(abs);
     } catch {
       if (!forWrite) throw new FsDenied(`路径不存在: ${target}`);
-      const parent = await fsp.realpath(path.dirname(abs)).catch(() => null);
-      if (!parent) throw new FsDenied(`父目录不存在: ${path.dirname(target)}`);
-      real = path.join(parent, path.basename(abs));
+      // 目标还不存在（新建文件、或多层新目录，比如 output/uploads/xxx.png）：
+      // 从最近的已存在祖先取 realpath 做白名单校验，剩下的层级交给 write 里的 mkdir 去建。
+      let probe = path.dirname(abs);
+      let ancestorReal = null;
+      while (probe && probe !== path.dirname(probe)) {
+        try {
+          ancestorReal = await fsp.realpath(probe);
+          break;
+        } catch {
+          probe = path.dirname(probe);
+        }
+      }
+      if (!ancestorReal) throw new FsDenied(`父目录不可达: ${target}`);
+      real = path.join(ancestorReal, path.relative(probe, abs));
     }
 
-    const rootsList = allowedRoots();
-    if (rootsList.length === 0) throw new FsDenied("没有配置任何允许的根目录");
     if (!rootsList.some((r) => within(real, r))) {
       throw new FsDenied(`路径不在允许的根目录内: ${target}`);
     }

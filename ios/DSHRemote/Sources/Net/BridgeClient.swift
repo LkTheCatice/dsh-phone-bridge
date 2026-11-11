@@ -244,6 +244,13 @@ final class BridgeClient {
         ])
     }
 
+    func transcript(sessionId: String, limit: Int = 400) async throws -> [String: Any] {
+        try await getJSON("/v1/transcript", query: [
+            ("sessionId", sessionId),
+            ("limit", String(limit)),
+        ])
+    }
+
     func listFiles(path: String) async throws -> [String: Any] {
         try await getJSON("/v1/fs/list", query: [("path", path)])
     }

@@ -24,7 +24,7 @@ OUT = os.path.join(OUT_DIR, "icon-1024.png")
 PREVIEW = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\dist\icon-preview.png"
 
 CANVAS = 2048
-CONTENT_RATIO = 0.94   # 内容占画布比例，越大角色越大
+CONTENT_RATIO = 1.02   # 稍微超出画布：把角色脚下那块蓝边裁掉，人物更满
 
 
 def erase_watermark(img):
@@ -154,9 +154,9 @@ def main():
     by = (CANVAS - content.size[1]) // 2
     canvas.alpha_composite(content, (bx, by))
 
-    # 角标放右下：留 130px 边距，右下角距 iOS 圆角圆心 (1688,1688) 约 325px < 360，不会被裁
-    badge = make_badge(320)
-    canvas.alpha_composite(badge, (CANVAS - badge.size[0] - 130, CANVAS - badge.size[1] - 130))
+    # 角标放右下：留 120px 边距，右下角距 iOS 圆角圆心约 339px < 360，不会被裁
+    badge = make_badge(480)
+    canvas.alpha_composite(badge, (CANVAS - badge.size[0] - 120, CANVAS - badge.size[1] - 120))
     print(f"角标: {badge.size[0]}x{badge.size[1]}")
 
     final = canvas.resize((1024, 1024), Image.LANCZOS).convert("RGB")

@@ -8,13 +8,14 @@ struct ChatView: View {
     @State private var sending = false
     @FocusState private var focused: Bool
 
-    @State private var photoItem: PhotosPickerItem?
+    @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var uploading = false
     @State private var renaming = false
     @State private var renameText = ""
     @State private var showingModels = false
+    @State private var clearing = false
 
     private var entries: [ChatEntry] { model.entriesForSelection() }
 
@@ -113,6 +114,11 @@ struct ChatView: View {
                         }
                         Divider()
                         Button(role: .destructive) {
+                            clearing = true
+                        } label: {
+                            Label("清除本机记录", systemImage: "trash")
+                        }
+                        Button(role: .destructive) {
                             Task { await model.cancelCurrentTurn() }
                         } label: {
                             Label("停止本轮", systemImage: "stop.circle")
@@ -156,6 +162,17 @@ struct ChatView: View {
             .sheet(isPresented: $showingModels) {
                 ModelPickerSheet()
                     .environmentObject(model)
+            }
+            .confirmationDialog("清除本机聊天记录", isPresented: $clearing, titleVisibility: .visible) {
+                Button("保留最近 5 轮") {
+                    if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: 5) }
+                }
+                Button("全部清除", role: .destructive) {
+                    if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: nil) }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("只影响手机上显示的内容，电脑端的会话记录不受影响。")
             }
         }
     }
@@ -264,10 +281,15 @@ struct ChatView: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
             handleFile(result)
         }
-        .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
-        .onChange(of: photoItem) { item in
-            guard let item else { return }
-            Task { await loadPhoto(item) }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
+        .onChange(of: photoItems) { items in
+            guard !items.isEmpty else { return }
+            Task { await loadPhotos(items) }
+        }
+        // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
+        .onChange(of: model.selectedSessionId) { sessionId in
+            guard let sessionId else { return }
+            Task { await model.loadHistory(sessionId) }
         }
     }
 
@@ -284,19 +306,23 @@ struct ChatView: View {
 
     // MARK: - 附件
 
-    private func loadPhoto(_ item: PhotosPickerItem) async {
+    /// 一次可以选多张（最多 9 张），逐张上传后把路径都写进输入框
+    private func loadPhotos(_ items: [PhotosPickerItem]) async {
         uploading = true
         defer {
             uploading = false
-            photoItem = nil
+            photoItems = []
         }
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self) else { return }
-            let name = "image-\(Int(Date().timeIntervalSince1970)).jpg"
-            let remote = try await model.uploadAttachment(data, filename: name)
-            appendPath(remote)
-        } catch {
-            model.lastError = "上传图片失败：\(error.localizedDescription)"
+        for (index, item) in items.enumerated() {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                let stamp = Int(Date().timeIntervalSince1970)
+                let name = "image-\(stamp)-\(index).jpg"
+                let remote = try await model.uploadAttachment(data, filename: name)
+                appendPath(remote)
+            } catch {
+                model.lastError = "第 \(index + 1) 张上传失败：\(error.localizedDescription)"
+            }
         }
     }
 

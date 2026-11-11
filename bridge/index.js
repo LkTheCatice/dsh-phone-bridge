@@ -926,6 +926,36 @@ function applyBridge(ctx, config) {
       return sendJson(res, 200, { ok: true, sessions: await listSessions() }, ctxEnc);
     }
 
+    // 会话历史：把一条会话的事件流重新归一化成手机帧，打开会话时用它回填
+    if (method === "GET" && pathname === "/v1/transcript") {
+      const sessionId = url.searchParams.get("sessionId") || "";
+      const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 400, 1), 2000);
+      if (!sessionId) throw new HttpError(400, "bad-request", "需要 sessionId");
+      const session = ctx.get?.("sessions")?.get?.(sessionId);
+      if (!session) {
+        return sendJson(res, 200, { ok: true, frames: [], note: "冷会话未加载，读不到历史" }, ctxEnc);
+      }
+      let events = [];
+      try {
+        events = typeof session.snapshotEvents === "function" ? session.snapshotEvents() : [];
+      } catch (error) {
+        logLine({ step: "transcript", sessionId, error: String(error?.message || error).slice(0, 200) });
+      }
+      const frames = [];
+      for (const event of events) {
+        for (const frame of normalizeEvent(session, event)) {
+          frames.push(frame);
+        }
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        sessionId,
+        eventCount: events.length,
+        total: frames.length,
+        frames: frames.slice(-limit),
+      }, ctxEnc);
+    }
+
     // ComfyUI 在线/生图状态
     if (method === "GET" && pathname === "/v1/comfy") {
       const status = await comfyStatus();

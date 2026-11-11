@@ -25,6 +25,10 @@ struct MainView: View {
             if !model.isConnected { await model.connect() }
             // ComfyUI 状态每 8 秒刷一次（聊天页顶部的状态点）
             model.startComfyPolling()
+            // 首次进入也回填一次历史；切换会话时由 ChatView 的 onChange 负责
+            if let id = model.selectedSessionId {
+                await model.loadHistory(id)
+            }
         }
     }
 }

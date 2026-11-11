@@ -30,6 +30,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var currentModel: ModelOption?
     /// 发送方式：排队 / 插队
     @Published var sendMode: SendMode = .queue
+    /// 历史回填中
+    @Published private(set) var historyLoading = false
+    /// 服务端对历史读取的补充说明（比如冷会话读不到）
+    @Published private(set) var historyNote: String?
 
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
@@ -602,6 +606,41 @@ final class AppModel: ObservableObject {
         let tag = file.isImage ? "[图片] \(remote)" : "[文件] \(remote)"
         text = text.isEmpty ? tag : "\(text)\n\(tag)"
         await send(text: text)
+    }
+
+    /// 把某个会话的历史事件拉回来重建成聊天记录。
+    /// 之前只显示「连上之后收到的事件」，所以重开 App 后旧对话是空的。
+    func loadHistory(_ sessionId: String, limit: Int = 600) async {
+        guard let client, !sessionId.isEmpty else { return }
+        historyLoading = true
+        defer { historyLoading = false }
+        do {
+            let raw = try await client.transcript(sessionId: sessionId, limit: limit)
+            guard let frames = raw["frames"] as? [[String: Any]] else { return }
+            // 重建：先清空，再按顺序喂给 apply（seq 传 0，不推进实时游标）
+            entries[sessionId] = []
+            for frame in frames {
+                apply(seq: 0, frame: frame)
+            }
+            historyNote = raw["note"] as? String
+        } catch {
+            lastError = "读取历史失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 清除某个会话在本机的聊天记录。
+    /// keepTurns 为 nil 表示全清；否则至少保留最近 N 轮（用户要求最少 5 轮防误删）。
+    func clearEntries(_ sessionId: String, keepTurns: Int?) {
+        guard let list = entries[sessionId], !list.isEmpty else { return }
+        if let keep = keepTurns, keep > 0 {
+            let turns = list.compactMap { $0.turn > 0 ? $0.turn : nil }
+            if let maxTurn = turns.max() {
+                let keepFrom = max(1, maxTurn - keep + 1)
+                entries[sessionId] = list.filter { $0.turn >= keepFrom || $0.turn == 0 }
+                return
+            }
+        }
+        entries[sessionId] = []
     }
 
     func entriesForSelection() -> [ChatEntry] {
