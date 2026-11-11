@@ -97,6 +97,8 @@ enum ImageRef {
 
     /// 生成给人看的文本：把 Markdown 图片语法换成短名字，避免一屏乱码
     static func cleaned(_ text: String) -> String {
+        // 同上：超长文本跳过改写，别为一屏乱码付几万字符的正则替换
+        if text.count > 20_000 { return text }
         guard let regex = Self.mdRegex else { return text }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "🖼 $1")
@@ -126,6 +128,9 @@ enum MediaRefCache {
 
     static func refs(for text: String) -> MediaRefs {
         guard !text.isEmpty else { return .empty }
+        // 超长文本不扫描：三趟全文正则的成本随长度线性涨，而工具输出那种
+        // 几万字符的日志里几乎不可能真的有图片路径 —— 主线程不值得为它扫。
+        if text.count > 20_000 { return .empty }
         if let hit = storage[text] { return hit }
         let computed = MediaRefs(
             images: ImageRef.paths(in: text),
@@ -158,11 +163,13 @@ final class ImageCache {
     func load(path: String, model: AppModel) async -> UIImage? {
         if let hit = cache[path] { return hit }
         if failed.contains(path) { return nil }
+        model.markMain("img:download")
         do {
             let data = try await model.download(path: path)
             // 不能在主线程直接 UIImage(data:) —— 那是懒解码，真正解码发生在渲染时，
             // 一张 2835×6144 的图要 70MB，界面会直接卡住。
             // 这里在后台用 CGImageSource 只解码出一个够显示的缩略图。
+            model.markMain("img:decode")
             let image = await Task.detached(priority: .userInitiated) {
                 Self.decodeThumbnail(data, maxPixel: 1600)
             }.value

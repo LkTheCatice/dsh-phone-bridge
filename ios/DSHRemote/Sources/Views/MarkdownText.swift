@@ -9,16 +9,40 @@ import SwiftUI
 /// 覆盖范围：标题 / 表格 / 代码块 / 无序列表 / 有序列表 / 引用 / 分隔线 / 段落的行内格式。
 struct MarkdownText: View {
     let raw: String
+    /// 解析结果。nil = 还没解析完，先显示纯文本。
+    @State private var blocks: [Block]?
 
-    private var blocks: [Block] { MarkdownCache.blocks(for: raw) }
+    init(raw: String) {
+        self.raw = raw
+        _blocks = State(initialValue: MarkdownCache.cached(raw))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            ForEach(blocks) { block in
-                view(for: block)
+            if let blocks {
+                ForEach(blocks) { block in
+                    view(for: block)
+                }
+            } else {
+                // 首次渲染：主线程上**不做任何 markdown 解析**，先出纯文本，
+                // 解析完成后自动换成排版好的版本。
+                // 之前是 computed property 同步解析，一条超长回答（工具输出整段日志）
+                // 就能把主线程按住好几秒 —— 主线程卡死时体感就是「界面冻住、触控失效」。
+                Text(raw)
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: raw) {
+            if let cached = MarkdownCache.cached(raw) {
+                blocks = cached
+                return
+            }
+            blocks = nil
+            let parsed = await MarkdownCache.blocksAsync(for: raw)
+            blocks = parsed
+        }
     }
 
     @ViewBuilder
@@ -128,6 +152,9 @@ struct MarkdownText: View {
 
     /// 行内格式交给 AttributedString（它只认行内才是对的用法）
     private func inline(_ text: String) -> Text {
+        // 长段落跳过行内解析：AttributedString(markdown:) 的开销随长度线性增长，
+        // 而工具输出那种整段日志根本没有行内格式可解 —— 硬解析只会把主线程按住。
+        if text.count > 4_000 { return Text(text) }
         if let attributed = try? AttributedString(
             markdown: text,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -164,25 +191,54 @@ enum Block: Identifiable {
 
 /// Markdown 解析结果缓存。
 ///
-/// 之前 `blocks` 是 computed property，每次 body 求值都重新解析整段文本。
-/// 流式输出时每秒触发几十次重建 —— 这是卡顿的主因之一。
-/// 这里按原文做定长缓存，滚动历史、重复渲染都能直接命中。
-/// 只在主线程（View body）里调用。
+/// 现在有两个访问面：
+/// - `cached(_:)` 只读缓存（主线程，命中就同步返回，滚动历史照样直接命中）
+/// - `blocksAsync(for:)` 后台解析（首次解析，或流式输出时文本每次都变的情况）
+///
+/// 关键改动：解析**不再发生在主线程**。之前是 computed property 在 body 里同步解析，
+/// 一条超长回答就能把主线程按住数秒。
 enum MarkdownCache {
+    private static let lock = NSLock()
     private static var storage: [String: [Block]] = [:]
     private static var order: [String] = []
     private static let capacity = 60
+    private static let queue = DispatchQueue(label: "dsh.markdown.parse", qos: .userInitiated)
 
-    static func blocks(for text: String) -> [Block] {
-        if let hit = storage[text] { return hit }
-        let parsed = MarkdownParser.parse(text)
-        storage[text] = parsed
+    /// 只读缓存，不触发解析
+    static func cached(_ text: String) -> [Block]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage[text]
+    }
+
+    /// 后台解析并入缓存
+    static func blocksAsync(for text: String) async -> [Block] {
+        if let hit = cached(text) { return hit }
+        // 超长文本直接当一段纯文本：几十万字符既没有 markdown 结构可读，
+        // 解析代价也不值得付（典型来源：工具输出的整段日志）
+        if text.count > 40_000 {
+            let fallback: [Block] = [.paragraph(text)]
+            store(text, fallback)
+            return fallback
+        }
+        let parsed = await withCheckedContinuation { (continuation: CheckedContinuation<[Block], Never>) in
+            queue.async {
+                continuation.resume(returning: MarkdownParser.parse(text))
+            }
+        }
+        store(text, parsed)
+        return parsed
+    }
+
+    private static func store(_ text: String, _ blocks: [Block]) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage[text] = blocks
         order.append(text)
         while order.count > capacity, let oldest = order.first {
             order.removeFirst()
             storage.removeValue(forKey: oldest)
         }
-        return parsed
     }
 }
 

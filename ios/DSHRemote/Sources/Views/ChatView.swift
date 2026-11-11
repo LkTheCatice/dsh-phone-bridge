@@ -367,6 +367,7 @@ struct ChatView: View {
     /// 难以排查的环，最后表现为整个 App 卡死（连主线程 Timer 都停跑）。
     /// 原生 scrollTo 虽然偶尔差几像素，但不会把主线程拖住。
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        model.markMain("scroll")
         model.recordFollowEvent()
         if !jump.atBottom { jump.atBottom = true }
         if jump.hasNewBelow { jump.hasNewBelow = false }
@@ -561,6 +562,7 @@ struct ChatView: View {
     private func submit() {
         // 立刻打一条、不节流：确认「点击真的到达了 submit」，以及它到达之后
         // 主线程还能不能回到 runloop（有这条、后面却没有 render= 就是卡死在这中间）。
+        model.markMain("submit")
         model.recordSubmitEvent()
         model.traceFollow("tap=send")
         let text = draft
