@@ -22,6 +22,12 @@ struct MarkdownText: View {
         _blocks = State(initialValue: MarkdownCache.cached(raw))
     }
 
+    /// 整条消息合并成一个 AttributedString（一个 Text 渲染，节点数从 N 降到 1）
+    private var attributed: AttributedString {
+        guard let blocks else { return AttributedString(raw) }
+        return MarkdownAttributed.build(blocks)
+    }
+
     var body: some View {
         stallWatcher.setMark("md")
         return Group {

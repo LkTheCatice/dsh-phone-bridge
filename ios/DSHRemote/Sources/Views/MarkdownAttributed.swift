@@ -84,7 +84,7 @@ enum MarkdownAttributed {
 
         case .divider:
             var s = AttributedString("────────")
-            s.foregroundColor = .tertiary
+            s.foregroundColor = Color.secondary.opacity(0.7)
             return s
 
         case let .table(headers, rows):
@@ -95,7 +95,7 @@ enum MarkdownAttributed {
                 head.font = .system(size: 12, weight: .semibold)
                 s += head
                 var rule = AttributedString(String(repeating: "─", count: max(8, headers.count * 6)) + "\n")
-                rule.foregroundColor = .tertiary
+                rule.foregroundColor = Color.secondary.opacity(0.7)
                 s += rule
             }
             for (i, row) in rows.enumerated() {
