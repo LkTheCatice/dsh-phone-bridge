@@ -45,7 +45,10 @@ struct SessionListSheet: View {
                             model.markRead(session.id)
                             dismiss()
                         } label: {
+                            // contentShape 撑满整行：.buttonStyle(.plain) 会把命中区缩到内容本身，
+                            // 行里的 Spacer 不接收触摸 —— 那样只有正好点在文字上才生效。
                             row(session)
+                                .contentShape(Rectangle())
                         }
                         // 不加 .plain 的话 Button 会给整行套默认 tint，标题全变蓝
                         .buttonStyle(.plain)
@@ -164,6 +167,9 @@ struct SessionListSheet: View {
                     .foregroundStyle(Color.accentColor)
             }
         }
+        // 让整行（含 Spacer 和右侧空白）都能点，并把行高拉到 44pt 以上好点
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func subtitle(_ session: SessionRow) -> String {
