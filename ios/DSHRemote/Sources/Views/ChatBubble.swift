@@ -50,6 +50,9 @@ struct ChatBubble: View, Equatable {
     }
 
     var body: some View {
+        // 卡死取证：主线程最后在渲染哪一类气泡
+        stallWatcher.setMark("b:\(kindName)")
+        return Group {
         switch entry.kind {
         case .user:
             // 用户消息也要解析媒体路径：自己发出去的图/视频/音频
@@ -116,6 +119,19 @@ struct ChatBubble: View, Equatable {
             }
             .padding(.leading, 2)
         }
+        }
+    }
+
+    private var kindName: String {
+        switch entry.kind {
+        case .user: return "user"
+        case .assistant: return "ans"
+        case .thinking: return "think"
+        case .toolCall: return "tool"
+        case .toolResult: return "toolres"
+        case .collapsedSteps: return "fold"
+        case .system: return "sys"
+        }
     }
 
     private var assistantBlock: some View {
@@ -176,9 +192,9 @@ struct ChatBubble: View, Equatable {
 
     /// 单条内容在主线程上允许排版的字数上限。
     /// 为什么要有：Text 的排版（CoreText）在主线程，几万字符就是几秒级。
-    private static let previewChars = 2_000
+    private static let previewChars = 600
     /// 主动展开后仍允许的上限，防止「展开」变成又一次 20 秒
-    private static let expandedChars = 20_000
+    private static let expandedChars = 8_000
 
     /// 只渲染尾部的一段纯文本（流式输出用）
     @ViewBuilder

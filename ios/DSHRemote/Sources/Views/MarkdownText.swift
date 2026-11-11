@@ -18,7 +18,8 @@ struct MarkdownText: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        stallWatcher.setMark("md")
+        return VStack(alignment: .leading, spacing: 9) {
             if let blocks {
                 // 用下标做 id，**不要**用 Block.id：divider 那条以前是
                 // "d-\(UUID().uuidString)"，每次求值都变 → ForEach 认为整行是新元素，
@@ -77,11 +78,17 @@ struct MarkdownText: View {
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(code)
-                        .font(.system(size: 12, design: .monospaced))
-                        .selectableText()
-                }
+                // ⚠️ 这里刻意**不用** ScrollView(.horizontal)。
+                //
+                // 嵌套的横向 ScrollView 在纵向 LazyVStack 里被测量时要求完整布局，
+                // 一条消息里几个代码块就是几个滚动容器 —— 实测 20 条消息一次性
+                // 测量要 30 秒（STUCK 29824ms mark=body）。改成直接换行：
+                // 长行会折行、看着不如横滑，但测量成本是常数级。
+                Text(clamped(code))
+                    .font(.system(size: 12, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .selectableText()
             }
             .padding(9)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,11 +124,11 @@ struct MarkdownText: View {
         }
     }
 
-    /// 表格：横向可滚动，避免多列时把字挤成一列一列
+    /// 表格：同样不用横向 ScrollView（理由见代码块那段的注释），直接换行排布。
+    /// 列多时会被压窄，但不会在测量阶段拖住主线程。
     private func table(headers: [String], rows: [[String]]) -> some View {
         let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
-        return ScrollView(.horizontal, showsIndicators: false) {
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 7) {
+        return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 7) {
                 if !headers.isEmpty {
                     GridRow {
                         ForEach(0..<columnCount, id: \.self) { col in
@@ -143,14 +150,20 @@ struct MarkdownText: View {
                     }
                     .background(index % 2 == 1 ? Color.secondary.opacity(0.05) : Color.clear)
                 }
-            }
-            .padding(10)
         }
+        .padding(10)
         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
         )
+    }
+
+    /// 代码块/表格里的超长文本截断（排版在主线程，成本随字数线性涨）
+    private func clamped(_ code: String) -> String {
+        code.count > 4_000
+            ? String(code.prefix(4_000)) + "\n…（其余 \(code.count - 4_000) 字已省略）"
+            : code
     }
 
     /// 行内格式交给 AttributedString（它只认行内才是对的用法）
