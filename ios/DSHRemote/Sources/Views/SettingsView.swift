@@ -24,6 +24,7 @@ struct SettingsView: View {
                 // 万一某台机器上还抖，可以关掉它们把范围缩小。
                 Section {
                     Toggle("启用文本选择（关掉更省）", isOn: $model.expTextSelection)
+                    Toggle("渲染 markdown（关掉最省，但没代码块样式）", isOn: $model.richTextEnabled)
                     Toggle("禁用自动跟随滚动", isOn: $model.expNoAutoFollow)
                     HStack {
                         Button("全部开启") {

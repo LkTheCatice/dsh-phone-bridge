@@ -45,6 +45,8 @@ struct ChatBubble: View, Equatable {
     let entry: ChatEntry
     /// 极简渲染：只画一行纯文本。流式输出期间用它，避免富文本布局把主线程压住。
     var compact: Bool = false
+    /// 富文本总开关（由 ChatView 注入），关掉时一律纯文本
+    @Environment(\.richTextEnabled) private var richTextEnabled
     /// 是否是「当前展开的那一条」（由 ChatView 用展开 id 控制，同时只允许一条）
     var isExpanded: Bool = false
     /// 点击消息：请求展开/收起
@@ -85,6 +87,7 @@ struct ChatBubble: View, Equatable {
     /// 所以默认只画纯文本：短消息（≤300 字）直接富文本（排版便宜），
     /// 长消息/工具行先纯文本，点一下才展开富文本。
     private var useRich: Bool {
+        if !richTextEnabled { return false }   // 总开关关闭 → 一律纯文本
         if compact { return false }
         // 短消息直接富文本；长消息只在「被展开」时渲染富文本
         // 阈值 300 → 800：手风琴保证同时只有一条富文本，成本可控，放宽后
@@ -213,15 +216,26 @@ struct ChatBubble: View, Equatable {
                             .buttonStyle(.plain)
                             .foregroundStyle(Color.accentColor)
                     }
-                } else {
-                    MarkdownText(raw: expanded ? String(cleaned.prefix(Self.expandedChars)) : cleaned)
-                        .foregroundStyle(.primary)
+                } else if cleaned.count > Self.richThreshold {
+                    // 长消息：纯文本全文，**不解析 markdown**。
+                    //
+                    // 一条长回答常被拆成几十个 block（代码块、表格、列表各一个视图），
+                    // 每个 block 都是一个要独立排版的 Text。分段渲染只是把成本摊开，
+                    // 总量不变 —— 实测展开仍卡 19594ms（mark=md）。
+                    // 纯文本全文只有一个 Text，排版成本恒定。
+                    Text(String(cleaned.prefix(Self.expandedChars)))
+                        .font(.system(size: 14))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .selectableText()
-                    if expanded, cleaned.count > Self.expandedChars {
+                    if cleaned.count > Self.expandedChars {
                         Text("（已截断，原文 \(cleaned.count) 字）")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
+                } else {
+                    MarkdownText(raw: cleaned)
+                        .foregroundStyle(.primary)
+                        .selectableText()
                 }
                 ForEach(media.images, id: \.self) { path in
                     RemoteImage(path: path)
@@ -246,7 +260,7 @@ struct ChatBubble: View, Equatable {
     private static let richThreshold = 800
     private static let previewChars = 1_000
     /// 主动展开后仍允许的上限，防止「展开」变成又一次 20 秒
-    private static let expandedChars = 3_000
+    private static let expandedChars = 8_000
 
     /// 只渲染尾部的一段纯文本（流式输出用）
     @ViewBuilder
@@ -432,5 +446,16 @@ extension EnvironmentValues {
     var toolDetailPresenter: ToolDetailPresenter? {
         get { self[ToolDetailPresenterKey.self] }
         set { self[ToolDetailPresenterKey.self] = newValue }
+    }
+}
+
+private struct RichTextEnabledKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var richTextEnabled: Bool {
+        get { self[RichTextEnabledKey.self] }
+        set { self[RichTextEnabledKey.self] = newValue }
     }
 }

@@ -387,6 +387,7 @@ struct ChatView: View {
         // 诊断开关：关掉所有气泡的文本选择（iOS 上由 UITextInteraction 实现，
         // 在 LazyVStack 里反复重排时是有代价的）
         .environment(\.noTextSelection, !model.expTextSelection)
+        .environment(\.richTextEnabled, model.richTextEnabled)
         .environment(\.toolDetailPresenter, detailPresenter)
         .sheet(item: $detailPresenter.entry) { item in
             ToolDetailSheet(entry: item)
