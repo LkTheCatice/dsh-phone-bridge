@@ -20,6 +20,12 @@ final class AppModel: ObservableObject {
     @Published var selectedSessionId: String? {
         didSet {
             guard selectedSessionId != oldValue else { return }
+            // 切会话时**先释放旧对话**，再让 ChatView 触发新会话的 loadHistory。
+            // 同一时刻内存里只保留一份对话：既省内存，也避免「两个会话的
+            // 条目同时在 body 里被扫描」这种隐性开销。
+            if let old = oldValue {
+                entriesStorage.removeValue(forKey: old)
+            }
             syncCurrentEntries()
             refreshCurrentTitle()
         }
@@ -309,6 +315,14 @@ final class AppModel: ObservableObject {
         stallWatcher.setMark("apply:\(type)")
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
         let turn = (frame["turn"] as? NSNumber)?.intValue ?? 0
+
+        // 没被选中的会话**不落条目**（用户要求：先不加载，点开时再拉历史）。
+        // 之前是所有会话的对话都堆在内存里、每个 delta 都可能触发 append 与裁剪，
+        // 切会话时两份对话还同时在 body 里被扫描。副作用只有一个：把未读标上。
+        if !isHistory, !sid.isEmpty, sid != "pending", sid != selectedSessionId {
+            if type == "turn.end" { unreadSessions.insert(sid) }
+            return
+        }
 
         switch type {
         case "turn.start":
@@ -1088,7 +1102,7 @@ final class AppModel: ObservableObject {
     /// 把某个会话的历史事件拉回来重建成聊天记录。
     /// 之前只显示「连上之后收到的事件」，所以重开 App 后旧对话是空的。
     /// limit 从服务端取多少帧；实际留在内存里的条数还要过 220 的修剪。
-    func loadHistory(_ sessionId: String, limit: Int = 400) async {
+    func loadHistory(_ sessionId: String, limit: Int = 120) async {
         guard let client, !sessionId.isEmpty else { return }
         historyLoading = true
         defer { historyLoading = false }
