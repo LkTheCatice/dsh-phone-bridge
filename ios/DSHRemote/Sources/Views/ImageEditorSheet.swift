@@ -35,8 +35,12 @@ struct ImageEditorSheet: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: fitted.width, height: fitted.height)
-                        CanvasView(drawing: $drawing, tool: $tool)
-                            .frame(width: fitted.width, height: fitted.height)
+                        CanvasView(
+                            drawing: $drawing,
+                            tool: $tool,
+                            toolSignature: "\(colorIndex)-\(Int(strokeWidth))"
+                        )
+                        .frame(width: fitted.width, height: fitted.height)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -118,13 +122,13 @@ struct ImageEditorSheet: View {
     /// 把笔迹压平进原图
     private func flatten() -> UIImage {
         guard !drawing.strokes.isEmpty else { return image }
-        let scale = image.scale
-        let renderer = UIGraphicsImageRenderer(size: image.size, scale: scale)
+        let rect = CGRect(origin: .zero, size: image.size)
+        // 笔迹先按原图分辨率渲染，再叠到原图上
+        let strokeImage = drawing.image(from: rect, scale: image.scale)
+        let renderer = UIGraphicsImageRenderer(size: image.size, scale: image.scale)
         return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-            // drawing.image(from:) 不接受 scale，压平后按原图尺寸重绘
-            let strokeImage = drawing.image(from: CGRect(origin: .zero, size: image.size))
-            strokeImage.draw(in: CGRect(origin: .zero, size: image.size))
+            image.draw(in: rect)
+            strokeImage.draw(in: rect)
         }
     }
 }
@@ -133,6 +137,9 @@ struct ImageEditorSheet: View {
 private struct CanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var tool: PKTool
+    /// 由父视图算好的「工具签名」：PKTool 不满足 Equatable，
+    /// 用类型 + 笔宽 + 颜色判断要不要重设
+    let toolSignature: String
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
@@ -141,14 +148,13 @@ private struct CanvasView: UIViewRepresentable {
         canvas.drawingPolicy = .anyInput
         canvas.tool = tool
         canvas.delegate = context.coordinator
+        context.coordinator.lastToolSignature = toolSignature
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        // PKTool 不是 Equatable，改用「工具签名」判断是否需要重设
-        let signature = "\(type(of: tool))-\(strokeWidth)-\(colorIndex)"
-        if context.coordinator.lastToolSignature != signature {
-            context.coordinator.lastToolSignature = signature
+        if context.coordinator.lastToolSignature != toolSignature {
+            context.coordinator.lastToolSignature = toolSignature
             canvas.tool = tool
         }
         if canvas.drawing != drawing { canvas.drawing = drawing }
