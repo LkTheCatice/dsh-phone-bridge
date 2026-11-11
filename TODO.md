@@ -1,8 +1,37 @@
 # 遗留问题与优化清单
 
-> 更新：2026-11-11 17:16
-> 当前包：2,174 KB（`1c01fb6`）
+> 更新：2026-11-11 18:20
+> 当前包：2,219 KB（`226cca7`）—— 待用户验证中
 > 服务端已生效：冷会话历史/标题（zstd 多 frame）、runtime context 过滤、transcript、fs 多级目录
+
+---
+
+## 待做（用户已提，等当前版本验证后再动手）
+
+### 设置页显示账户余额
+
+调研已完成，不需要碰 API key：
+
+**数据源**：DSH 自带的 `accountController.getBalance()`
+（`dsh-api-account-controller`，注释为 "Query Platform recharge-wallet balances"）
+
+**返回结构**（zod schema 实测）：
+```
+getBalance() →
+  | null
+  | { status: "ready",
+      value:        [{ currency: "CNY" | "USD", balance: string }],
+      bonusWallets: [{ currency: "CNY" | "USD", balance: string }] }
+  | { status: "failed" }
+```
+
+**实现计划**：
+1. bridge 加 `GET /v1/balance`：`ctx.get("accountController").getBalance()`，
+   归一化成 `{ ok, wallets: [{currency, balance, kind: "main"|"bonus"}], status }`
+2. App 设置页加一段「账户余额」：主钱包 + 赠送额度，按币种分组
+3. 下拉刷新 / 进设置页时拉一次，不做轮询
+
+量级：小（服务端十几行 + 一个设置区块）
 
 ---
 
