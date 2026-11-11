@@ -128,10 +128,25 @@ struct ChatView: View {
                     scrollToEnd(proxy)
                 }
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
-                // 滞后阈值：进入用 +40pt，离开必须滑出 220pt 才算离开 ——
+                // 滞后阈值：进入用 +40pt，离开必须滑出 280pt 才算离开 ——
                 // 这样刚往上蹭一点不会立刻冒出按钮（避免遮挡），状态也不会逐帧翻转。
                 .onPreferenceChange(BottomYKey.self) { maxY in
                     let viewport = outer.size.height
+
+                    // 防御越界：contentSize 会变小（600 条裁剪、一轮结束折叠、
+                    // 切换会话重建），而 contentOffset 仍停在旧位置 —— 于是「进到下面」。
+                    // 越界后 atBottom 又会被判成 true、按钮消失，人就回不来了。
+                    // 这里每次布局/滚动回调时顺手夹一次边界。
+                    if let scroll = uiScrollView,
+                       !scroll.isDragging,
+                       !scroll.isDecelerating,
+                       !scroll.isTracking {
+                        let limit = scroll.bottomOffsetY
+                        if scroll.contentOffset.y > limit + 1 {
+                            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: limit), animated: false)
+                        }
+                    }
+
                     if maxY <= viewport + 40 {
                         if !jump.atBottom { jump.atBottom = true }
                         if jump.hasNewBelow { jump.hasNewBelow = false }
