@@ -22,6 +22,9 @@ struct FilesView: View {
     @State private var importing = false
     @State private var message: String?
     @State private var shareItems: [Any] = []
+    @State private var creatingFolder = false
+    @State private var newFolderName = ""
+    @State private var pendingDelete: FsEntry?
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp"]
 
@@ -84,9 +87,35 @@ struct FilesView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { importing = true } label: { Label("上传到当前目录", systemImage: "arrow.up.doc") }
+                        Button { creatingFolder = true } label: { Label("新建文件夹", systemImage: "folder.badge.plus") }
                         Button { load(path) } label: { Label("刷新", systemImage: "arrow.clockwise") }
                     } label: { Image(systemName: "ellipsis.circle") }
                 }
+            }
+            .alert("新建文件夹", isPresented: $creatingFolder) {
+                TextField("文件夹名", text: $newFolderName)
+                Button("创建") { createFolder() }
+                Button("取消", role: .cancel) { newFolderName = "" }
+            } message: {
+                Text("建在当前目录：\(path)")
+            }
+            .confirmationDialog(
+                pendingDelete.map { "删除「\($0.name)」？" } ?? "删除？",
+                isPresented: Binding(
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let target = pendingDelete {
+                    Button(target.dir ? "删除目录及其内容" : "删除", role: .destructive) {
+                        deleteRow(target)
+                        pendingDelete = nil
+                    }
+                }
+                Button("取消", role: .cancel) { pendingDelete = nil }
+            } message: {
+                Text("只影响电脑上的这个文件/目录，不可撤销。")
             }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
                 handleImport(result)
@@ -139,6 +168,13 @@ struct FilesView: View {
             }
         }
         .id(row.id)
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                pendingDelete = row
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
     }
 
     /// 右侧 A–Z 索引条：点一下就跳到那个分组
@@ -187,6 +223,49 @@ struct FilesView: View {
         let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
         if let idx = trimmed.lastIndex(where: { $0 == "/" || $0 == "\\" }) {
             load(String(trimmed[trimmed.startIndex..<idx]))
+        }
+    }
+
+    /// 在当前目录下新建文件夹
+    private func createFolder() {
+        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        newFolderName = ""
+        guard !name.isEmpty else { return }
+        let base = path.isEmpty ? (model.roots.first ?? "") : path
+        let sep = base.hasSuffix("/") || base.hasSuffix("\\") ? "" : "/"
+        let target = base + sep + name
+        Task {
+            do {
+                _ = try await model.mkdir(path: target)
+                message = "已创建 \(name)"
+                load(path)
+            } catch {
+                message = "新建失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 删除条目：文件直接删；空目录直接删；非空目录问一次再递归
+    private func deleteRow(_ row: FsEntry) {
+        Task {
+            do {
+                _ = try await model.deleteFile(path: row.fullPath, recursive: false)
+                message = "已删除 \(row.name)"
+                load(path)
+            } catch {
+                if row.dir {
+                    // 多半是目录非空，走递归删
+                    do {
+                        _ = try await model.deleteFile(path: row.fullPath, recursive: true)
+                        message = "已删除目录 \(row.name)（含内容）"
+                        load(path)
+                    } catch {
+                        message = "删除失败：\(error.localizedDescription)"
+                    }
+                } else {
+                    message = "删除失败：\(error.localizedDescription)"
+                }
+            }
         }
     }
 

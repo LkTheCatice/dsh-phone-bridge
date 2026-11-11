@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var pairing: PairingConfig?
     @Published private(set) var serverInfo: String = ""
     @Published private(set) var sessions: [SessionRow] = []
+    /// 已归档的会话（列表里单独一段，可取消归档）
+    @Published private(set) var archivedSessions: [SessionRow] = []
     @Published var selectedSessionId: String?
     /// 聊天条目。
     ///
@@ -546,6 +548,17 @@ final class AppModel: ObservableObject {
            let rows = result["sessions"] as? [[String: Any]] {
             sessions = rows.compactMap(SessionRow.parse)
         }
+        // 已归档的会话单独拉一份，列表里给它一个分区
+        if let result = try? await client.sessions(archived: true),
+           let rows = result["sessions"] as? [[String: Any]] {
+            archivedSessions = rows.compactMap(SessionRow.parse)
+        }
+    }
+
+    /// 取消归档，让会话回到主列表
+    func unarchive(_ sessionId: String) async {
+        await archive(sessionId, archived: false)
+        await refreshSessions()
     }
 
     func send(text: String, mode: SendMode? = nil) async {
@@ -765,6 +778,18 @@ final class AppModel: ObservableObject {
         let resolved = (result["path"] as? String) ?? path
         let rows = (result["entries"] as? [[String: Any]]) ?? []
         return rows.compactMap { FsEntry.parse($0, parent: resolved) }
+    }
+
+    @discardableResult
+    func mkdir(path: String) async throws -> [String: Any] {
+        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
+        return try await client.mkdir(path: path)
+    }
+
+    @discardableResult
+    func deleteFile(path: String, recursive: Bool = false) async throws -> [String: Any] {
+        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
+        return try await client.delete(path: path, recursive: recursive)
     }
 
     func download(path: String, chunkSize: Int = 1024 * 1024) async throws -> Data {

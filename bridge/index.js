@@ -401,6 +401,8 @@ function applyBridge(ctx, config) {
     } catch {
       return null;
     }
+    // 和 framesFromLog 一致：超大日志不解析，别堵事件循环
+    if (stat.size > MAX_LOG_BYTES) return null;
     const cached = titleLogCache.get(sessionId);
     if (cached && cached.mtimeMs === stat.mtimeMs) return cached.title;
     let title = null;
@@ -459,10 +461,36 @@ function applyBridge(ctx, config) {
     return Buffer.concat(parts);
   }
 
+  /**
+   * 日志重建的护栏。
+   *
+   * 解压 + 逐行 JSON.parse 是**同步** CPU 操作，而 DSH 是单线程 Node ——
+   * App 快速切会话会串行阻塞事件循环，这就是能把 DSH 拖死的原因。
+   * 所以：按 mtime 缓存结果（第二次起毫秒级命中）、限制缓存规模、超大日志直接拒绝。
+   */
+  const framesLogCache = new Map(); // sessionId -> { frames, mtimeMs }
+  const FRAMES_CACHE_LIMIT = 6;
+  const MAX_LOG_BYTES = 24 * 1024 * 1024;
+
   /** 冷会话的历史：直接用磁盘日志重建（和标题走同一套 zstd 读取） */
   function framesFromLog(sessionId) {
     const file = sessionLogIndex().get(sessionId);
     if (!file) return null;
+
+    let stat;
+    try {
+      stat = fs.statSync(file);
+    } catch {
+      return null;
+    }
+    // 超大日志不重建：宁可让界面显示「这段太长」，也别堵住事件循环
+    if (stat.size > MAX_LOG_BYTES) {
+      logLine({ step: "transcript/log", sessionId, skipped: "log-too-large", size: stat.size });
+      return null;
+    }
+    const cached = framesLogCache.get(sessionId);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.frames;
+
     try {
       const text = zstdReadAll(fs.readFileSync(file)).toString("utf8");
       const frames = [];
@@ -481,6 +509,12 @@ function applyBridge(ctx, config) {
           if (frame.type === "event") continue;
           frames.push(frame);
         }
+      }
+      framesLogCache.set(sessionId, { frames, mtimeMs: stat.mtimeMs });
+      // 简易 LRU：只留最近几个会话，避免内存随会话数增长
+      while (framesLogCache.size > FRAMES_CACHE_LIMIT) {
+        const oldest = framesLogCache.keys().next().value;
+        framesLogCache.delete(oldest);
       }
       return frames;
     } catch (error) {
@@ -1113,7 +1147,27 @@ function applyBridge(ctx, config) {
     }
 
     if (method === "GET" && pathname === "/v1/sessions") {
-      return sendJson(res, 200, { ok: true, sessions: await listSessions() }, ctxEnc);
+      // ?archived=1 只返回已归档；不带则返回未归档的（和电脑端列表一致）
+      const wantArchived = url.searchParams.get("archived") === "1";
+      let archivedIds = [];
+      try {
+        const registry = ctx.get?.("workspaceRegistry");
+        if (registry && Array.isArray(registry.archivedSessionIds)) {
+          archivedIds = registry.archivedSessionIds;
+        }
+      } catch {
+        /* 拿不到就当没有归档 */
+      }
+      const archivedSet = new Set(archivedIds.map(String));
+      const all = await listSessions();
+      const rows = all
+        .map((row) => ({ ...row, archived: archivedSet.has(row.id) }))
+        .filter((row) => (wantArchived ? row.archived : !row.archived));
+      return sendJson(res, 200, {
+        ok: true,
+        sessions: rows,
+        archivedTotal: archivedSet.size,
+      }, ctxEnc);
     }
 
     // 会话历史：把一条会话的事件流重新归一化成手机帧，打开会话时用它回填
@@ -1385,6 +1439,25 @@ function applyBridge(ctx, config) {
       const raw = await readBody(req, cfg.maxFileBytes + 1024);
       const plain = ctxEnc ? unseal(ctxEnc.c2s, aad, raw) : raw;
       const result = await safeFs.write(target, { offset, truncate }, plain);
+      return sendJson(res, 200, { ok: true, ...result }, ctxEnc);
+    }
+
+    // 新建目录（多级）
+    if (method === "POST" && pathname === "/v1/fs/mkdir") {
+      const target = url.searchParams.get("path") || "";
+      if (!target) throw new HttpError(400, "bad-request", "缺少 path");
+      const result = await safeFs.mkdir(target);
+      logLine({ step: "fs/mkdir", path: result.path });
+      return sendJson(res, 200, { ok: true, ...result }, ctxEnc);
+    }
+
+    // 删除文件 / 空目录（recursive=1 才允许删非空目录）
+    if (method === "POST" && pathname === "/v1/fs/delete") {
+      const target = url.searchParams.get("path") || "";
+      if (!target) throw new HttpError(400, "bad-request", "缺少 path");
+      const recursive = url.searchParams.get("recursive") === "1";
+      const result = await safeFs.remove(target, { recursive });
+      logLine({ step: "fs/delete", path: result.path, dir: result.dir, recursive });
       return sendJson(res, 200, { ok: true, ...result }, ctxEnc);
     }
 

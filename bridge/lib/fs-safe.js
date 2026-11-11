@@ -177,5 +177,34 @@ export function createSafeFs({
     }
   }
 
-  return { allowedRoots, resolveAllowed, list, stat: statOf, read, write };
+  /** 新建目录（含多级）。已存在则直接返回成功。 */
+  async function mkdir(target) {
+    const real = await resolveAllowed(target, { forWrite: true });
+    await fsp.mkdir(real, { recursive: true });
+    const st = await fsp.stat(real).catch(() => null);
+    return { path: real, created: true, dir: st?.isDirectory() ?? false };
+  }
+
+  /** 删除文件或目录。目录只允许空目录递归由调用方决定。 */
+  async function remove(target, { recursive = false } = {}) {
+    // 先按「已存在」解析，拿真实路径做白名单校验
+    const real = await resolveAllowed(target);
+    const st = await fsp.lstat(real);
+    // 不允许把配置里的根目录整个删掉
+    if (allowedRoots().some((root) => path.resolve(root) === path.resolve(real))) {
+      throw new FsDenied(`不允许删除根目录: ${target}`);
+    }
+    if (st.isDirectory()) {
+      if (!recursive) {
+        const items = await fsp.readdir(real).catch(() => []);
+        if (items.length > 0) throw new FsDenied(`目录非空，未指定 recursive: ${target}`);
+      }
+      await fsp.rm(real, { recursive, force: false });
+    } else {
+      await fsp.unlink(real);
+    }
+    return { path: real, removed: true, dir: st.isDirectory() };
+  }
+
+  return { allowedRoots, resolveAllowed, list, stat: statOf, read, write, mkdir, remove };
 }

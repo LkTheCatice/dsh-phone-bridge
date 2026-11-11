@@ -73,6 +73,42 @@ struct SessionListSheet: View {
                         Text("没有匹配的会话").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+
+                // 已归档：之前归档后就彻底消失、无处找回，现在能在这里恢复
+                if !model.archivedSessions.isEmpty {
+                    Section {
+                        ForEach(model.archivedSessions) { session in
+                            Button {
+                                model.selectedSessionId = session.id
+                                model.markRead(session.id)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(session.displayTitle)
+                                            .lineLimit(1)
+                                            .foregroundStyle(.secondary)
+                                        Text("已归档 · \(session.relativeTime)")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .swipeActions(edge: .trailing) {
+                                Button {
+                                    Task { await model.unarchive(session.id) }
+                                } label: {
+                                    Label("恢复", systemImage: "arrow.uturn.backward")
+                                }
+                                .tint(.accentColor)
+                            }
+                        }
+                    } header: {
+                        Text("已归档 \(model.archivedSessions.count)")
+                    }
+                }
             }
             .searchable(text: $search, prompt: "搜索会话标题")
             .navigationTitle("会话")

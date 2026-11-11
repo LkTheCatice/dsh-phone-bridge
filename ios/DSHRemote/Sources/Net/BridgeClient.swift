@@ -251,6 +251,22 @@ final class BridgeClient {
         ])
     }
 
+    func sessions(archived: Bool = false) async throws -> [String: Any] {
+        try await getJSON("/v1/sessions", query: archived ? [("archived", "1")] : [])
+    }
+
+    func mkdir(path: String) async throws -> [String: Any] {
+        try await postJSON("/v1/fs/mkdir", query: [("path", path)], json: [:])
+    }
+
+    func delete(path: String, recursive: Bool = false) async throws -> [String: Any] {
+        try await postJSON(
+            "/v1/fs/delete",
+            query: [("path", path), ("recursive", recursive ? "1" : "0")],
+            json: [:]
+        )
+    }
+
     func listFiles(path: String) async throws -> [String: Any] {
         try await getJSON("/v1/fs/list", query: [("path", path)])
     }
