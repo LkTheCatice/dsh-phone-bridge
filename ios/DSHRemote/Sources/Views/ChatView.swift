@@ -304,26 +304,10 @@ struct ChatView: View {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
+                // ComfyUI 状态点单独成视图：它每 8 秒被轮询更新，
+                // 直接在这里读 model.comfy 会让整个 ChatView（composer/toolbar/列表）跟着重算。
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Label(model.comfy.label, systemImage: "flame")
-                        if let version = model.comfy.version {
-                            Text("ComfyUI v\(version)")
-                        }
-                        if !model.comfy.url.isEmpty {
-                            Text(model.comfy.url)
-                        }
-                        Button("刷新状态") { model.startComfyPolling() }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(comfyColor)
-                                .frame(width: 7, height: 7)
-                            Text(comfyShort)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    ComfyBadge()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     // 连接状态：正常时只留 wifi 图标（不占地方），
@@ -381,21 +365,7 @@ struct ChatView: View {
         }
     }
 
-    private var comfyColor: Color {
-        if !model.comfy.online { return .gray }
-        return model.comfy.generating ? .orange : .green
-    }
 
-    /// ComfyUI 状态文案。
-    /// 必须带「画图」前缀：光写「离线」会和旁边的连接状态混在一起，
-    /// 让人以为整个 App 掉线了（其实只是画图服务没开）。
-    private var comfyShort: String {
-        if !model.comfy.online { return "画图离线" }
-        if model.comfy.generating {
-            return model.comfy.pending > 0 ? "画图中 \(model.comfy.pending)" : "画图中"
-        }
-        return "画图空闲"
-    }
 
     /// 连接状态文案，和 ComfyUI 分开放
     private var connectionShort: String {
@@ -783,5 +753,51 @@ struct BottomDetectModifier: ViewModifier {
                 }
             )
         }
+    }
+}
+
+/// ComfyUI 状态点（含菜单）。
+///
+/// 单独成视图的原因：`comfy` 每 8 秒被轮询更新一次，如果直接在 ChatView.body
+/// 里读它，ChatView 就会被订阅 —— 每 8 秒把 composer、toolbar、整个列表白重算一遍。
+/// 抽出来之后只有这一个小徽标重算。
+struct ComfyBadge: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Menu {
+            Label(model.comfy.label, systemImage: "flame")
+            if let version = model.comfy.version {
+                Text("ComfyUI v\(version)")
+            }
+            if !model.comfy.url.isEmpty {
+                Text(model.comfy.url)
+            }
+            Button("刷新状态") { model.startComfyPolling() }
+        } label: {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+                Text(short)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var color: Color {
+        if !model.comfy.online { return .gray }
+        return model.comfy.generating ? .orange : .green
+    }
+
+    /// 必须带「画图」前缀：光写「离线」会和旁边的连接状态混在一起，
+    /// 让人以为整个 App 掉线（其实只是画图服务没开）。
+    private var short: String {
+        if !model.comfy.online { return "画图离线" }
+        if model.comfy.generating {
+            return model.comfy.pending > 0 ? "画图中 \(model.comfy.pending)" : "画图中"
+        }
+        return "画图空闲"
     }
 }

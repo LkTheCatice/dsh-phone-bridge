@@ -13,25 +13,12 @@ struct MainView: View {
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
         }
+        // 横幅交给独立子视图：MainView 包着 TabView，一旦在这里读 phase /
+        // pendingApprovals / suppressDisconnect，任何一次变化都会让三个 tab 的
+        // 内容跟着重算。BannerHost 自己订阅、自己重算，TabView 不受影响。
         .overlay(alignment: .top) {
-            VStack(spacing: 6) {
-                // 断线提示：只有异常时才出现，正常不占位。
-                // 回前台的头几秒跳过 —— 那时连接还没恢复，弹「未连接」是误报。
-                if model.phase != .connected && !model.suppressDisconnect {
-                    DisconnectBanner()
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                if let approval = model.pendingApprovals.first {
-                    ApprovalBanner(approval: approval)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
+            BannerHost()
         }
-        .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
-        .animation(.easeInOut(duration: 0.2), value: model.phase)
-        .animation(.easeInOut(duration: 0.2), value: model.suppressDisconnect)
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             // 切回前台：先给 3 秒宽限，同时自动重连
@@ -186,5 +173,34 @@ struct ApprovalBanner: View {    @EnvironmentObject private var model: AppModel
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.orange.opacity(0.4)))
+    }
+}
+
+/// 顶部横幅宿主（断线提示 + 审批提示）。
+///
+/// 单独成视图的原因：MainView 里是 TabView，若在 MainView.body 读
+/// `phase` / `pendingApprovals` / `suppressDisconnect`，这些状态一变
+/// 三个 tab 的内容都会被重新求值。放在这里只重算这一小块。
+struct BannerHost: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 6) {
+            // 断线提示：只有异常时才出现，正常不占位。
+            // 回前台的头几秒跳过 —— 那时连接还没恢复，弹「未连接」是误报。
+            if model.phase != .connected && !model.suppressDisconnect {
+                DisconnectBanner()
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            if let approval = model.pendingApprovals.first {
+                ApprovalBanner(approval: approval)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
+        .animation(.easeInOut(duration: 0.2), value: model.phase)
+        .animation(.easeInOut(duration: 0.2), value: model.suppressDisconnect)
     }
 }
