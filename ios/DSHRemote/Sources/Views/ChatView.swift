@@ -31,6 +31,8 @@ struct ChatView: View {
     @State private var lastPhoneSendAt: Date?
     /// 流式跟随的节流时间戳
     @State private var lastFollowAt = Date.distantPast
+    /// 越界 clamp 的防重入锁：setContentOffset 会再次触发 onPreferenceChange
+    @State private var isClamping = false
 
     private static let bottomAnchor = "__chat_bottom__"
     private static let scrollSpace = "__chat_scroll__"
@@ -135,15 +137,18 @@ struct ChatView: View {
 
                     // 防御越界：contentSize 会变小（600 条裁剪、一轮结束折叠、
                     // 切换会话重建），而 contentOffset 仍停在旧位置 —— 于是「进到下面」。
-                    // 越界后 atBottom 又会被判成 true、按钮消失，人就回不来了。
-                    // 这里每次布局/滚动回调时顺手夹一次边界。
+                    // 必须带 isClamping 防重入：setContentOffset 会再次触发这个回调，
+                    // 不加锁就会自己喂自己，几秒内把主线程打满。
                     if let scroll = uiScrollView,
+                       !isClamping,
                        !scroll.isDragging,
                        !scroll.isDecelerating,
                        !scroll.isTracking {
                         let limit = scroll.bottomOffsetY
                         if scroll.contentOffset.y > limit + 1 {
+                            isClamping = true
                             scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: limit), animated: false)
+                            DispatchQueue.main.async { isClamping = false }
                         }
                     }
 
@@ -346,11 +351,11 @@ struct ChatView: View {
         jump.atBottom = true
         jump.hasNewBelow = false
         if let scroll = uiScrollView {
-            // layoutIfNeeded 让 contentSize 追到最新，否则跟随总会差一截。
-            // 调用频率由外面的 200ms 节流控制，不会像之前那样把主线程拖死。
-            scroll.layoutIfNeeded()
+            // 不做 layoutIfNeeded：流式输出时这个函数每秒被调好几次，
+            // 每次强制布局会把主线程压在排版上，直接体现为卡顿。
+            // contentSize 略旧最多让位置差几像素，40pt 的容差能吃下。
             let target = scroll.bottomOffsetY
-            if abs(scroll.contentOffset.y - target) > 1 {
+            if abs(scroll.contentOffset.y - target) > 2 {
                 scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
             }
             return
