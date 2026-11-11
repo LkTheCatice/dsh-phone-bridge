@@ -20,12 +20,14 @@ targets:
     info:
       path: Resources/Info.plist
       properties:
-        CFBundleDisplayName: DSH 遥控
+        # 主屏显示名。「DSH Helm」8 字符能完整显示不被截断；
+        # 产物名 PRODUCT_NAME 仍是 DSHRemote（改了会让 .app 目录名变、CI 路径要跟着改）
+        CFBundleDisplayName: DSH Helm
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: 用于连接你电脑上的 DeepSeek Harness 桥接服务（局域网直连时）
         # 看图时「保存到相册」需要它，缺了会在写入那一刻闪退
         NSPhotoLibraryAddUsageDescription: 把电脑传来的图片保存到相册
-        # 下载的文件要能在「文件」App → 我的 iPhone → DSHRemote 里看到，
+        # 下载的文件要能在「文件」App → 我的 iPhone → DSH Helm 里看到，
         # 否则存进沙盒等于拿不出来
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

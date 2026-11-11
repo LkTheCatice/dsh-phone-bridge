@@ -42,8 +42,12 @@
 
 ## 本轮要做（等用户提供素材）
 
+- [x] **换 App 名称 → DSH Helm** —— 已改 `CFBundleDisplayName`（一行）。
+      未动：`PRODUCT_NAME`（产物仍叫 DSHRemote，CI 路径不用改）、
+      `PRODUCT_BUNDLE_IDENTIFIER`（`dev.yg.dshremote`，改了签名会变、手机上会当新 App）、
+      Keychain service（`dev.yg.dshremote`，改了配对信息读不到）、工程名。
+      → 结论：改名不会导致重新配对。
 - [ ] **换 App 图标** —— 用户会发新图（需要抠图/裁切成 1024×1024 无 alpha）
-- [ ] **换 App 名称** —— 用户会发新名字（要改 `CFBundleDisplayName` + `PRODUCT_NAME` + ShareExtension 的显示名 + 工程 target 名可选）
 
 ## 改名的注意点（提前记下）
 
