@@ -294,8 +294,9 @@ struct ChatBubble: View {
                     .foregroundStyle(tint)
                 if entry.running { ProgressView().controlSize(.mini) }
             }
-            Text(ImageRef.cleaned(entry.text))
-                .font(.system(.body, design: entry.kind == .thinking ? .monospaced : .default))
+            // 走自己的 Markdown 渲染：表格 / 代码块 / 列表都要成型，
+            // 直接 Text 只会把 |---|---| 原样吐出来
+            MarkdownText(raw: ImageRef.cleaned(entry.text))
                 .foregroundStyle(entry.kind == .thinking ? .secondary : .primary)
                 .textSelection(.enabled)
             // 文本里提到的图片就地渲染（点开可全屏）
