@@ -27,7 +27,15 @@ struct ChatView: View {
     @State private var clearing = false
     /// 跳到底按钮的状态单独持有：滚动时每帧都会更新它，
     /// 放在 @State 里会让整个 ChatView（含 ScrollView）跟着重建
-    @StateObject private var jump = JumpButtonState()
+    /// 用 @State 而不是 @StateObject 持有这个引用类型。
+    ///
+    /// 关键区别：**@StateObject 会让宿主视图订阅该对象**（哪怕 body 里一次都不读），
+    /// 于是 jump.atBottom 每翻一次，整个 ChatView（composer、toolbar、列表）就重算一次。
+    /// 而 onScrollGeometryChange 在布局变化时会翻转它 → 重算 → 布局 → 又翻转，
+    /// 300ms 节流只是把环放慢；每次布局 > 300ms 时主线程永远饱和
+    /// （实测回车卡 13297ms，mark=body）。
+    /// @State 持有引用但**不订阅**，真正的观察者是 JumpButtonLayer（@ObservedObject）。
+    @State private var jump = JumpButtonState()
     // 滚动全部交给 SwiftUI 原生 proxy.scrollTo，不再持有背后的 UIScrollView。
     // （探针那套「读 layout → setContentOffset → 再触发布局」已经整段删掉，
     // 它本身就是一条自激环，见 HANDOFF 里的循环 1。）
