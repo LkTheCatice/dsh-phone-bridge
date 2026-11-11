@@ -17,7 +17,7 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFilter
 
-SRC = r"C:\Users\acer\.dsh\attachments\v1\objects\67\6763ec4cfe047d3f12edc47b3132e50b0fd670f5204e88d6e51406f5bf881ef8"
+SRC = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\assets\icon-source.png"
 LOGO = r"C:\Users\acer\AppData\Local\Programs\DeepSeek Harness\resources\icon.png"
 OUT_DIR = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\ios\DSHRemote\Sources\Assets.xcassets\AppIcon.appiconset"
 OUT = os.path.join(OUT_DIR, "icon-1024.png")
