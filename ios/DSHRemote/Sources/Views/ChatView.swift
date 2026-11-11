@@ -25,6 +25,9 @@ struct ChatView: View {
     @State private var atBottom = true
     /// 在底部之外时收到了新内容，挂一个「新消息」提示等你点
     @State private var hasNewBelow = false
+    /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
+    /// 电脑端发消息不再带动手机滚动
+    @State private var lastPhoneSendAt: Date?
 
     private static let bottomAnchor = "__chat_bottom__"
     private static let scrollSpace = "__chat_scroll__"
@@ -83,14 +86,18 @@ struct ChatView: View {
                 }
                 .coordinateSpace(name: Self.scrollSpace)
                 .scrollDismissesKeyboard(.interactively)
-                // 只在「底部标记还在视口里」时跟随滚动；否则挂个「新消息」提示
+                // 新条目出现时：
+                // - 手机刚发过消息（3 秒内）→ 滚到底，保证能看到自己那条
+                // - 否则（电脑端发的、别的来源）→ 不抢滚动位置，只挂「新消息」提示
                 .onChange(of: entries.count) { _ in
-                    if atBottom {
+                    let justSentFromPhone = lastPhoneSendAt.map { Date().timeIntervalSince($0) < 3 } ?? false
+                    if justSentFromPhone && atBottom {
                         scrollToEnd(proxy)
-                    } else {
+                    } else if !atBottom {
                         hasNewBelow = true
                     }
                 }
+                // 流式文本增长时，只在已经贴底的情况下跟随（看实时输出）
                 .onChange(of: entries.last?.text) { _ in
                     if atBottom { scrollToEnd(proxy) }
                 }
@@ -494,9 +501,12 @@ struct ChatView: View {
         attachments = []
         // 草稿按会话存，发完要清掉对应那一格
         model.drafts[model.draftKey(model.selectedSessionId)] = ""
-        // 自己发的消息一定要跟着滚到底，别让「不打断」规则把自己挡住
+        // 自己发的消息一定要跟着滚到底，别让「不打断」规则把自己挡住。
+        // 记下时间戳：onChange 里靠它区分「手机发的」和「电脑端发的」——
+        // 电脑端发消息时不再带动手机滚动。
         atBottom = true
         hasNewBelow = false
+        lastPhoneSendAt = Date()
         focused = false
         sending = true
         let outgoing = payload
