@@ -219,6 +219,45 @@ check(!stressSegs.isEmpty, "压力用例解析为空")
 check(stressSegs.count >= 300, "压力用例分段数异常少：\(stressSegs.count)")
 print("  \(inlineCases.count) 条用例 + 样式/压力断言")
 
+// MARK: - 7. 媒体路径扫描（Core/MediaRefScan）
+
+section("MediaRefScan 路径识别")
+
+let mediaCases: [(String, String, Int, Int, Int)] = [
+    // 文本, 说明, 期望图片数, 期望视频数, 期望音频数
+    ("看这个 ![图](D:/a/b.png)", "markdown 图片", 1, 0, 0),
+    ("D:\\AI\\out\\x.jpg", "Windows 反斜杠", 1, 0, 0),
+    ("/home/u/v.mp4", "正斜杠视频", 0, 1, 0),
+    ("音乐 /a/s.mp3 和图 /a/p.png", "混合", 1, 0, 1),
+    ("没有路径的普通文字", "无路径", 0, 0, 0),
+    ("a.png b.jpg c.gif", "相对路径不算", 0, 0, 0),
+    ("[附件] E:/x/y.webp", "附件标记", 1, 0, 0),
+    ("C:\\a\\b.mov", "反斜杠视频", 0, 1, 0),
+    ("/a/b.flac", "音频 flac", 0, 0, 1),
+    ("文件 /a/b.txt", "非媒体扩展名", 0, 0, 0),
+]
+for (text, note, imgs, vids, auds) in mediaCases {
+    let refs = MediaRefCache.refs(for: text)
+    check(refs.images.count == imgs, "\(note)：图片数期望 \(imgs) 实际 \(refs.images.count)")
+    check(refs.videos.count == vids, "\(note)：视频数期望 \(vids) 实际 \(refs.videos.count)")
+    check(refs.audios.count == auds, "\(note)：音频数期望 \(auds) 实际 \(refs.audios.count)")
+}
+
+// 超长文本守卫（避免正则扫几万字）
+let longText = String(repeating: "填充文字 ", count: 4_000) + " /a/p.png"
+let longRefs = MediaRefCache.refs(for: longText)
+check(longRefs.isEmpty, "超长文本应跳过扫描（守卫失效，实际图片数 \(longRefs.images.count)）")
+
+// 扩展名分类
+check(MediaRefScan.kind(of: "a.PNG") == .image, "大写扩展名应识别为图片")
+check(MediaRefScan.kind(of: "a.mp4") == .video, "mp4 应识别为视频")
+check(MediaRefScan.kind(of: "a.weird") == nil, "未知扩展名应返回 nil")
+
+// cleaned：markdown 图片语法换成短名
+let cleanedText: String = MediaRefScan.cleaned("看 ![alt](D:/a/b.png) 这里")
+check(!cleanedText.contains("!["), "cleaned 应去掉 markdown 图片语法")
+print("  \(mediaCases.count) 条路径用例 + 超长守卫 + 分类/清理")
+
 // MARK: - 汇总
 
 print("\n════════════════════════════════")

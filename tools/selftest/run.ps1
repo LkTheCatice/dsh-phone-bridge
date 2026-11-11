@@ -37,6 +37,11 @@ $env:SDKROOT = $sdk.FullName
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $project = Resolve-Path (Join-Path $here "..\..")
 $model = Join-Path $project "ios\DSHRemote\Sources\Core\MarkdownModel.swift"
+$media = Join-Path $project "ios\DSHRemote\Sources\Core\MediaRefScan.swift"
+if (-not (Test-Path $media)) {
+    Write-Host "✗ 找不到 $media" -ForegroundColor Red
+    exit 2
+}
 if (-not (Test-Path $model)) {
     Write-Host "✗ 找不到 $model" -ForegroundColor Red
     exit 2
@@ -47,12 +52,12 @@ try {
     $exe = Join-Path $here "selftest.exe"
     if (Test-Path $exe) { Remove-Item $exe -Force }
 
-    Write-Host "编译中（main.swift + MarkdownModel.swift）…" -ForegroundColor DarkGray
+    Write-Host "编译中（main.swift + Core/*.swift）…" -ForegroundColor DarkGray
     # 两个文件一起编译：测的就是项目里的真实代码
     # swiftc 把普通信息也写到 stderr，这里临时放开 ErrorActionPreference
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    & (Join-Path $swiftBin "swiftc.exe") main.swift $model -o $exe 2>&1 |
+    & (Join-Path $swiftBin "swiftc.exe") main.swift $model $media -o $exe 2>&1 |
         Where-Object { $_ -notmatch "正在创建库|creating library|never used|#NoUsage" } |
         ForEach-Object { Write-Host "  $_" }
     $ErrorActionPreference = $prev
