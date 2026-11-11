@@ -24,8 +24,8 @@ OUT = os.path.join(OUT_DIR, "icon-1024.png")
 PREVIEW = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\dist\icon-preview.png"
 
 CANVAS = 2048
-CONTENT_RATIO = 1.0    # 内容占画布比例
-CONTENT_Y_OFFSET = 46  # 垂直下移：让头顶的呆毛露出来，别一上来就被裁
+CONTENT_RATIO = 1.02   # 内容占画布比例
+SINK = 90              # 脚贴底后再下沉的像素：头顶发圈才有呼吸空间（C 方案）
 
 
 def erase_watermark(img):
@@ -98,26 +98,21 @@ def load_logo(target_w):
     return logo.resize((target_w, max(1, int(lh * scale))), Image.LANCZOS)
 
 
-def make_badge(size=320, radius=76):
-    """角标：白色圆角方块 + 黑色 DSH 鲸鱼 + 一层柔和投影。
+def make_badge(size=660, radius=110):
+    """角标：白色方块 + 黑色 DSH 鲸鱼。
 
-    单独给底色是因为纯黑鲸鱼直接压在浅蓝上太小、边界也糊；
-    有了圆角白底它才像一个明确的「出品方角标」。
+    只保留**左上角**的圆角，另外三个角是直角 —— 因为它贴死在图标右下角，
+    右上/左下/右下三条边本来就在画布边界上，画圆角反而露出来像缺口。
+    也不再做投影：贴着画布边，投影只会被裁掉一半。
     """
     tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tile)
 
-    # 投影
-    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle(
-        (14, 20, size - 14, size - 8), radius=radius, fill=(52, 84, 128, 90)
-    )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(10))
-    tile.alpha_composite(shadow)
-
-    # 白底
-    ImageDraw.Draw(tile).rounded_rectangle(
-        (8, 8, size - 8, size - 8), radius=radius, fill=(255, 255, 255, 255)
-    )
+    # 四角圆矩形打底，再用直角把除左上以外的三处圆角填平
+    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=(255, 255, 255, 255))
+    draw.rectangle((radius, 0, size, radius), fill=(255, 255, 255, 255))          # 右上
+    draw.rectangle((0, radius, radius, size), fill=(255, 255, 255, 255))          # 左下
+    draw.rectangle((radius, radius, size, size), fill=(255, 255, 255, 255))       # 右下
 
     # 鲸鱼：占角标 62%，居中略偏上（视觉重心）
     fish = load_logo(int(size * 0.62))
@@ -152,13 +147,14 @@ def main():
 
     canvas = make_background()
     bx = (CANVAS - content.size[0]) // 2
-    by = (CANVAS - content.size[1]) // 2 + CONTENT_Y_OFFSET
+    # 脚贴底后再下沉 SINK：让头顶发圈有呼吸空间（C 方案）
+    by = CANVAS - content.size[1] + SINK
     canvas.alpha_composite(content, (bx, by))
 
-    # 角标放右下：600px、留 130px 边距，右下角距 iOS 圆角圆心约 325px < 360，不会被裁
-    badge = make_badge(600)
-    canvas.alpha_composite(badge, (CANVAS - badge.size[0] - 130, CANVAS - badge.size[1] - 130))
-    print(f"角标: {badge.size[0]}x{badge.size[1]}")
+    # 角标贴死右下角（margin=0），只有左上角是圆角
+    badge = make_badge(660, 110)
+    canvas.alpha_composite(badge, (CANVAS - badge.size[0], CANVAS - badge.size[1]))
+    print(f"角标: {badge.size[0]}x{badge.size[1]}（贴右下角，仅左上圆角）")
 
     final = canvas.resize((1024, 1024), Image.LANCZOS).convert("RGB")
     os.makedirs(OUT_DIR, exist_ok=True)
