@@ -81,19 +81,25 @@ struct ChatView: View {
                                     )
                                 }
                             )
-                        // 拿到背后的 UIScrollView：惯性中 scrollTo 无效，只有它能掐断惯性
-                        ScrollViewAccessor { scroll in
-                            if let scroll, scroll !== uiScrollView {
-                                uiScrollView = scroll
-                            }
-                        }
-                        .frame(width: 0, height: 0)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
                 }
                 .coordinateSpace(name: Self.scrollSpace)
                 .scrollDismissesKeyboard(.interactively)
+                // 隐藏系统滚动指示条：它的长度取决于 contentSize，
+                // 而这里 contentSize 一直在动（LazyVStack 排版、流式输出、附件条高度），
+                // 指示条会跟着抖。位置感交给右下角那个「↓」按钮代替。
+                .scrollIndicators(.hidden)
+                // 探针放在 background 而不是内容里 —— 放在 LazyVStack 里会参与内容排版
+                .background(
+                    ScrollViewAccessor { scroll in
+                        if let scroll, scroll !== uiScrollView {
+                            uiScrollView = scroll
+                        }
+                    }
+                    .frame(width: 0, height: 0)
+                )
                 // 新条目出现时：
                 // - 手机刚发过消息（3 秒内）→ 滚到底，保证能看到自己那条
                 // - 否则（电脑端发的、别的来源）→ 不抢滚动位置，只挂「新消息」提示
