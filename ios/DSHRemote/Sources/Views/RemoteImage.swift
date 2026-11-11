@@ -7,12 +7,53 @@ import UIKit
 /// 为什么要在客户端解析：DSH 把生成的文件路径直接写进助手消息文本
 /// （`![](...)` 或裸路径），服务端不做渲染约定，所以手机这边负责认出来。
 enum ImageRef {
+    /// 媒体类型：图片 / 视频 / 音频
+    enum Kind {
+        case image, video, audio
+    }
+
     private static let mdPattern = #"!\[[^\]]*\]\(\s*([^)]+?)\s*\)"#
     // 盘符 + 正斜杠（D:/...）也必须认：DSH 的 present 工具输出的正是这种形式，
     // 旧正则只写了 D:\ 于是把盘符吃掉，最后按当前盘解析成 C:\Documents\... 而 404。
     private static let barePattern = #"((?:[A-Za-z]:[\\/]|/)[^\s"'<>|\[\]]*?\.(?:png|jpe?g|gif|webp|bmp))"#
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp"]
+    private static let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "mkv", "webm", "avi"]
+    private static let audioExtensions: Set<String> = ["mp3", "m4a", "aac", "wav", "flac", "ogg", "opus"]
+
+    /// 按扩展名判断媒体类型
+    static func kind(of path: String) -> Kind? {
+        let ext = (path as NSString).pathExtension.lowercased()
+        if imageExtensions.contains(ext) { return .image }
+        if videoExtensions.contains(ext) { return .video }
+        if audioExtensions.contains(ext) { return .audio }
+        return nil
+    }
+
+    /// 从一段文本里挑出指定类型的路径
+    static func mediaPaths(in text: String, kind wanted: Kind) -> [String] {
+        allAbsolutePaths(in: text).filter { kind(of: $0) == wanted }
+    }
+
+    /// 扫出文本里所有「绝对路径 + 已知媒体扩展名」的字符串
+    private static func allAbsolutePaths(in text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+        let extensions = imageExtensions.union(videoExtensions).union(audioExtensions)
+        let pattern = #"((?:[A-Za-z]:[\\/]|/)[^\s"'<>|\[\]]*?\.[A-Za-z0-9]{2,5})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var found: [String] = []
+        var seen = Set<String>()
+        for match in regex.matches(in: text, range: range) {
+            guard let pathRange = Range(match.range(at: 1), in: text) else { continue }
+            let value = String(text[pathRange])
+            let ext = (value as NSString).pathExtension.lowercased()
+            guard extensions.contains(ext) else { continue }
+            guard seen.insert(value).inserted else { continue }
+            found.append(value)
+        }
+        return found
+    }
 
     /// 返回文本中出现的图片路径（去重、保序）
     static func paths(in text: String) -> [String] {

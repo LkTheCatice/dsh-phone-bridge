@@ -76,6 +76,13 @@ struct ChatBubble: View {
                 ForEach(ImageRef.paths(in: entry.text), id: \.self) { path in
                     RemoteImage(path: path)
                 }
+                // 视频 / 音频：同样从正文里挑出来，各自渲染播放器
+                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .video), id: \.self) { path in
+                    RemoteVideo(path: path)
+                }
+                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .audio), id: \.self) { path in
+                    RemoteAudio(path: path)
+                }
             }
         }
         .padding(11)

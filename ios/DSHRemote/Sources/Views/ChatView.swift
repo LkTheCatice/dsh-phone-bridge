@@ -13,7 +13,10 @@ struct ChatView: View {
     @FocusState private var focused: Bool
 
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var videoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
+    @State private var showVideos = false
+    @State private var importingAudio = false
     @State private var showFiles = false
     @State private var uploading = false
     @State private var renaming = false
@@ -528,9 +531,15 @@ struct ChatView: View {
                 // 附件入口跟 QQ 一样放在输入框左边
                 Menu {
                     // PhotosPicker 直接塞进 Menu 里不会触发选择器，必须用
-                    // photosPicker(isPresented:) 修饰符，这里只放一个开关按钮
+                    // photosPicker(isPresented:) 修饰符，这里只放开关按钮
                     Button { showPhotos = true } label: {
                         Label("图片", systemImage: "photo")
+                    }
+                    Button { showVideos = true } label: {
+                        Label("视频", systemImage: "video")
+                    }
+                    Button { importingAudio = true } label: {
+                        Label("音乐", systemImage: "music.note")
                     }
                     Button { showFiles = true } label: {
                         Label("文件", systemImage: "folder")
@@ -563,10 +572,19 @@ struct ChatView: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
             handleFile(result)
         }
+        // 音乐走文件选择器（相册里没有音频），视频走 PhotosPicker
+        .fileImporter(isPresented: $importingAudio, allowedContentTypes: [.audio], allowsMultipleSelection: false) { result in
+            handleFile(result)
+        }
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
         .onChange(of: photoItems) { items in
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
+        }
+        .photosPicker(isPresented: $showVideos, selection: $videoItems, maxSelectionCount: 3, matching: .videos)
+        .onChange(of: videoItems) { items in
+            guard !items.isEmpty else { return }
+            Task { await loadVideos(items) }
         }
         .sheet(item: $editorImage) { image in
             ImageEditorSheet(
@@ -652,6 +670,33 @@ struct ChatView: View {
                 uploadProgress = (index + 1, items.count)
             } catch {
                 model.showToast("第 \(index + 1) 张上传失败：\(error.localizedDescription)")
+                uploadProgress = (index + 1, items.count)
+            }
+        }
+    }
+
+    /// 视频上传：不做压缩（重编码代价太高），直接原样传，
+    /// 由电脑侧决定怎么处理。上限受 bridge 的 maxFileBytes 约束。
+    private func loadVideos(_ items: [PhotosPickerItem]) async {
+        uploading = true
+        uploadProgress = (0, items.count)
+        defer {
+            uploading = false
+            uploadProgress = nil
+            videoItems = []
+        }
+        for (index, item) in items.enumerated() {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                let stamp = Int(Date().timeIntervalSince1970)
+                // 保留原始扩展名，电脑侧靠它判断类型
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "mov"
+                let name = "video-\(stamp)-\(index).\(ext)"
+                let remote = try await model.uploadAttachment(data, filename: name)
+                attachments.append(remote)
+                uploadProgress = (index + 1, items.count)
+            } catch {
+                model.showToast("第 \(index + 1) 个视频上传失败：\(error.localizedDescription)")
                 uploadProgress = (index + 1, items.count)
             }
         }
