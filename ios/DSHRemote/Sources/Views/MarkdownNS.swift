@@ -162,23 +162,11 @@ enum MarkdownNS {
     // MARK: - 行内（**粗体** / *斜体* / `代码`）
 
     private static func inline(_ text: String, base: UIFont) -> NSAttributedString {
-        let cleaned = stripInlineMarks(text)
+        let cleaned = MarkdownInline.strip(text)
         return NSAttributedString(
             string: cleaned,
             attributes: [.font: base, .foregroundColor: UIColor.label]
         )
-    }
-
-    /// 去掉行内标记符号（不建属性，纯字符串处理，零越界风险）
-    private static func stripInlineMarks(_ text: String) -> String {
-        var s = text
-        s = s.replacingOccurrences(of: "**", with: "")
-        s = s.replacingOccurrences(of: "`", with: "")
-        // 单个星号只在成对出现时才去掉，避免吃掉乘号之类的正常文本
-        if s.filter({ $0 == "*" }).count % 2 == 0 {
-            s = s.replacingOccurrences(of: "*", with: "")
-        }
-        return s
     }
 
     private static func clampCode(_ code: String) -> String {

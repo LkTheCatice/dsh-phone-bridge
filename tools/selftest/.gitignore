@@ -1,0 +1,5 @@
+﻿.selftest/
+selftest.exe
+*.exe
+*.lib
+*.exp
