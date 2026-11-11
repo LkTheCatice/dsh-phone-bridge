@@ -970,6 +970,18 @@ final class AppModel: ObservableObject {
         return try await client.delete(path: path, recursive: recursive)
     }
 
+    /// 回前台后的宽限期：期间不显示断线横幅。
+    /// 从后台切回来时连接还没恢复，立即弹「未连接」其实是误报。
+    @Published private(set) var suppressDisconnect = false
+
+    func beginReconnectGrace(seconds: Double = 3) {
+        suppressDisconnect = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            suppressDisconnect = false
+        }
+    }
+
     func download(
         path: String,
         chunkSize: Int = 1024 * 1024,

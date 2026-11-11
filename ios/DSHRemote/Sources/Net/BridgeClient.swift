@@ -309,12 +309,28 @@ final class BridgeClient {
         try await getJSON("/v1/fs/list", query: [("path", path)])
     }
 
-    func readFile(path: String, offset: Int, limit: Int) async throws -> Data {
-        try await getRaw("/v1/fs/read", query: [
+    /// 最近一次 readFile 的返回信息（文件总大小、是否预览图）
+    private(set) var lastFileSize: Int64?
+    private(set) var lastWasPreview = false
+
+    func readFile(
+        path: String,
+        offset: Int,
+        limit: Int,
+        preview: Bool = false
+    ) async throws -> Data {
+        var query: [(String, String)] = [
             ("path", path),
             ("offset", String(offset)),
             ("limit", String(limit)),
-        ])
+        ]
+        if preview { query.append(("preview", "1")) }
+        let (data, headers) = try await sendWithHeaders(method: "GET", path: "/v1/fs/read", query: query)
+        if let sizeText = headers["x-file-size"], let size = Int64(sizeText) {
+            lastFileSize = size
+        }
+        lastWasPreview = headers["x-preview"] == "1"
+        return data
     }
 
     func writeFile(path: String, offset: Int, truncate: Bool, data: Data) async throws -> [String: Any] {
