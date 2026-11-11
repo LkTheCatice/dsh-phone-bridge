@@ -1120,7 +1120,27 @@ final class AppModel: ObservableObject {
         historyLoading = true
         defer { historyLoading = false }
         do {
-            let raw = try await client.transcript(sessionId: sessionId, limit: limit)
+            // 服务端读历史走的是内存快照（session.snapshotEvents）。
+            // 如果此刻 DSH 正在往这个会话追加事件，快照会处于中间状态，
+            // 它的严格校验会抛出 SessionFormatError（step/start 对不上 open turn）——
+            // 这是读写竞态，几秒后自愈，不是数据损坏。
+            // 所以这里重试两次，别让用户看到「历史加载失败」这种吓人的东西。
+            var raw: [String: Any] = [:]
+            var lastError: Error?
+            for attempt in 0..<3 {
+                do {
+                    raw = try await client.transcript(sessionId: sessionId, limit: limit)
+                    lastError = nil
+                    break
+                } catch {
+                    lastError = error
+                    if attempt < 2 {
+                        trace("hist-retry=\(attempt + 1) sid=\(sessionId.suffix(6))")
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                    }
+                }
+            }
+            if let lastError { throw lastError }
             guard let frames = raw["frames"] as? [[String: Any]] else { return }
             let started = CFAbsoluteTimeGetCurrent()
             var worstChunkMs = 0
