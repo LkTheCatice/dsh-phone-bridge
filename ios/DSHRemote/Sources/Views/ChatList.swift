@@ -213,55 +213,71 @@ final class MessageCell: UICollectionViewCell {
 
 enum MessageRender {
     static func attributed(_ entry: ChatEntry) -> NSAttributedString {
-        let text = entry.text.isEmpty ? "（空）" : String(entry.text.prefix(4_000))
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 2
+        let out = NSMutableAttributedString()
 
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15),
-            .foregroundColor: UIColor.label,
-            .paragraphStyle: paragraph,
-        ]
+        // 角色前缀（一条小字），正文用 markdown 富文本
+        if let prefix = prefix(for: entry) {
+            out.append(NSAttributedString(
+                string: prefix,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+                    .foregroundColor: UIColor.tertiaryLabel,
+                ]
+            ))
+        }
 
+        let body: NSAttributedString
         switch entry.kind {
-        case .user:
-            attributes[.foregroundColor] = UIColor.label
-        case .assistant:
-            break
+        case .assistant where !entry.running:
+            // 完成态回答走 markdown → 单个 NSAttributedString（代码块/列表/引用都在里面）
+            body = MarkdownNS.render(entry.text)
         case .thinking:
-            attributes[.font] = UIFont.italicSystemFont(ofSize: 13)
-            attributes[.foregroundColor] = UIColor.secondaryLabel
+            body = NSAttributedString(
+                string: entry.text,
+                attributes: [
+                    .font: UIFont.italicSystemFont(ofSize: 13),
+                    .foregroundColor: UIColor.secondaryLabel,
+                ]
+            )
         case .toolCall:
-            attributes[.font] = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-            attributes[.foregroundColor] = UIColor.secondaryLabel
-        case .collapsedSteps:
-            attributes[.font] = UIFont.systemFont(ofSize: 12)
-            attributes[.foregroundColor] = UIColor.tertiaryLabel
+            var text = entry.text
+            if let summary = entry.summary, !summary.isEmpty { text += " · " + summary }
+            body = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: UIColor.secondaryLabel,
+                ]
+            )
         case .system, .toolResult:
-            attributes[.font] = UIFont.systemFont(ofSize: 11)
-            attributes[.foregroundColor] = UIColor.tertiaryLabel
+            body = NSAttributedString(
+                string: entry.text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 11),
+                    .foregroundColor: UIColor.tertiaryLabel,
+                ]
+            )
+        default:
+            body = NSAttributedString(
+                string: entry.text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 15),
+                    .foregroundColor: UIColor.label,
+                ]
+            )
         }
+        out.append(body)
+        return out
+    }
 
-        let body = NSMutableAttributedString(string: text, attributes: attributes)
-
-        // 前缀标记，先代替原有气泡视觉
-        let prefix: String
+    private static func prefix(for entry: ChatEntry) -> String? {
         switch entry.kind {
-        case .user: prefix = "我："
-        case .assistant: prefix = entry.running ? "AI（正在生成）" : "AI："
-        case .thinking: prefix = "思考："
-        case .toolCall: prefix = "> "
-        case .collapsedSteps: prefix = "▸ "
-        case .system: prefix = ""
-        case .toolResult: prefix = ""
+        case .user: return "我\n"
+        case .assistant: return entry.running ? "AI（正在生成）\n" : "AI\n"
+        case .thinking: return "思考\n"
+        case .toolCall: return "> "
+        case .collapsedSteps: return "▸ "
+        case .system, .toolResult: return nil
         }
-        if !prefix.isEmpty {
-            let head = NSAttributedString(string: prefix, attributes: [
-                .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: UIColor.tertiaryLabel,
-            ])
-            body.insert(head, at: 0)
-        }
-        return body
     }
 }

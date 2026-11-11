@@ -263,6 +263,17 @@ enum MarkdownCache {
         return storage[text]
     }
 
+    /// 同步取（命中缓存直接返回，未命中就在当前线程解析一次）
+    ///
+    /// 给 `UITextView` 的 cell 配置用：一条消息只解析一次，
+    /// 之后滚动命中 NSCache / 这里的 storage，不再解析。
+    static func blocksSync(for text: String) -> [Block] {
+        if let hit = cached(text) { return hit }
+        let parsed = MarkdownParser.parse(text)
+        store(text, parsed)
+        return parsed
+    }
+
     /// 后台解析并入缓存
     static func blocksAsync(for text: String) async -> [Block] {
         if let hit = cached(text) { return hit }
