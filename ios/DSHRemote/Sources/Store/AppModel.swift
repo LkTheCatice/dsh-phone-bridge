@@ -235,7 +235,13 @@ final class AppModel: ObservableObject {
             // 本轮跑完就把过程收起来：思考 + 工具调用合成一行「本轮过程 · N 步」，
             // 点开才展开。否则几十轮下来 log 会把聊天记录埋掉。
             foldSteps(sid, turn: turn)
-            Task { await refreshSessions() }
+            // DSH 的标题是消息后异步生成的，turn.end 那一刻往往还没写进日志，
+            // 所以延迟几秒再刷一次会话列表，标题才会显示出来
+            Task {
+                await refreshSessions()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await refreshSessions()
+            }
 
         case "user.message":
             let text = (frame["text"] as? String) ?? ""

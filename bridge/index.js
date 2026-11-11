@@ -355,25 +355,84 @@ function applyBridge(ctx, config) {
   }
 
   /**
-   * 会话标题不在 list() 的返回里，只能问 sessionTitle 服务。
-   * 需要 session 对象（冷会话 get 会立刻返回 undefined，不会触发加载）。
+   * 会话标题不在 list() 的返回里。DSH 的 session-title 插件会在第一条消息后
+   * 往会话日志里写一条 `session/title` 事件，标题就是从那里折叠出来的。
+   *
+   * 这里走两条路：先问官方服务，取不到就直接从事件里找 —— 后者只依赖 session 对象，
+   * 不依赖 sessionTitle 服务是否已经挂到当前 ctx 上。
    */  function titleOf(sessionId) {
     try {
-      const titles = ctx.get?.("sessionTitle");
       const store = ctx.get?.("sessions");
-      if (!titles || typeof titles.get !== "function") return null;
-      if (!store || typeof store.get !== "function") return null;
-      const session = store.get(sessionId);
+      const session = store?.get?.(sessionId);
       if (!session) return null;
-      const snapshot = titles.get(session);
-      const title =
-        typeof snapshot === "string"
-          ? snapshot
-          : snapshot?.title ?? snapshot?.text ?? snapshot?.value ?? null;
-      return typeof title === "string" && title.trim() ? title.trim() : null;
+
+      const titles = ctx.get?.("sessionTitle");
+      if (titles && typeof titles.get === "function") {
+        const snapshot = titles.get(session);
+        const title = typeof snapshot === "string" ? snapshot : snapshot?.title;
+        if (typeof title === "string" && title.trim()) return title.trim();
+      }
+
+      const events = typeof session.snapshotEvents === "function" ? session.snapshotEvents() : null;
+      if (Array.isArray(events)) {
+        for (let i = events.length - 1; i >= 0; i -= 1) {
+          const event = events[i];
+          if (event && event.type === "session/title") {
+            const title = event.data?.title;
+            if (typeof title === "string" && title.trim()) return title.trim();
+            break;
+          }
+        }
+      }
+      return null;
     } catch {
       return null;
     }
+  }
+
+  /** 标题读取链路的诊断：把每一步的中间状态暴露出来 */
+  function titleDiagnostics(sessionId) {
+    const report = {
+      sessionId,
+      hasGet: typeof ctx.get === "function",
+      serviceNames: [],
+      hasSessionTitle: false,
+      hasSessionsStore: false,
+      hasSession: false,
+      serviceValue: null,
+      eventTitle: null,
+    };
+    try {
+      const titles = ctx.get?.("sessionTitle");
+      const store = ctx.get?.("sessions");
+      report.hasSessionTitle = Boolean(titles) && typeof titles.get === "function";
+      report.hasSessionsStore = Boolean(store) && typeof store.get === "function";
+      const session = store?.get?.(sessionId);
+      report.hasSession = Boolean(session);
+      if (session && titles && typeof titles.get === "function") {
+        try {
+          const snapshot = titles.get(session);
+          report.serviceValue = snapshot === undefined ? null : JSON.parse(JSON.stringify(snapshot));
+        } catch (error) {
+          report.serviceValue = { error: String(error?.message || error) };
+        }
+      }
+      const events = session && typeof session.snapshotEvents === "function" ? session.snapshotEvents() : null;
+      if (Array.isArray(events)) {
+        for (let i = events.length - 1; i >= 0; i -= 1) {
+          if (events[i]?.type === "session/title") {
+            report.eventTitle = events[i].data?.title ?? null;
+            break;
+          }
+        }
+        report.eventCount = events.length;
+        report.hasTitleEvent = report.eventTitle !== null;
+      }
+      report.resolved = titleOf(sessionId);
+    } catch (error) {
+      report.error = String(error?.message || error);
+    }
+    return report;
   }
 
   /** 查 ComfyUI 是否在线、是否在生图（手机上的状态灯用它） */
@@ -879,6 +938,20 @@ function applyBridge(ctx, config) {
       const sessionId = url.searchParams.get("sessionId") || "";
       const current = sessionId ? currentSelection(sessionId) : null;
       return sendJson(res, 200, { ok: true, ...catalog, current }, ctxEnc);
+    }
+
+    // 标题读取链路诊断：查为什么某个会话显示的是 id 而不是标题
+    if (method === "GET" && pathname === "/v1/debug/title") {
+      const sessionId = url.searchParams.get("sessionId") || "";
+      if (!sessionId) {
+        const rows = await listSessions();
+        return sendJson(res, 200, {
+          ok: true,
+          hint: "带上 ?sessionId=xxx 看单个会话的诊断",
+          sessions: rows.slice(0, 10).map((row) => ({ id: row.id, title: row.title })),
+        }, ctxEnc);
+      }
+      return sendJson(res, 200, { ok: true, report: titleDiagnostics(sessionId) }, ctxEnc);
     }
 
     // 切换某个会话的模型
