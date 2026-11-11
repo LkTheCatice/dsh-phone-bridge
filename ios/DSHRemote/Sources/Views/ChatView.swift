@@ -301,43 +301,47 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
-            if uploading {
+            // 注意：这里刻意不用 `if ... { }` 增删视图。
+            // SwiftUI 会在结构变化时重建整个子树，TextField 跟着重建，
+            // 正在组合的拼音就被打断 —— 表现就是「选完图后第一个字母不进拼音」。
+            // 改成恒定结构 + 用高度和透明度控制，视图树不变，输入法状态就不会丢。
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(uploadText).font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(height: uploading ? 22 : 0)
+            .opacity(uploading ? 1 : 0)
+            .clipped()
+
+            // 已上传待发送的附件：chip 列表，点 × 单独移除
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(uploadText).font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
-            // 已上传待发送的附件：显示成 chip，点 × 移除。不再把路径塞进输入框，
-            // 这样图片和文字可以自然一起发。
-            if !attachments.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(attachments, id: \.self) { path in
-                            HStack(spacing: 5) {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 11))
-                                Text((path as NSString).lastPathComponent)
-                                    .font(.system(size: 11))
-                                    .lineLimit(1)
-                                Button {
-                                    attachments.removeAll { $0 == path }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
+                    ForEach(attachments, id: \.self) { path in
+                        HStack(spacing: 5) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 11))
+                            Text((path as NSString).lastPathComponent)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                            Button {
+                                attachments.removeAll { $0 == path }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
                             }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(.quaternary, in: Capsule())
+                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(.quaternary, in: Capsule())
                     }
-                    .padding(.horizontal, 14)
                 }
-                .padding(.top, 6)
+                .padding(.horizontal, 14)
             }
+            .frame(height: attachments.isEmpty ? 0 : 44)
+            .opacity(attachments.isEmpty ? 0 : 1)
+            .clipped()
             // 发送方式：排队（等当前轮结束）/ 插队（打断当前轮）
             HStack(spacing: 8) {
                 Picker("发送方式", selection: $model.sendMode) {
