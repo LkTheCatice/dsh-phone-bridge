@@ -129,25 +129,22 @@ struct ChatView: View {
                 // 而这里 contentSize 一直在动（LazyVStack 排版、流式输出、附件条高度），
                 // 指示条会跟着抖。位置感交给右下角那个「↓」按钮代替。
                 .scrollIndicators(.hidden)
-                .modifier(BottomAnchorModifier())
                 .scrollDisabled(pauseScrolling)
                 // 内容一有变化就判断要不要跟随。
                 // 用 streamTick 而不是 entries.count / last?.text：
                 // 前者漏掉「流式文字在同一行里增长」，后者漏掉
                 // 「最后一条是 thinking 或工具行、文本不变但高度在长」。
                 .onChange(of: model.streamTick) { _ in
-                    // iOS 17 起由 .defaultScrollAnchor(.bottom) 在滚动层自动贴底，
-                    // 这里绝不能再手工 scrollTo：它会把 20 条 markdown 气泡全部重新测量，
-                    // 真机实测一次 43 秒（STUCK 43242ms mark=scroll）。
-                    if #available(iOS 17.0, *) {
-                        if !jump.atBottom, !jump.hasNewBelow { jump.hasNewBelow = true }
-                        return
-                    }
+                    // 跟随策略：**手工 scrollTo + 500ms 节流**。
+                    //
+                    // 试过两条更"先进"的路都不行：
+                    // - 每次 delta 都 scrollTo（150ms 节流）→ 每次全量测量，43 秒
+                    // - iOS 17 的 .defaultScrollAnchor(.bottom) → 系统每帧重新锚定，
+                    //   同样是每帧全量布局，5 条消息也能卡 20 秒（mark=body）
+                    // 折中：每 2 秒最多跟随一次。流式文字慢半拍，但主线程稳。
                     if jump.atBottom {
-                        // 节流 150ms。时间戳存在 jump 里（引用类型普通属性），
-                        // 用 @State 会因为「改状态触发重算」而无限循环。
                         let now = Date()
-                        guard now.timeIntervalSince(jump.lastFollowAt) > 0.15 else { return }
+                        guard now.timeIntervalSince(jump.lastFollowAt) > 0.5 else { return }
                         jump.lastFollowAt = now
                         // 诊断开关：关掉自动跟随滚动，用来验证「滚动 ↔ 布局回调」这条环
                         guard !model.expNoAutoFollow else {
@@ -168,7 +165,6 @@ struct ChatView: View {
                 // 立刻 scrollTo 会找不到目标。
                 .onChange(of: model.historyVersion) { _ in
                     if !jump.atBottom { jump.atBottom = true }
-                    if #available(iOS 17.0, *) { return }   // 系统已自动贴底
                     if jump.hasNewBelow { jump.hasNewBelow = false }
                     DispatchQueue.main.async {
                         scrollToEnd(proxy)
