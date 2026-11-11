@@ -38,6 +38,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $project = Resolve-Path (Join-Path $here "..\..")
 $model = Join-Path $project "ios\DSHRemote\Sources\Core\MarkdownModel.swift"
 $media = Join-Path $project "ios\DSHRemote\Sources\Core\MediaRefScan.swift"
+$cache = Join-Path $project "ios\DSHRemote\Sources\Core\MarkdownCache.swift"
 if (-not (Test-Path $media)) {
     Write-Host "✗ 找不到 $media" -ForegroundColor Red
     exit 2
@@ -57,7 +58,7 @@ try {
     # swiftc 把普通信息也写到 stderr，这里临时放开 ErrorActionPreference
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    & (Join-Path $swiftBin "swiftc.exe") main.swift $model $media -o $exe 2>&1 |
+    & (Join-Path $swiftBin "swiftc.exe") main.swift $model $media $cache -o $exe 2>&1 |
         Where-Object { $_ -notmatch "正在创建库|creating library|never used|#NoUsage" } |
         ForEach-Object { Write-Host "  $_" }
     $ErrorActionPreference = $prev

@@ -60,7 +60,6 @@ struct ChatView: View {
     /// 这是硬兜底：布局成本随「条目数 × 每条文本量」增长，而 LazyVStack 在
     /// 首屏/跳转时会把可见范围整体测量一遍（真机实测 20 条就能卡 19 秒）。
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
-    @State private var visibleLimit = 10
 
     /// 正在查看附件的条目（附件面板 sheet）
     @State private var attachmentEntry: ChatEntry?
@@ -73,11 +72,13 @@ struct ChatView: View {
     /// 工具详情弹窗（全列表共用一个，别在每个气泡上挂 sheet）
     @StateObject private var detailPresenter = ToolDetailPresenter()
 
-    private var visibleEntries: [ChatEntry] {
-        // 流式期间只留最后 4 条：渲染量恒定且极小，避免「每秒多次重排 × 富文本」饱和
-        let limit = model.isStreaming ? 4 : visibleLimit
-        return entries.count <= limit ? entries : Array(entries.suffix(limit))
-    }
+    /// 列表内容：**不再裁剪**。
+    ///
+    /// 之前 limit 到 10（流式 4）是因为 `LazyVStack` 没有 cell 复用、
+    /// 富文本又是每条 N 个视图，只能靠少放条目止血。
+    /// 现在列表是 `UICollectionView` + cell 复用，**滚动成本与条目总数无关**，
+    /// 再限制条目只会让用户看不到历史，没有收益。
+    private var visibleEntries: [ChatEntry] { entries }
 
     /// 标题直接用 AppModel 里的标量：不要再读 model.sessions，
     /// 否则每次会话列表刷新（每条消息结束都刷）都会让整棵聊天树重算。

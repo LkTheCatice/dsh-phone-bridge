@@ -258,6 +258,33 @@ let cleanedText: String = MediaRefScan.cleaned("看 ![alt](D:/a/b.png) 这里")
 check(!cleanedText.contains("!["), "cleaned 应去掉 markdown 图片语法")
 print("  \(mediaCases.count) 条路径用例 + 超长守卫 + 分类/清理")
 
+// MARK: - 8. 解析缓存（Core/MarkdownCache）
+
+section("MarkdownCache")
+
+let sample = "# 标题\n\n正文 **粗体** 和 `代码`\n\n```swift\nlet a = 1\n```"
+let first = MarkdownCache.blocksSync(for: sample)
+check(!first.isEmpty, "首次解析为空")
+let second = MarkdownCache.blocksSync(for: sample)
+check(first.count == second.count, "缓存命中后 block 数不一致")
+check(first == second, "缓存命中后内容不一致")
+
+// 不同文本不应互相污染
+let other = "另一段 `x` 文本"
+let otherBlocks = MarkdownCache.blocksSync(for: other)
+check(otherBlocks != first, "不同文本解析结果被污染")
+
+// 空串
+let emptyBlocks = MarkdownCache.blocksSync(for: "")
+check(emptyBlocks.isEmpty, "空串应得到空 block")
+
+// 超大文本不应崩（有长度守卫）
+let huge = String(repeating: "填充 **粗** `码` ", count: 1_500)
+let hugeBlocks = MarkdownCache.blocksSync(for: huge)
+check(!hugeBlocks.isEmpty, "超大文本解析为空")
+
+print("  缓存命中/隔离/空串/超大 共 6 条断言")
+
 // MARK: - 汇总
 
 print("\n════════════════════════════════")
