@@ -385,9 +385,11 @@ final class AppModel: ObservableObject {
                     unreadSessions.insert(sid)
                 }
                 Task {
-                    await refreshSessions()
+                    // 一轮结束时刷两次：立刻一次、3 秒后再一次（等标题落盘）。
+                    // force 是为了绕过 2 秒节流 —— 这两次是刻意的，不是重复请求。
+                    await refreshSessions(force: true)
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    await refreshSessions()
+                    await refreshSessions(force: true)
                 }
             }
 
@@ -685,8 +687,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func refreshSessions() async {
+    /// 会话列表刷新节流：2 秒内只真正拉一次。
+    ///
+    /// 之前发一条消息会触发 3 处同时刷新（发送后、会话列表、主界面），
+    /// 日志里能看到同一秒 5 次 /v1/sessions —— 每次都是 47 条的服务端查询，
+    /// 白白多花几倍流量和时间。
+    private var lastSessionsFetch: Date = .distantPast
+    private var sessionsFetchInFlight = false
+
+    func refreshSessions(force: Bool = false) async {
         guard let client else { return }
+        guard !sessionsFetchInFlight else { return }
+        if !force, Date().timeIntervalSince(lastSessionsFetch) < 2 { return }
+        sessionsFetchInFlight = true
+        lastSessionsFetch = Date()
+        defer { sessionsFetchInFlight = false }
+
         if let result = try? await client.fetchSessions(),
            let rows = result["sessions"] as? [[String: Any]] {
             sessions = rows.compactMap(SessionRow.parse)
