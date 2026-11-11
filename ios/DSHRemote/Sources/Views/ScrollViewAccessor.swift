@@ -70,9 +70,14 @@ extension UIScrollView {
 
     /// 先强制掐断惯性，再贴到底（按钮用）。
     ///
-    /// 只做一次定位，**不做多帧校准**。
-    /// 之前在校准里反复 setContentOffset，会和自动跟随互相触发
-    /// （内容高度变 → 跟随 → 校准 → offset 变 → 判定又变），几秒内把主线程打满直接卡死。
+    /// 定位之后补一次「只修越界」的校正：
+    /// 从很靠上的位置跳转时，LazyVStack 中间那段还没真正渲染，
+    /// contentSize 是估算值、可能偏大 —— 按它跳就会越过底部露出空白。
+    /// 所以落位后下一帧再量一次真实的 bottomOffsetY，超出才拉回来。
+    ///
+    /// 只修「超出」不修「差一点」，而且只跑一次：
+    /// 之前做过多帧双向校准，会和自动跟随互相触发（高度变→跟随→校准→再变），
+    /// 几秒把主线程打满直接卡死。
     func stopThenScrollToBottom() {
         // ① 系统级打断减速模拟
         let wasEnabled = isScrollEnabled
@@ -84,5 +89,15 @@ extension UIScrollView {
         // ③ 布局稳定后一次性定位
         layoutIfNeeded()
         setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
+        // ④ 单次越界校正
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.isDragging, !self.isDecelerating, !self.isTracking else { return }
+            self.layoutIfNeeded()
+            let limit = self.bottomOffsetY
+            if self.contentOffset.y > limit {
+                self.setContentOffset(CGPoint(x: self.contentOffset.x, y: limit), animated: false)
+            }
+        }
     }
 }
