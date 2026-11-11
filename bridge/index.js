@@ -426,6 +426,34 @@ function applyBridge(ctx, config) {
 
   /**
    * 会话标题不在 list() 的返回里，只能从会话日志里折出来。
+  /** 冷会话的历史：直接用磁盘日志重建（和标题走同一套 zstd 读取） */
+  function framesFromLog(sessionId) {
+    const file = sessionLogIndex().get(sessionId);
+    if (!file) return null;
+    try {
+      const text = zstdDecompressSync(fs.readFileSync(file)).toString("utf8");
+      const frames = [];
+      // normalizeEvent 只在 sessionIdOf 里用 session，给个最小替身就够
+      const stub = { id: sessionId };
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        for (const frame of normalizeEvent(stub, event)) frames.push(frame);
+      }
+      return frames;
+    } catch (error) {
+      logLine({ step: "transcript/log", sessionId, error: String(error?.message || error).slice(0, 200) });
+      return null;
+    }
+  }
+
+  /**
+   * 会话标题不在 list() 的返回里，只能从会话日志里折出来。
    *
    * 三条路依次尝试：
    *   1. 官方 sessionTitle 服务（需要热会话）
@@ -801,8 +829,13 @@ function applyBridge(ctx, config) {
           }
         }
         report.titleOf = titleOf(probe);
+        report.framesFromLog = (() => {
+          const frames = framesFromLog(probe);
+          return frames === null ? null : frames.length;
+        })();
       }
-      return sendJson(res, 200, { ok: true, report }, ctxEnc);
+      // /admin/* 是免 E2EE 的本机接口，没有会话密钥，传 ctxEnc 会导致加密失败 500
+      return sendJson(res, 200, { ok: true, report });
     }
 
     if (method === "GET" && pathname === "/admin/devices") {
@@ -1050,9 +1083,29 @@ function applyBridge(ctx, config) {
       const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 400, 1), 2000);
       if (!sessionId) throw new HttpError(400, "bad-request", "需要 sessionId");
       const session = ctx.get?.("sessions")?.get?.(sessionId);
+
+      // 热会话走事件流；冷会话（没加载进 store）直接从磁盘日志重建，
+      // 否则列表里 45 个会话点进去全是空的。
       if (!session) {
-        return sendJson(res, 200, { ok: true, frames: [], note: "冷会话未加载，读不到历史" }, ctxEnc);
+        const fromLog = framesFromLog(sessionId);
+        if (fromLog) {
+          return sendJson(res, 200, {
+            ok: true,
+            sessionId,
+            source: "log",
+            total: fromLog.length,
+            frames: fromLog.slice(-limit),
+          }, ctxEnc);
+        }
+        return sendJson(res, 200, {
+          ok: true,
+          sessionId,
+          source: "none",
+          frames: [],
+          note: "冷会话且找不到日志文件",
+        }, ctxEnc);
       }
+
       let events = [];
       try {
         events = typeof session.snapshotEvents === "function" ? session.snapshotEvents() : [];
