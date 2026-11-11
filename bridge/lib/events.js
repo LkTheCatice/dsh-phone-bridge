@@ -12,6 +12,21 @@ export const FRAME_VERSION = 1;
 const RAW_LIMIT = 8 * 1024;
 const TEXT_LIMIT = 32 * 1024;
 
+/**
+ * 剥掉 `<system-reminder>…</system-reminder>` / `<system>…</system>` 这类系统包裹块。
+ *
+ * 这些是给模型看的注入内容（技能目录变更、hook 提醒之类），
+ * 混在用户消息里会被当成用户发言显示出来 —— 手机上就是整段原文。
+ */
+function stripSystemBlocks(text) {
+  if (typeof text !== "string" || !text) return text ?? "";
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
+    .replace(/<system>[\s\S]*?<\/system>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function clip(value, limit) {
   if (value == null) return null;
   const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -179,11 +194,16 @@ export function normalizeEvent(session, event) {
       break;
 
     case "user/message": {
-      const text = collectText(data).text;
+      const raw = collectText(data).text;
+      // 系统注入剥掉再判断：`<system-reminder>...</system-reminder>`
+      // 这类包裹式内容（技能目录变更、hook 提醒）会整段混进用户消息，
+      // 之前只按固定前缀过滤，于是整块原文被当成用户发言显示在手机上。
+      const text = stripSystemBlocks(raw);
       // DSH 会把两类内容注入到用户消息里，都是给模型看的，不该进手机聊天记录：
       //   1. time-context：  Time sampled while preparing turn N…
       //   2. runtime-context：Current working directory / DSH file policy / Approval prompts…
       const injected =
+        !text.trim() ||
         /^(Time sampled while preparing|Browser time zone for this request|Elapsed since)/im.test(text) ||
         /Current DSH file policy|Approval prompts are disabled in this session|Current DeepSeek Harness implementation checkout|Current DeepSeek Harness Web GUI URL/i.test(
           text,
