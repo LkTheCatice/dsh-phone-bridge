@@ -46,10 +46,16 @@ extension UIView {
 }
 
 extension UIScrollView {
-    /// 当前内容底部的合法 contentOffset
+    /// 当前内容底部的合法 contentOffset。
+    ///
+    /// 标准公式：contentSize.height - bounds.height + bottomInset
+    /// 之前写成 `contentSize - (bounds - top - bottom) + bottom`，
+    /// 等于多加了一个 top+bottom，会滚过头跑到「最新消息下面」的一片空白里。
     var bottomOffsetY: CGFloat {
-        let visibleHeight = bounds.height - adjustedContentInset.top - adjustedContentInset.bottom
-        return max(0, contentSize.height - visibleHeight + adjustedContentInset.bottom)
+        max(
+            -adjustedContentInset.top,
+            contentSize.height - bounds.height + adjustedContentInset.bottom
+        )
     }
 
     /// 立刻贴到底（自动跟随用）。
@@ -64,24 +70,28 @@ extension UIScrollView {
 
     /// 先强制掐断惯性，再动画滚到底（按钮用）。
     ///
-    /// 关键点：`setContentOffset(_:animated:)` 在减速动画进行时**不一定生效**，
-    /// 必须先用一次 `animated: false` 的原地定位把 decelerating 状态打断；
-    /// 第二步用 `UIView.animate` + `.beginFromCurrentState` 才可靠 ——
-    /// 直接在 animate 外设 contentOffset 会被正在跑的动画盖掉。
+    /// 三步：
+    /// ① `animated: false` 的原地定位 —— 真正终止减速动画
+    /// ② `layoutIfNeeded()` 让 contentSize 追到最新
+    /// ③ `UIView.animate` + `.beginFromCurrentState` 滚过去，
+    ///    completion 里再校准一次 —— 万一被手指或残余惯性打断，也能精确到位
     func stopThenScrollToBottom() {
-        // ① 原地定位：终止减速动画
         setContentOffset(contentOffset, animated: false)
-        // ② 等布局稳定后再算底部
         layoutIfNeeded()
         let target = bottomOffsetY
-        guard target > 0 else { return }
-        // ③ 动画滚过去
+        guard contentSize.height > bounds.height else {
+            setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: false)
+            return
+        }
         UIView.animate(
-            withDuration: 0.28,
+            withDuration: 0.3,
             delay: 0,
-            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            options: [.curveEaseOut, .beginFromCurrentState]
         ) {
             self.contentOffset = CGPoint(x: self.contentOffset.x, y: target)
+        } completion: { _ in
+            // 兜底校准：被惯性或手指打断时，最终值可能差一点
+            self.setContentOffset(CGPoint(x: self.contentOffset.x, y: target), animated: false)
         }
     }
 }
