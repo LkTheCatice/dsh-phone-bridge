@@ -89,7 +89,8 @@ struct ChatBubble: View, Equatable {
                     Text("思考")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
-                    Text(entry.text)
+                    // 思考过程很容易上万字符：只排前面一段，别让一次思考把主线程按住
+                    Text(entry.text.count > 1_500 ? String(entry.text.prefix(1_500)) + "\n…（思考内容过长，已截断）" : entry.text)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .selectableText()
@@ -125,16 +126,37 @@ struct ChatBubble: View, Equatable {
                 if entry.running { ProgressView().controlSize(.mini) }
             }
             if entry.running {
-                // 流式期间只渲染纯文本：跳过 Markdown 解析、跳过正则扫图、跳过字符串清洗。
-                // 否则每来一个 delta 都要对全文跑一遍正则 + 解析，输入和滚动都会卡。
-                Text(entry.text)
+                // 流式期间只渲染纯文本，而且**只渲染尾部**：排版在主线程，
+                // 一条长回答干到几万字符时，排版本身就是秒级开销。
+                // 正在输出时用户看的是最新几行，保留尾部 2000 字符足够。
+                clampedPlain(tailOf: entry.text, limit: 2_000)
                     .selectableText()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 let media = MediaRefCache.refs(for: entry.text)
-                MarkdownText(raw: ImageRef.cleaned(entry.text))
-                    .foregroundStyle(.primary)
-                    .selectableText()
+                let cleaned = ImageRef.cleaned(entry.text)
+                if !expanded, cleaned.count > Self.previewChars {
+                    // 超长回答默认只排前 2000 字符：真机实测启动首次渲染历史
+                    // 在这上面卡了 21.6 秒（STUCK 21639ms mark=body）。
+                    // 把解析搬到后台不够，**CoreText 排版本身**也必须受控。
+                    VStack(alignment: .leading, spacing: 6) {
+                        MarkdownText(raw: String(cleaned.prefix(Self.previewChars)))
+                            .foregroundStyle(.primary)
+                        Button("展开全文（\(cleaned.count) 字）") { expanded = true }
+                            .font(.system(size: 12))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                } else {
+                    MarkdownText(raw: expanded ? String(cleaned.prefix(Self.expandedChars)) : cleaned)
+                        .foregroundStyle(.primary)
+                        .selectableText()
+                    if expanded, cleaned.count > Self.expandedChars {
+                        Text("（已截断，原文 \(cleaned.count) 字）")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
                 ForEach(media.images, id: \.self) { path in
                     RemoteImage(path: path)
                 }
@@ -150,6 +172,27 @@ struct ChatBubble: View, Equatable {
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// 单条内容在主线程上允许排版的字数上限。
+    /// 为什么要有：Text 的排版（CoreText）在主线程，几万字符就是几秒级。
+    private static let previewChars = 2_000
+    /// 主动展开后仍允许的上限，防止「展开」变成又一次 20 秒
+    private static let expandedChars = 20_000
+
+    /// 只渲染尾部的一段纯文本（流式输出用）
+    @ViewBuilder
+    private func clampedPlain(tailOf text: String, limit: Int) -> some View {
+        if text.count <= limit {
+            Text(text)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("（前面 \(text.count - limit) 字已省略）")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                Text(String(text.suffix(limit)))
+            }
+        }
     }
 
     /// 一轮跑完后的过程折叠行：点一下才展开里面的思考与工具调用
@@ -231,8 +274,13 @@ struct ChatBubble: View, Equatable {
             }
 
             if expanded, let detail = entry.detail {
+                // 工具参数/结果动辄几万字符（整段文件内容、命令输出），
+                // 只排前面一段：这里是主线程，排版成本随字数线性涨。
+                let shown = detail.count > 4_000
+                    ? String(detail.prefix(4_000)) + "\n…（其余 \(detail.count - 4_000) 字已省略）"
+                    : detail
                 ScrollView(.horizontal, showsIndicators: false) {
-                    Text(detail)
+                    Text(shown)
                         .font(.system(size: 11, design: .monospaced))
                         .selectableText()
                         .padding(8)
@@ -242,7 +290,9 @@ struct ChatBubble: View, Equatable {
 
                 // 工具读过的图：DSH 运行时看的图片只出现在参数里，
                 // 不渲染的话手机上完全看不到这一轮到底看了什么。
-                ForEach(ToolSummary.imagePaths(from: detail), id: \.self) { path in                    RemoteImage(path: path)
+                // 只在前面一段里找（正则扫全文在主线程，几万字符会明显卡）
+                ForEach(ToolSummary.imagePaths(from: String(detail.prefix(20_000))), id: \.self) { path in
+                    RemoteImage(path: path)
                 }
             }
         }
