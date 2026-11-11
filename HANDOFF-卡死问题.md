@@ -527,7 +527,10 @@ Color.clear.frame(height: 1).id(bottomAnchor)
 
 ---
 
-## 十五、⭐ 最终根因：嵌套横向 ScrollView 的测量成本（2026-11-12 00:50，705ede1）
+## 十五、当时最贵的一层：嵌套横向 ScrollView 的测量成本（2026-11-12 00:50，705ede1）
+
+> 这一节写的是当时的判断。之后又暴露出三层（见 §十六），所以标题从「最终根因」改掉了 ——
+> 卡顿是**分层掩盖**的，修掉一层，下一层才露出来。
 
 ### 15.1 决定性对比
 
@@ -568,3 +571,84 @@ Color.clear.frame(height: 1).id(bottomAnchor)
   变化都会让 ChatView 重算一次。要根治需把 `sessions` 拆成独立 ObservableObject 或
   改成按需传递，收益是这 700ms，不是卡死级问题。
 - 诊断打点目前在正常使用时仍偏密（`act` 每 0.25 秒一条），日志增长快。
+
+
+---
+
+## 十六、通宵踩坑总表（2026-11-12 01:55）
+
+> 这一夜从「点发送卡死」查到「回车卡死」，先后挖出 **8 层**，
+> 每一层都真实、都被实测数字钉住，但**每一层都不是全部**。
+> 下面按「症状 → 当时看到的证据 → 真正的原因 → 修法」固化，
+> 目的是别再从头走一遍。
+
+### 16.1 卡死分层史（同一台机器、同一晚，最长停顿）
+
+| 版本 | 最长停顿 | 当时最贵的一层 | mark |
+|---|---|---|---|
+| `1b493cb` | 死锁（Timer 停跑） | UIKit `ScrollViewAccessor` 重试风暴 + 四处 @State 环 | 无 |
+| `26997be` | 1.0s→ 仍卡 | 底部判定 `GeometryReader`+`preference` 自激（300 次/秒） | `p=` |
+| `d557047` | 21.6s | markdown 解析在主线程 | `body` |
+| `65ed5ce` | 11.2s | 超长文本整段 `Text` 排版 | `body` |
+| `9848edb` | 29.8s | `proxy.scrollTo` 强制全量测量 | `scroll` |
+| `705ede1` | 0.7s | 嵌套横向 `ScrollView` 测量 | `b:tool` |
+| `aa7516e` | 22s | 每个气泡各挂 `.sheet`（40 个宿主） | `body` |
+| `deb7cbc` | 1.2s | `defaultScrollAnchor` 每帧重新锚定 | `body` |
+| `68585f0` | 21s | `blocks` 未就绪时排整条原文 | `md` |
+| `73813ca` | 1.76s | `DragGesture.onChanged` 每帧写 @State | `body` |
+| `9f85a4e` | 待测 | `Block` 没有 Equatable → @State 赋值自激 | `body` |
+
+### 16.2 SwiftUI 状态坑（**每一条都在真机上炸过**）
+
+| 坑 | 为什么致命 | 正确做法 |
+|---|---|---|
+| `@State` 存**不可比较**的类型（如未声明 `Equatable` 的 enum） | SwiftUI 认为每次赋值都变了 → 无限重算 | `@State` 的类型必须 `Equatable`，并在赋值前比较 |
+| 在**每帧回调**里写 `@State`/`@Published`（`DragGesture.onChanged`、`onPreferenceChange`、`updateUIView`） | 每帧一次全树重算，队列追不上 | 只在 `onEnded` / 值翻转时写；或用 `onScrollGeometryChange` 这类"只在变化时回调"的 API |
+| 用 `GeometryReader` + `PreferenceKey` 上报滚动位置，再据此写状态 | 算相对坐标要反向请求布局 → 自激（实测 300 次/秒） | 位置判定用手势或 `onScrollGeometryChange`，**不读布局** |
+| `@Published` 赋同值 | 一样发 `objectWillChange`，白重算 | 赋值前 guard（`if x != new`） |
+| `@EnvironmentObject` 订阅**整个**对象 | 任何无关 `@Published` 变化都让大视图重算（实测 700ms） | 把高频/无关状态拆进独立 `ObservableObject`（如 `SessionListStore`） |
+| 每个列表项各挂一个 `.sheet` | 每个都是 presentation 宿主（40 个直接卡死） | sheet 收到父层用一次，子项通过环境里的 presenter 触发 |
+
+### 16.3 SwiftUI 布局/渲染成本坑
+
+| 坑 | 代价 | 正确做法 |
+|---|---|---|
+| 纵向 `LazyVStack` 里嵌 `ScrollView(.horizontal)`（代码块/表格） | 测量要完整布局，20 条 = 30 秒 | 折行 / `Grid`，不嵌滚动容器 |
+| `AttributedString(markdown:)` 每次求值都算 | 单次 ~100ms × 段落数 × 每秒十几次 | 按原文缓存 + 后台预解析 |
+| `blocks` 未就绪时渲染 `Text(raw)` 整条回答 | 每次重算排全文（21 秒） | 占位 `"…"`，解析好再换 |
+| `.lineLimit(1)` 以为能省排版 | **不减成本**，Text 仍排全文 | 渲染前截断字符串 |
+| 长文本进列表（工具详情几万字符） | 每次布局重排 | 移到 sheet，列表只放短摘要 |
+| 单会话条目无上限 | 布局成本随条目数增长 | 硬上限（现在 10 条可见，更早折叠） |
+| 三种"贴底"写法都会触发全量测量 | `scrollTo` / `setContentOffset` / `defaultScrollAnchor` | 跟随节流 ≥500ms；不要每帧贴底 |
+
+### 16.4 观测方法坑（**先有观测，才有方向**）
+
+| 坑 | 后果 | 正确做法 |
+|---|---|---|
+| 所有打点都挂在主线程 Timer 上 | 卡死期间零日志，完全瞎 | 后台线程 `StallWatcher`：心跳 0.1s，>0.7s 就上报 `STUCK <ms> mark=` |
+| 看门狗用 `gap > 阈值` 判卡顿 | `gap` 恒等于 Timer 周期，每拍都误报 | 比较 `gap - 周期`（`over`） |
+| 只有粗粒度 mark（`body`/`scroll`） | `body` 涵盖整个布局阶段，等于没说 | 分到气泡类型 `b:tool` / `b:ans`，以及 `md`、`apply:<帧类型>`、`img:*` |
+| 不知道手机上装的是哪一版 | 连续几轮把已修的问题当新问题查 | Info.plist 注入 `MARKETING_VERSION=<sha>` + `CURRENT_VERSION=<run>`，连上就报 `build=xxx.132 os=26.6` |
+| 只看"卡了多久" | 分不清"单次慢"和"重算风暴" | 心跳带计数：`hb body= bubble= follow= send=`（bubble≫body=风暴；都低但 worst 高=单次慢） |
+
+### 16.5 工程流程坑
+
+| 坑 | 教训 |
+|---|---|
+| 没确认版本就开始改 | 每轮先看 `build=`；没有它就先加它 |
+| 一次改 3-5 处 | 症状会换地方，无法归因；一次一组 |
+| 用"真凶/最终根因"描述中间层 | 会造成误判和返工；只说"当前最贵的一层是多少 ms" |
+| 拿"光标还在闪"判断主线程活着 | 插入符由 Core Animation 维持，**与主线程无关** |
+| 直接解压正在写入的会话 `.jsonl.zstd` 做分析 | 虽然只读，但对活跃文件做解析没必要，且容易引出读写竞态误判（`SessionFormatError`）。要考古走 bridge 接口 |
+| 把 `loadHistory` 的一次失败当真 | `/v1/transcript` 走内存快照，写者更新到一半会瞬时校验失败；应重试 2-3 次 |
+
+### 16.6 当前状态与后续
+
+**已稳**（`9f85a4e` 之前实测：最长 1.2s，发送 `render≈75ms`/`s9≈240ms`）：
+- 发送 / 打字 / 上划的手势坑已修
+- 会话列表与聊天树解耦；未选中会话不加载内容但保留运行态与未读提示
+
+**待办**：
+1. 首次布局 ~1.2s（`composer` 改 `safeAreaInset` 或继续拆子视图）
+2. `comfy` 从 AppModel 拆出（每 8 秒一次状态轮询会让 ChatView 重算）
+3. 运行日志：手机本地滚动日志 → 攒够走 bridge 上传 → `logDir` 可配 → 传完删本地
