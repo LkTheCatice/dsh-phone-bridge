@@ -351,6 +351,7 @@ struct ChatView: View {
     /// 难以排查的环，最后表现为整个 App 卡死（连主线程 Timer 都停跑）。
     /// 原生 scrollTo 虽然偶尔差几像素，但不会把主线程拖住。
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        model.recordFollowEvent()
         if !jump.atBottom { jump.atBottom = true }
         if jump.hasNewBelow { jump.hasNewBelow = false }
         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
@@ -361,6 +362,7 @@ struct ChatView: View {
     /// 两步：先不带动画定位一次（瞬时跳到末尾，等于打断惯性），
     /// 再用 withAnimation 收尾。全程只用 SwiftUI，不碰 UIKit。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
+        model.recordFollowEvent()
         if jump.hasNewBelow { jump.hasNewBelow = false }
         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
         withAnimation(.easeOut(duration: 0.22)) {
@@ -539,6 +541,10 @@ struct ChatView: View {
     }
 
     private func submit() {
+        // 立刻打一条、不节流：确认「点击真的到达了 submit」，以及它到达之后
+        // 主线程还能不能回到 runloop（有这条、后面却没有 render= 就是卡死在这中间）。
+        model.recordSubmitEvent()
+        model.traceFollow("tap=send")
         let text = draft
         // 附件和文字合并成一条消息：附件路径放后面，文字保持原样在前面
         let attachmentLines = attachments.map { "[附件] \($0)" }.joined(separator: "\n")

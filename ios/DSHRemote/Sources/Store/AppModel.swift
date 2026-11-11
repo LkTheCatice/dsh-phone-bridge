@@ -746,38 +746,57 @@ final class AppModel: ObservableObject {
     /// - `body` 不高但 `max` 很大 → 单次阻塞操作（回填、解析、同步 IO）
     private var watchdogTimer: Timer?
 
-    /// ChatView.body 每求值一次 +1。只累加整数、不发通知，不会引起任何重算。
-    func recordBodyEval() { watchdogStats.bodies += 1 }
+    /// 每个回调各记一次。只累加整数、不发通知，不会引起任何重算。
+    func recordBodyEval() { watchdogStats.bodies += 1; watchdogStats.lastTag = "body" }
+    func recordPrefEvent() { watchdogStats.prefs += 1; watchdogStats.lastTag = "pref" }
+    func recordFollowEvent() { watchdogStats.follows += 1; watchdogStats.lastTag = "follow" }
+    func recordSubmitEvent() { watchdogStats.submits += 1; watchdogStats.lastTag = "submit" }
 
-    /// onPreferenceChange 每触发一次 +1（布局回调频率）
-    func recordPrefEvent() { watchdogStats.prefs += 1 }
-
+    /// 看门狗。两路输出：
+    ///
+    /// - `act b= p= f= s= last=`：**每一拍**（0.25 秒）只要有任何回调在动就立刻上报。
+    ///   这是「遗言」：主线程彻底锁死时，这条链先断，日志最后几行就是锁死前
+    ///   正在疯跑的那个回调。上一版两秒才报一次，死锁之后什么都留不下来。
+    /// - `wd over=N max=Xms`：每 2 秒一行，量的是**超出正常周期的部分**
+    ///   （`gap - 0.25s`）。注意：gap 本身就恒等于 Timer 周期，直接拿 gap 当卡顿
+    ///   是错的 —— 上一版把阈值设在 gap>120ms 上，于是每拍都算「卡」，全成了噪声。
     func startWatchdog() {
         guard watchdogTimer == nil else { return }
         watchdogStats.last = CFAbsoluteTimeGetCurrent()
         watchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             let now = CFAbsoluteTimeGetCurrent()
-            let gapMs = Int((now - watchdogStats.last) * 1000)
+            let overMs = Int((now - watchdogStats.last - 0.25) * 1000)
             watchdogStats.last = now
-            if gapMs > 120 {
-                watchdogStats.stalls += 1
-                watchdogStats.worst = max(watchdogStats.worst, gapMs)
+            if overMs > 120 {
+                watchdogStats.stalled += 1
+                watchdogStats.worstOver = max(watchdogStats.worstOver, overMs)
             }
-            watchdogStats.ticks += 1
-            guard watchdogStats.ticks >= 8 else { return }   // 2 秒一个窗口
-            watchdogStats.ticks = 0
-            let bodies = watchdogStats.bodies
-            let prefs = watchdogStats.prefs
-            let stalls = watchdogStats.stalls
-            let worst = watchdogStats.worst
+            // ① 遗言：这一拍有没有回调在动、最后动的是谁
+            let b = watchdogStats.bodies
+            let p = watchdogStats.prefs
+            let f = watchdogStats.follows
+            let s = watchdogStats.submits
+            let tag = watchdogStats.lastTag
             watchdogStats.bodies = 0
             watchdogStats.prefs = 0
-            watchdogStats.stalls = 0
-            watchdogStats.worst = 0
-            // 全平静时不打日志，免得把真有信息的行淹掉
-            guard stalls > 0 || bodies > 12 || prefs > 12 else { return }
+            watchdogStats.follows = 0
+            watchdogStats.submits = 0
+            if b + p + f + s > 0 {
+                Task { @MainActor in
+                    self?.pingDiagnostic("act b=\(b) p=\(p) f=\(f) s=\(s) last=\(tag)")
+                }
+            }
+            // ② 每 2 秒的卡顿汇总
+            watchdogStats.ticks += 1
+            guard watchdogStats.ticks >= 8 else { return }
+            watchdogStats.ticks = 0
+            let stalled = watchdogStats.stalled
+            let worst = watchdogStats.worstOver
+            watchdogStats.stalled = 0
+            watchdogStats.worstOver = 0
+            guard stalled > 0 else { return }
             Task { @MainActor in
-                self?.pingDiagnostic("wd gap>120ms:\(stalls) max:\(worst)ms body:\(bodies)/2s pref:\(prefs)/2s")
+                self?.pingDiagnostic("wd over>120ms:\(stalled) max:\(worst)ms")
             }
         }
     }
@@ -1190,10 +1209,16 @@ final class AppModel: ObservableObject {
 private final class WatchdogStats {
     var last: CFAbsoluteTime = 0
     var ticks = 0
-    var stalls = 0
-    var worst = 0
+    /// 超出正常 Timer 周期的时间（毫秒累加口径见 watchdog：gap - 0.25s）
+    var stalled = 0
+    var worstOver = 0
+    // 活动计数：谁在疯跑，就看这几个数在哪个回调里涨
     var bodies = 0
     var prefs = 0
+    var follows = 0
+    var submits = 0
+    /// 最近一次活动来自哪个回调
+    var lastTag = "-"
 }
 
 /// 文件级全局（非隔离）：Timer 闭包与 AppModel 都能直接访问
