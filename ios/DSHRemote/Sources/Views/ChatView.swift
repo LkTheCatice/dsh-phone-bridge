@@ -376,12 +376,12 @@ struct ChatView: View {
         jump.atBottom = true
         jump.hasNewBelow = false
         if let scroll = uiScrollView {
-            // layoutIfNeeded 必须有：否则 contentSize 是旧值，跟随永远差一截，
-            // 底部判定失败后就再也不跟随了（上一版去掉它就是这个结果）。
-            // 频率由外层 150ms 节流控制；之前的卡顿真凶是 clamp 自触发循环，已经加了锁。
-            scroll.layoutIfNeeded()
+            // 绝对不要在这里 layoutIfNeeded。
+            // LazyVStack 的懒加载会被强制布局打破 —— 几百条历史一次性布局要几百毫秒，
+            // 「发出消息的一瞬间卡死」就是这条路径：append → sync → onChange → 这里。
+            // 直接用当前 contentSize：略旧只会差几像素，90pt 容差完全兜得住。
             let target = scroll.bottomOffsetY
-            if abs(scroll.contentOffset.y - target) > 1 {
+            if abs(scroll.contentOffset.y - target) > 2 {
                 scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
             }
             return
