@@ -150,7 +150,7 @@ struct ChatBubble: View, Equatable {
                 // 流式期间只渲染纯文本，而且**只渲染尾部**：排版在主线程，
                 // 一条长回答干到几万字符时，排版本身就是秒级开销。
                 // 正在输出时用户看的是最新几行，保留尾部 2000 字符足够。
-                clampedPlain(tailOf: entry.text, limit: 2_000)
+                clampedPlain(tailOf: entry.text, limit: 800)
                     .selectableText()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -199,7 +199,7 @@ struct ChatBubble: View, Equatable {
     /// 为什么要有：Text 的排版（CoreText）在主线程，几万字符就是几秒级。
     private static let previewChars = 600
     /// 主动展开后仍允许的上限，防止「展开」变成又一次 20 秒
-    private static let expandedChars = 8_000
+    private static let expandedChars = 3_000
 
     /// 只渲染尾部的一段纯文本（流式输出用）
     @ViewBuilder

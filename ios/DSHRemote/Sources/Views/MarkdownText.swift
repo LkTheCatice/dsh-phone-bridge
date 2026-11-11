@@ -28,12 +28,16 @@ struct MarkdownText: View {
                     view(for: block)
                 }
             } else {
-                // 首次渲染：主线程上**不做任何 markdown 解析**，先出纯文本，
-                // 解析完成后自动换成排版好的版本。
-                // 之前是 computed property 同步解析，一条超长回答（工具输出整段日志）
-                // 就能把主线程按住好几秒 —— 主线程卡死时体感就是「界面冻住、触控失效」。
-                Text(raw)
+                // blocks 还没解析好：**绝不要在这里渲染 Text(raw)**。
+                //
+                // 以前这里是 Text(raw)，本意是「先出纯文本兜底」，但 raw 动辄几千字符，
+                // 而 body 会被反复重算（流式输出每秒十几次、键盘/布局变化也触发）——
+                // 每次重算都把整条回答排版一遍，真机实测「回答出现的那一刻卡死 21 秒」
+                // （STUCK 21208ms mark=md）。
+                // 现在只放一个占位，等后台解析好（通常几十毫秒）再一次性换成排版版本。
+                Text("…")
                     .font(.body)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -255,6 +259,9 @@ enum MarkdownCache {
         let parsed = await withCheckedContinuation { (continuation: CheckedContinuation<[Block], Never>) in
             queue.async {
                 let blocks = MarkdownParser.parse(text)
+                // 先把排版结果交回去（占位只停一瞬），再在同一个后台队列里
+                // 补算行内 AttributedString，主线程首次取不到会自己算一次。
+                continuation.resume(returning: blocks)
                 // 顺手把行内 AttributedString 也在后台算完。
                 //
                 // 为什么必须预解析：`AttributedString(markdown:)` 单次约 100ms，
@@ -267,7 +274,6 @@ enum MarkdownCache {
                         _ = inline(piece)
                     }
                 }
-                continuation.resume(returning: blocks)
             }
         }
         store(text, parsed)
