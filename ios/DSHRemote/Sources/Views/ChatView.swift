@@ -198,6 +198,7 @@ struct ChatView: View {
                 // （STUCK 21189ms mark=body，4 分钟内 996 条）。
                 // onScrollGeometryChange 的 action 只在**布尔值翻转**时回调，且不介入手势。
                 .modifier(BottomDetectModifier(jump: jump))
+                .modifier(ScrollPauseSyncModifier(model: model))
 
                 // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
                 // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
@@ -807,5 +808,33 @@ struct ComfyBadge: View {
             return model.comfy.pending > 0 ? "画图中 \(model.comfy.pending)" : "画图中"
         }
         return "画图空闲"
+    }
+}
+
+/// 滚动/惯性期间暂停列表更新。
+///
+/// 拖动时每来一帧 delta 都要重排列表，手感必然崩（实测拖动卡死 14900ms）。
+/// iOS 18 起有 onScrollPhaseChange，能准确知道「手指在拖 / 惯性中 / 停稳」，
+/// 只在停稳后才允许把新内容应用进列表。
+struct ScrollPauseSyncModifier: ViewModifier {
+    let model: AppModel
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, newPhase in
+                switch newPhase {
+                case .interacting, .decelerating, .animating:
+                    // 还在动：继续压住（0.35 秒余量）
+                    model.setSuppressEntries(0.35)
+                default:
+                    // 停稳：立刻放行，并让积压的内容补上
+                    model.setSuppressEntries(0)
+                    model.resumePendingSync()
+                }
+            }
+        } else {
+            content
+        }
     }
 }

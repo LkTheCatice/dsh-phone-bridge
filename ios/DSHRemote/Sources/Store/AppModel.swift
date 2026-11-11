@@ -72,8 +72,28 @@ final class AppModel: ObservableObject {
     /// 所以必须等渲染完再滚，否则冷启动会停在最早的消息上。
     @Published private(set) var historyVersion = 0
 
+    /// 手指在滚动/惯性期间不更新列表（由 View 层通过 onScrollPhaseChange 设置）。
+    /// 拖动时每来一帧就重排列表，滚动必然卡死 —— 等手停下来再补
+    /// （实测拖动卡死 14900ms，mark=apply:done，即卡在应用帧这一步）。
+    private var suppressEntriesUntil: CFAbsoluteTime = 0
+
+    func setSuppressEntries(_ seconds: Double) {
+        suppressEntriesUntil = CFAbsoluteTimeGetCurrent() + seconds
+    }
+
+    /// 滚动停稳后调用：把滚动期间积压的更新立刻补上
+    func resumePendingSync() {
+        pendingSync = false
+        syncCurrentEntries()
+    }
+
     private func syncCurrentEntries() {
         stallWatcher.setMark("sync")
+        // 滚动中：延后，别打断手感
+        if CFAbsoluteTimeGetCurrent() < suppressEntriesUntil {
+            scheduleSync(after: 0.25)
+            return
+        }
         pendingSync = false
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
         // 整数组比较：只比 count / last 会漏掉「中间某条在变」的情况，
@@ -88,6 +108,14 @@ final class AppModel: ObservableObject {
     /// 不立即同步：流式输出每秒二三十个 delta，每次都做一遍 O(n) 数组比较
     /// （元素里有多个 String 字段）会把主线程压死 —— 这是这一轮卡死的第二个原因。
     /// 攒到 60ms 再一次性比对，视觉上完全无感，开销降到原来的 1/5。
+    private func scheduleSync(after delay: Double) {
+        guard !pendingSync else { return }
+        pendingSync = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.syncCurrentEntries()
+        }
+    }
+
     private func markCurrentDirty() {
         guard !pendingSync else { return }
         pendingSync = true
