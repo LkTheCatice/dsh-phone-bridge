@@ -21,6 +21,8 @@ final class JumpButtonState: ObservableObject {
 
     /// 自动跟随的节流时间戳
     var lastFollowAt = Date.distantPast
+    /// 「是否在底部」翻转的节流时间戳（防止几何值在阈值边界抖动引发反复重算）
+    var lastBottomFlip: CFAbsoluteTime = 0
 
     /// 是否该显示按钮（用于外层占位高度判断）
     var needsLayer: Bool {
@@ -39,6 +41,14 @@ struct JumpButtonLayer: View {
     let onTap: () -> Void
 
     var body: some View {
+        content
+            // 显隐与命中都在这里决定，不要上抛给父视图读 state ——
+            // 父视图只要读一次，就会订阅整个 JumpButtonState。
+            .opacity(state.needsLayer ? 1 : 0)
+            .allowsHitTesting(state.needsLayer)
+    }
+
+    private var content: some View {
         ZStack(alignment: .bottomTrailing) {
             // 有新内容但你在上面看旧记录 → 只提示，不抢滚动位置
             Button(action: onTap) {

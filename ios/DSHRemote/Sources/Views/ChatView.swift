@@ -204,8 +204,11 @@ struct ChatView: View {
                     )
                     .padding(.trailing, 14)
                     .padding(.bottom, 16)
-                    .opacity(jump.needsLayer ? 1 : 0)
-                    .allowsHitTesting(jump.needsLayer)
+                    // 这里刻意**不**读 jump 的显示状态。
+                    // ChatView 持着 @StateObject jump，body 只要读它任何一个属性，
+                    // 整个 ChatView（含 composer、toolbar）就会被订阅 ——
+                    // atBottom 每翻一次就全树重算一次（实测 body=26 bubble=0 后卡 18 秒）。
+                    // 显示与否交给 JumpButtonLayer 自己（它已 @ObservedObject）。
                 }
 
                 composer
@@ -760,6 +763,11 @@ struct BottomDetectModifier: ViewModifier {
                     - (geometry.contentOffset.y + geometry.containerSize.height)
                 return distance < 40
             } action: { _, atBottom in
+                // 300ms 节流：滚动停在阈值附近时，几何值会在边界来回抖，
+                // 不节流就会 true/false 反复翻转 → 每次翻转一次全树重算。
+                let now = CFAbsoluteTimeGetCurrent()
+                guard now - jump.lastBottomFlip > 0.3 else { return }
+                jump.lastBottomFlip = now
                 if jump.atBottom != atBottom { jump.atBottom = atBottom }
                 if atBottom, jump.hasNewBelow { jump.hasNewBelow = false }
             }
