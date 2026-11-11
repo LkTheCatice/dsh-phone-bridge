@@ -11,7 +11,8 @@ final class AppModel: ObservableObject {
     }
 
     @Published private(set) var phase: Phase = .disconnected
-    @Published private(set) var pairing: PairingConfig?    @Published private(set) var serverInfo: String = ""
+    @Published private(set) var pairing: PairingConfig?
+    @Published private(set) var serverInfo: String = ""
     @Published private(set) var sessions: [SessionRow] = []
     /// 已归档的会话（列表里单独一段，可取消归档）
     @Published private(set) var archivedSessions: [SessionRow] = []
