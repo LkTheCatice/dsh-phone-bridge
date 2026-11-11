@@ -43,7 +43,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var historyVersion = 0
 
     private func syncCurrentEntries() {
-        stallWatcher.mark = "sync"
+        stallWatcher.setMark("sync")
         pendingSync = false
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
         // 整数组比较：只比 count / last 会漏掉「中间某条在变」的情况，
@@ -176,8 +176,7 @@ final class AppModel: ObservableObject {
         disconnect()
         phase = .connecting
         // 后台卡死监视器上报要用（非隔离全局，主线程卡住时它照发不误）
-        stallWatcher.host = config.host
-        stallWatcher.port = config.port
+        stallWatcher.configure(host: config.host, port: config.port)
         let client = BridgeClient(config: config)
         self.client = client
         do {
@@ -268,7 +267,7 @@ final class AppModel: ObservableObject {
         }
         guard let type = frame["type"] as? String else { return }
         // 卡死取证：主线程最后进入的是哪一帧
-        stallWatcher.mark = "apply:\(type)"
+        stallWatcher.setMark("apply:\(type)")
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
         let turn = (frame["turn"] as? NSNumber)?.intValue ?? 0
 
@@ -412,7 +411,7 @@ final class AppModel: ObservableObject {
         default:
             break
         }
-        stallWatcher.mark = "apply:done"
+        stallWatcher.setMark("apply:done")
     }
 
     /// 轮询 ComfyUI 状态（聊天页顶部那个状态点）
@@ -770,13 +769,13 @@ final class AppModel: ObservableObject {
     private var watchdogTimer: Timer?
 
     /// 每个回调各记一次。只累加整数、不发通知，不会引起任何重算。
-    func recordBodyEval() { watchdogStats.bodies += 1; watchdogStats.lastTag = "body"; stallWatcher.mark = "body" }
+    func recordBodyEval() { watchdogStats.bodies += 1; watchdogStats.lastTag = "body"; stallWatcher.setMark("body") }
     func recordFollowEvent() { watchdogStats.follows += 1; watchdogStats.lastTag = "follow" }
     func recordSubmitEvent() { watchdogStats.submits += 1; watchdogStats.lastTag = "submit" }
 
     /// 标记「主线程最后进入了哪条路径」。主线程一旦卡住，后台的 StallWatcher
     /// 会把这个值连同卡了多久一起发出来 —— 这是卡死期间唯一的证据来源。
-    func markMain(_ tag: String) { stallWatcher.mark = tag }
+    func markMain(_ tag: String) { stallWatcher.setMark(tag) }
 
     /// 起后台卡死监视线程。
     ///
@@ -784,18 +783,17 @@ final class AppModel: ObservableObject {
     /// 结果就是「卡死期间零日志」。这个线程每 100ms 看主线程的心跳有没有动，
     /// 超过 700ms 一动不动就直接用 URLSession 上报（URLSession 走自己的线程）。
     private func startStallWatcher() {
-        guard !stallWatcher.started else { return }
-        stallWatcher.started = true
+        guard stallWatcher.claimStart() else { return }
         Thread.detachNewThread {
             var lastBeat = -1
             var lastChange = CFAbsoluteTimeGetCurrent()
             var reported = 0.0
             while true {
                 Thread.sleep(forTimeInterval: 0.1)
-                let beat = stallWatcher.beat
+                let snap = stallWatcher.snapshot()
                 let now = CFAbsoluteTimeGetCurrent()
-                if beat != lastBeat {
-                    lastBeat = beat
+                if snap.beat != lastBeat {
+                    lastBeat = snap.beat
                     lastChange = now
                     reported = 0
                     continue
@@ -803,8 +801,8 @@ final class AppModel: ObservableObject {
                 let stuck = now - lastChange
                 guard stuck > 0.7, stuck - reported > 0.5 else { continue }
                 reported = stuck
-                StallWatcher.send(host: stallWatcher.host, port: stallWatcher.port,
-                                  tag: "STUCK \(Int(stuck * 1000))ms mark=\(stallWatcher.mark)")
+                StallWatcher.send(host: snap.host, port: snap.port,
+                                  tag: "STUCK \(Int(stuck * 1000))ms mark=\(snap.mark)")
             }
         }
     }
@@ -823,7 +821,7 @@ final class AppModel: ObservableObject {
         watchdogStats.last = CFAbsoluteTimeGetCurrent()
         watchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             // 心跳：后台 StallWatcher 靠它判断主线程还动不动
-            stallWatcher.beat &+= 1
+            stallWatcher.tick()
             let now = CFAbsoluteTimeGetCurrent()
             let overMs = Int((now - watchdogStats.last - 0.25) * 1000)
             watchdogStats.last = now
@@ -1283,15 +1281,55 @@ private let watchdogStats = WatchdogStats()
 
 /// 主线程卡死监视器（后台线程读它、上报它）。
 ///
-/// 所有观测手段都挂在主线程上时，卡死期间一定是零日志 —— 这次就是这么瞎掉的。
-/// 所以心跳、标记、上报全部走不依赖主线程的路径：心跳由主线程 Timer 递增，
-/// 检查与上报由独立 Thread 完成，URLSession 也在自己的线程上跑。
+/// 所有观测手段都挂在主线程上时，卡死期间一定是零日志。所以心跳、标记、上报
+/// 全部走不依赖主线程的路径：心跳由主线程 Timer 递增，检查与上报由独立 Thread 完成。
+///
+/// ⚠️ 这里的状态被**两个线程**同时访问（主线程写、监视线程读），所以一律藏在
+/// 一把锁后面。第一版直接暴露 `var mark: String` 给两边用 —— String 是引用计数
+/// 类型，主线程每拍赋值、后台每 100ms 读取，无同步就是典型的
+/// 「读到已释放的 buffer」→ EXC_BAD_ACCESS 闪退（真机上正是这个症状）。
 final class StallWatcher {
-    var beat = 0
-    var mark = "-"
-    var host = ""
-    var port = 0
-    var started = false
+    private let lock = NSLock()
+    private var beatValue = 0
+    private var markValue = "-"
+    private var hostValue = ""
+    private var portValue = 0
+    private var startedValue = false
+
+    func tick() {
+        lock.lock()
+        beatValue &+= 1
+        lock.unlock()
+    }
+
+    func setMark(_ text: String) {
+        lock.lock()
+        markValue = text
+        lock.unlock()
+    }
+
+    func configure(host: String, port: Int) {
+        lock.lock()
+        hostValue = host
+        portValue = port
+        lock.unlock()
+    }
+
+    /// 一次性取快照，避免多次加锁之间状态变化
+    func snapshot() -> (beat: Int, mark: String, host: String, port: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (beatValue, markValue, hostValue, portValue)
+    }
+
+    /// 只让第一个调用者启动监视线程
+    func claimStart() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if startedValue { return false }
+        startedValue = true
+        return true
+    }
 
     /// 非隔离上报：主线程卡死时它照样能发出去
     nonisolated static func send(host: String, port: Int, tag: String) {

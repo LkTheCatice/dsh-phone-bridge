@@ -20,7 +20,10 @@ struct MarkdownText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if let blocks {
-                ForEach(blocks) { block in
+                // 用下标做 id，**不要**用 Block.id：divider 那条以前是
+                // "d-\(UUID().uuidString)"，每次求值都变 → ForEach 认为整行是新元素，
+                // 每帧销毁重建一遍，白烧主线程。
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                     view(for: block)
                 }
             } else {
