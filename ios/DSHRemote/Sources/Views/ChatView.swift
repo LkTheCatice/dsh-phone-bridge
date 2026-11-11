@@ -351,11 +351,12 @@ struct ChatView: View {
         jump.atBottom = true
         jump.hasNewBelow = false
         if let scroll = uiScrollView {
-            // 不做 layoutIfNeeded：流式输出时这个函数每秒被调好几次，
-            // 每次强制布局会把主线程压在排版上，直接体现为卡顿。
-            // contentSize 略旧最多让位置差几像素，40pt 的容差能吃下。
+            // layoutIfNeeded 必须有：否则 contentSize 是旧值，跟随永远差一截，
+            // 底部判定失败后就再也不跟随了（上一版去掉它就是这个结果）。
+            // 频率由外层 150ms 节流控制；之前的卡顿真凶是 clamp 自触发循环，已经加了锁。
+            scroll.layoutIfNeeded()
             let target = scroll.bottomOffsetY
-            if abs(scroll.contentOffset.y - target) > 2 {
+            if abs(scroll.contentOffset.y - target) > 1 {
                 scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
             }
             return
