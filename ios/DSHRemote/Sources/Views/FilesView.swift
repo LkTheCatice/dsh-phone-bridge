@@ -25,6 +25,8 @@ struct FilesView: View {
     @State private var creatingFolder = false
     @State private var newFolderName = ""
     @State private var pendingDelete: FsEntry?
+    /// 视频/音频预览
+    @State private var previewMedia: FsEntry?
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp"]
 
@@ -117,6 +119,10 @@ struct FilesView: View {
             } message: {
                 Text("只影响电脑上的这个文件/目录，不可撤销。")
             }
+            .sheet(item: $previewMedia) { entry in
+                MediaPreviewSheet(entry: entry)
+                    .environmentObject(model)
+            }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
                 handleImport(result)
             }
@@ -145,6 +151,9 @@ struct FilesView: View {
         Button {
             if row.dir {
                 load(row.fullPath)
+            } else if let kind = ImageRef.kind(of: row.name), kind == .video || kind == .audio {
+                // 视频/音频先预览播放；直接下载到沙盒反而没法用
+                previewMedia = row
             } else {
                 Task { await download(row) }
             }
