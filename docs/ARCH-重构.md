@@ -181,7 +181,30 @@ UICollectionView (UIViewRepresentable)
 | **3** | **聊天列表换 `UICollectionView`**（最大收益）：先纯文本 cell | 滚动 200 条不卡、`STUCK` 消失 |
 | **4** | cell 内换成 `UITextView` + 单个 `NSAttributedString`（markdown 回归） | 富文本恢复且不卡 |
 | **5** | 输入区拆出 + sheet 上移 | 打字/换行不触发列表重排 |
-| **6** | 删诊断补丁（mark 降级、纯文本开关、可见条目上限） | 功能全量回归 |
+| **6** | 删诊断补丁（mark 降级、纯文本开关、可见条目上限） | ✅ `fe0d04d` |
+
+### 阶段完成记录
+
+| 阶段 | commit | 说明 |
+|---|---|---|
+| 3 | `4303844` | 列表 → UICollectionView + cell 复用 + diffable |
+| 4 | `2118f11` | cell → 一个 UITextView + 一个 NSAttributedString |
+| 4.1 | `1f35737` | 行内富化：扫描式分段（零 NSRange 替换） |
+| 4.2 | `b5dce76` | 媒体可见性：cell 里一行附件提示 + AttachmentSheet |
+| 5 | `23ba9f9` | 输入区回到 safeAreaInset |
+| **6** | `fe0d04d` | 删 735 行死代码；移除可见条目上限；markdown 默认开 |
+
+### 清理后的规模
+
+| 文件 | 行数 | 职责 |
+|---|---|---|
+| `Views/ChatView.swift` | 576 | 页面装配（列表 + 输入 + 工具栏 + sheet） |
+| `Views/ChatList.swift` | 279 | UICollectionView 桥接 + MessageCell |
+| `Views/MarkdownNS.swift` | 173 | 块级 markdown → NSAttributedString |
+| `Core/MarkdownModel.swift` | 266 | Block / MarkdownParser / InlineParser（纯逻辑） |
+| `Core/MarkdownCache.swift` | 96 | 解析缓存（LRU 60） |
+| `Core/MediaRefScan.swift` | 118 | 媒体路径扫描 |
+| 已删除 | -735 | ChatBubble / MarkdownText / MarkdownAttributed |
 
 **顺序原则**：先换渲染管道（3、4），再拆输入区（5），最后清理补丁（6）。
 每一步都要在真机上看 `STUCK` 与 `hb`。
