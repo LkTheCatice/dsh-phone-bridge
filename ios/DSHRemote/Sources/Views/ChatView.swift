@@ -345,13 +345,12 @@ struct ChatView: View {
 
     /// 「跳到最下」按钮专用：先终止正在进行的滚动，再瞬间到位。
     ///
-    /// 拆成两步而不是直接 withAnimation：
-    /// 1) 不带 animation 的 scrollTo 是**瞬时定位**，它会立刻打断进行中的惯性滚动；
-    /// 2) 再用一次带 animation 的调用收尾。
-    /// 如果只有第二步，惯性还在跑的时候叠加动画，画面会先被惯性拖一截再弹回去。
+    /// 注意这里**不再强制** `jump.atBottom = true`：
+    /// 那样一按按钮立刻消失，如果因为内容还在长而没真正到底，它又马上冒出来，来回闪。
+    /// 按钮的去留完全交给真实滚动位置（onPreferenceChange 里的滞回判定），
+    /// 于是只要还在阈值之上就一直显示，滚到足够近才自然隐去。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
-        jump.atBottom = true
         jump.hasNewBelow = false
 
         guard let scroll = uiScrollView else {
