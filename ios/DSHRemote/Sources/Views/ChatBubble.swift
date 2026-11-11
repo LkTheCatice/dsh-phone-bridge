@@ -45,8 +45,10 @@ struct ChatBubble: View, Equatable {
     let entry: ChatEntry
     /// 极简渲染：只画一行纯文本。流式输出期间用它，避免富文本布局把主线程压住。
     var compact: Bool = false
-    /// 用户点了这条消息 → 强制用富文本渲染
-    @State private var wantRich = false
+    /// 是否是「当前展开的那一条」（由 ChatView 用展开 id 控制，同时只允许一条）
+    var isExpanded: Bool = false
+    /// 点击消息：请求展开/收起
+    var onToggleExpand: (() -> Void)?
     @State private var expanded = false
     /// 工具详情 presenter（由 ChatView 统一持有，见文件末尾 ToolDetailPresenter）。
     /// 刻意**不**用 @EnvironmentObject：那会让每个气泡都订阅它，
@@ -54,7 +56,8 @@ struct ChatBubble: View, Equatable {
     @Environment(\.toolDetailPresenter) private var detailPresenter
 
     static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
-        lhs.entry == rhs.entry && lhs.compact == rhs.compact
+        // 闭包不参与比较（每次 body 重算都是新闭包），只比数据
+        lhs.entry == rhs.entry && lhs.compact == rhs.compact && lhs.isExpanded == rhs.isExpanded
     }
 
     var body: some View {
@@ -62,7 +65,7 @@ struct ChatBubble: View, Equatable {
         // 这是「无论单段多便宜，乘上每秒多次重排都会饱和」的止损手段。
         if !useRich {
             Text(String(entry.text.prefix(600)))
-                .onTapGesture { wantRich = true }
+                .onTapGesture { onToggleExpand?() }
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(6)
@@ -83,8 +86,8 @@ struct ChatBubble: View, Equatable {
     /// 长消息/工具行先纯文本，点一下才展开富文本。
     private var useRich: Bool {
         if compact { return false }
-        if wantRich { return true }
-        return entry.text.count <= 300
+        // 短消息直接富文本；长消息只在「被展开」时渲染富文本
+        return entry.text.count <= 300 || isExpanded
     }
 
     @ViewBuilder

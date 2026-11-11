@@ -64,6 +64,9 @@ struct ChatView: View {
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
     @State private var visibleLimit = 10
 
+    /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
+    @State private var expandedEntryId: String?
+
     /// 工具详情弹窗（全列表共用一个，别在每个气泡上挂 sheet）
     @StateObject private var detailPresenter = ToolDetailPresenter()
 
@@ -124,9 +127,16 @@ struct ChatView: View {
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.vertical, 2)
                             }
-                            ChatBubble(entry: entry, compact: model.isStreaming)
-                                .equatable()
-                                .id(entry.id)
+                            ChatBubble(
+                                entry: entry,
+                                compact: model.isStreaming,
+                                isExpanded: expandedEntryId == entry.id,
+                                onToggleExpand: {
+                                    expandedEntryId = (expandedEntryId == entry.id) ? nil : entry.id
+                                }
+                            )
+                            .equatable()
+                            .id(entry.id)
                         }
                         // 底部锚点：只给 scrollTo 用，**不再挂 GeometryReader 上报位置**。
                         //

@@ -11,6 +11,11 @@ struct MarkdownText: View {
     let raw: String
     /// 解析结果。nil = 还没解析完，先显示纯文本。
     @State private var blocks: [Block]?
+    /// 分段渲染：当前已渲染多少个 block（每 0.5 秒 +6 个）。
+    /// 一次性排版几十段是把主线程按住的最快方式 —— 用户实测「点展开就卡死」。
+    @State private var shownBlocks = 6
+    private static let blocksPerStep = 6
+    private static let stepInterval: UInt64 = 500_000_000   // 0.5 秒
 
     init(raw: String) {
         self.raw = raw
@@ -24,8 +29,13 @@ struct MarkdownText: View {
                 // 用下标做 id，**不要**用 Block.id：divider 那条以前是
                 // "d-\(UUID().uuidString)"，每次求值都变 → ForEach 认为整行是新元素，
                 // 每帧销毁重建一遍，白烧主线程。
-                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                ForEach(Array(blocks.prefix(shownBlocks).enumerated()), id: \.offset) { _, block in
                     view(for: block)
+                }
+                if blocks.count > shownBlocks {
+                    Text("… 还有 \(blocks.count - shownBlocks) 段，正在加载")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
                 }
             } else {
                 // blocks 还没解析好：**绝不要在这里渲染 Text(raw)**。
@@ -42,9 +52,19 @@ struct MarkdownText: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 每 0.5 秒多放 6 段出来，直到全部渲染
+        .task(id: blocks?.count ?? 0) {
+            guard let total = blocks?.count, total > 0 else { return }
+            while shownBlocks < total {
+                try? await Task.sleep(nanoseconds: Self.stepInterval)
+                if Task.isCancelled { return }
+                shownBlocks = min(shownBlocks + Self.blocksPerStep, total)
+            }
+        }
         .task(id: raw) {
             // 命中缓存直接写（Block 是 Equatable，同值不会触发重算）
             if let cached = MarkdownCache.cached(raw) {
+                shownBlocks = Self.blocksPerStep
                 if blocks != cached { blocks = cached }
                 return
             }
