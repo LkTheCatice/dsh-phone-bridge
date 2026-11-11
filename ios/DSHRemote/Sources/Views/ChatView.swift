@@ -45,8 +45,6 @@ struct ChatView: View {
     // 不能用 @State —— 它们会在 body 重算触发的回调里被改，
     // 用 @State 就是「改状态 → 重算 → 回调 → 再改」的无限循环。
     /// 标注编辑器：待编辑的图与等待中的 continuation
-    /// 惯性中点击「跳到底」时临时掐断减速用（一次点击一次，不是每帧）
-    @State private var pauseScrolling = false
     @State private var editorImage: UIImage?
     @State private var editorContinuation: CheckedContinuation<UIImage?, Never>?
 
@@ -63,6 +61,9 @@ struct ChatView: View {
     /// 首屏/跳转时会把可见范围整体测量一遍（真机实测 20 条就能卡 19 秒）。
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
     @State private var visibleLimit = 10
+
+    /// 每次 +1 就请求列表滚到底（由 ChatList 消费）
+    @State private var scrollRequest = 0
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
     @State private var expandedEntryId: String?
@@ -102,124 +103,42 @@ struct ChatView: View {
                 // 现在改回 safeAreaInset：输入区高度变化只影响 inset，不牵动列表布局。
                 // 代价：惯性滚动中点「跳到底」偶尔不灵（按钮在 ScrollView 的手势树里），
                 // 但那是体验细节，不该用整页卡死来换。
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if entries.isEmpty { emptyState }
-                        if entries.count > visibleLimit {
-                            Button {
-                                visibleLimit += 40
-                            } label: {
-                                Text("更早的 \(entries.count - visibleLimit) 条已折叠 · 点击加载")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color.accentColor)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 6)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        ForEach(visibleEntries) { entry in
-                            // 流式期间用极简渲染（见 ChatBubble.compact）
-                            // 和上一条隔了 5 分钟以上才打时间戳（由 AppModel 填 timeLabel）
-                            if let label = entry.timeLabel {
-                                Text(label)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .padding(.vertical, 2)
-                            }
-                            ChatBubble(
-                                entry: entry,
-                                compact: model.isStreaming,
-                                isExpanded: expandedEntryId == entry.id,
-                                onToggleExpand: {
-                                    expandedEntryId = (expandedEntryId == entry.id) ? nil : entry.id
-                                }
-                            )
-                            .equatable()
-                            .id(entry.id)
-                        }
-                        // 底部锚点：只给 scrollTo 用，**不再挂 GeometryReader 上报位置**。
-                        //
-                        // 之前这里用 GeometryReader + preference 算「离底部还有多远」，
-                        // 它在布局阶段为算相对坐标又反过来请求布局，于是自激：
-                        // 真机日志实测 onPreferenceChange 冲到 200~300 次/秒、body 却几乎不重算，
-                        // 主线程被吃满 2.8 秒 —— 表现为「光标还在闪、触控全死」。
-                        // 现在位置判定改由手指手势推断（见 ScrollView 上的 simultaneousGesture），
-                        // 全程不读布局。
-                        Color.clear
-                            .frame(height: 1)
-                            .id(Self.bottomAnchor)
+                // ── 列表：UICollectionView + cell 复用（见 ChatList.swift）──
+                // 换掉 LazyVStack 的原因：它没有 cell 复用，22 条消息滚动就能卡 13 秒。
+                // 一条消息 = 一个 cell = 一个视图，滚动成本与消息总数无关。
+                ChatList(
+                    entries: visibleEntries,
+                    isStreaming: model.isStreaming,
+                    onBottomChanged: { bottom in
+                        if jump.atBottom != bottom { jump.atBottom = bottom }
+                        if bottom, jump.hasNewBelow { jump.hasNewBelow = false }
+                    },
+                    scrollRequest: scrollRequest,
+                    onTapEntry: { id in
+                        expandedEntryId = (expandedEntryId == id) ? nil : id
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                // 隐藏系统滚动指示条：它的长度取决于 contentSize，
-                // 而这里 contentSize 一直在动（LazyVStack 排版、流式输出、附件条高度），
-                // 指示条会跟着抖。位置感交给右下角那个「↓」按钮代替。
-                .scrollIndicators(.hidden)
-                .scrollDisabled(pauseScrolling)
-                // 内容一有变化就判断要不要跟随。
-                // 用 streamTick 而不是 entries.count / last?.text：
-                // 前者漏掉「流式文字在同一行里增长」，后者漏掉
-                // 「最后一条是 thinking 或工具行、文本不变但高度在长」。
+                )
                 .onChange(of: model.streamTick) { _ in
-                    // 跟随策略：**手工 scrollTo + 500ms 节流**。
-                    //
-                    // 试过两条更"先进"的路都不行：
-                    // - 每次 delta 都 scrollTo（150ms 节流）→ 每次全量测量，43 秒
-                    // - iOS 17 的 .defaultScrollAnchor(.bottom) → 系统每帧重新锚定，
-                    //   同样是每帧全量布局，5 条消息也能卡 20 秒（mark=body）
-                    // 折中：每 2 秒最多跟随一次。流式文字慢半拍，但主线程稳。
                     if jump.atBottom {
+                        // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
                         let now = Date()
                         guard now.timeIntervalSince(jump.lastFollowAt) > 0.5 else { return }
                         jump.lastFollowAt = now
-                        // 诊断开关：关掉自动跟随滚动，用来验证「滚动 ↔ 布局回调」这条环
-                        guard !model.expNoAutoFollow else {
-                            model.traceFollow("follow-off n=\(entries.count)")
-                            return
-                        }
-                        let t0 = CFAbsoluteTimeGetCurrent()
-                        scrollToEnd(proxy)
-                        model.traceFollow("follow=\(Int((CFAbsoluteTimeGetCurrent() - t0) * 1000))ms n=\(entries.count)")
-                    } else {
-                        // 只在真的变化时写：@Published 赋同一个值也会发 objectWillChange，
-                        // 而 ChatView 读着 jump，于是每个 delta 都会白重算一遍整棵树。
-                        if !jump.hasNewBelow { jump.hasNewBelow = true }
+                        guard !model.expNoAutoFollow else { return }
+                        scrollRequest += 1
+                    } else if !jump.hasNewBelow {
+                        jump.hasNewBelow = true
                     }
                 }
-                // 历史重建完成后滚到底：冷启动/切换会话都该停在最新一条，
-                // 而不是最早那条。延一帧是因为底部哨兵刚渲染出来，
-                // 立刻 scrollTo 会找不到目标。
                 .onChange(of: model.historyVersion) { _ in
                     if !jump.atBottom { jump.atBottom = true }
                     if jump.hasNewBelow { jump.hasNewBelow = false }
-                    DispatchQueue.main.async {
-                        scrollToEnd(proxy)
-                    }
+                    scrollRequest += 1
                 }
-                // 从后台切回来：视图重建会重新算 contentOffset，
-                // 位置常常往上错一截。原本贴在底部就重新贴回去。
                 .onChange(of: scenePhase) { phase in
-                    guard phase == .active else { return }
-                    guard jump.atBottom else { return }
-                    // 延两拍：第一拍等视图重建提交，第二拍等 LazyVStack 布局
-                    DispatchQueue.main.async {
-                        DispatchQueue.main.async {
-                            scrollToEnd(proxy)
-                        }
-                    }
+                    guard phase == .active, jump.atBottom else { return }
+                    scrollRequest += 1
                 }
-                // **是否在底部**：iOS 18 起用官方 onScrollGeometryChange。
-                //
-                // 之前用 simultaneousGesture + DragGesture.onChanged 自己推断：
-                // 它挂在 ScrollView 上会和滚动的手势识别打架，而 onChanged 是**每帧回调**、
-                // 里面还写 @Published → 每帧一次全树重算。真机表现为「上划先卡顿后卡死」
-                // （STUCK 21189ms mark=body，4 分钟内 996 条）。
-                // onScrollGeometryChange 的 action 只在**布尔值翻转**时回调，且不介入手势。
-                .modifier(BottomDetectModifier(jump: jump))
-                .modifier(ScrollPauseSyncModifier(model: model))
 
                 // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
                 // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
@@ -230,7 +149,7 @@ struct ChatView: View {
                     JumpButtonLayer(
                         state: jump,
                         entryCount: entries.count,
-                        onTap: { jumpToBottom(proxy) }
+                        onTap: { jumpToBottom() }
                     )
                     .padding(.trailing, 14)
                     .padding(.bottom, 16)
@@ -423,36 +342,20 @@ struct ChatView: View {
     /// 冻结内容再解冻 —— 每一版都在「读布局 → 写偏移 → 触发布局」之间形成了
     /// 难以排查的环，最后表现为整个 App 卡死（连主线程 Timer 都停跑）。
     /// 原生 scrollTo 虽然偶尔差几像素，但不会把主线程拖住。
-    private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        model.markMain("scroll")
+    private func scrollToEnd() {
         model.recordFollowEvent()
         if !jump.atBottom { jump.atBottom = true }
         if jump.hasNewBelow { jump.hasNewBelow = false }
-        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+        scrollRequest += 1
     }
 
-    /// 「跳到最下」按钮。
-    ///
-    /// 惯性中点击要能生效：靠 scrollDisabled 临时掐断减速，而不是直接操作 UIScrollView。
-    private func jumpToBottom(_ proxy: ScrollViewProxy) {
+    /// 「跳到最下」按钮：直接请求滚到底。
+    /// 之前用 scrollDisabled 掐惯性（每次切换都让 ScrollView 重新布局），已移除。
+    private func jumpToBottom() {
         model.recordFollowEvent()
-        // 点了按钮就恢复跟随，否则按钮会一直挂在屏幕上
         if !jump.atBottom { jump.atBottom = true }
         if jump.hasNewBelow { jump.hasNewBelow = false }
-
-        // 惯性（deceleration）中点按钮没反应：scrollTo 会被系统的减速动画覆盖。
-        //
-        // 当初为此直接操作 UIScrollView（isScrollEnabled = false 硬停减速），
-        // 结果绕出一堆自激环。现在用官方 API 做同一件事：scrollDisabled 一置 true，
-        // 正在进行的减速立刻停下，紧接着的 scrollTo 就能落地；50ms 后恢复可滚动。
-        // 注意这是「一次点击 → 一次重算」，不是每帧回调，不会成环。
-        pauseScrolling = true
-        DispatchQueue.main.async {
-            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                pauseScrolling = false
-            }
-        }
+        scrollRequest += 1
     }
 
     /// 上传进度文案：单张只说「正在上传」，多张带上 2/5
@@ -746,44 +649,6 @@ struct BottomAnchorModifier: ViewModifier {
     }
 }
 
-/// 「是否在底部」的判定。
-///
-/// iOS 18+：onScrollGeometryChange —— 系统给几何，只在翻转为 true/false 时回调一次，
-/// 不介入滚动手势。iOS 16/17 退化到 DragGesture.onEnded（抬手才判断一次，
-/// 绝不在 onChanged 里写状态）。
-struct BottomDetectModifier: ViewModifier {
-    @ObservedObject var jump: JumpButtonState
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.onScrollGeometryChange(for: Bool.self) { geometry in
-                let distance = geometry.contentSize.height
-                    - (geometry.contentOffset.y + geometry.containerSize.height)
-                return distance < 40
-            } action: { _, atBottom in
-                // 300ms 节流：滚动停在阈值附近时，几何值会在边界来回抖，
-                // 不节流就会 true/false 反复翻转 → 每次翻转一次全树重算。
-                let now = CFAbsoluteTimeGetCurrent()
-                guard now - jump.lastBottomFlip > 0.3 else { return }
-                jump.lastBottomFlip = now
-                if jump.atBottom != atBottom { jump.atBottom = atBottom }
-                if atBottom, jump.hasNewBelow { jump.hasNewBelow = false }
-            }
-        } else {
-            content.simultaneousGesture(
-                DragGesture(minimumDistance: 12).onEnded { value in
-                    if value.translation.height > 40 {
-                        if jump.atBottom { jump.atBottom = false }
-                    } else if value.translation.height < -40 {
-                        if !jump.atBottom { jump.atBottom = true }
-                        if jump.hasNewBelow { jump.hasNewBelow = false }
-                    }
-                }
-            )
-        }
-    }
-}
 
 /// ComfyUI 状态点（含菜单）。
 ///
@@ -831,30 +696,3 @@ struct ComfyBadge: View {
     }
 }
 
-/// 滚动/惯性期间暂停列表更新。
-///
-/// 拖动时每来一帧 delta 都要重排列表，手感必然崩（实测拖动卡死 14900ms）。
-/// iOS 18 起有 onScrollPhaseChange，能准确知道「手指在拖 / 惯性中 / 停稳」，
-/// 只在停稳后才允许把新内容应用进列表。
-struct ScrollPauseSyncModifier: ViewModifier {
-    let model: AppModel
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.onScrollPhaseChange { _, newPhase in
-                switch newPhase {
-                case .interacting, .decelerating, .animating:
-                    // 还在动：继续压住（0.35 秒余量）
-                    model.setSuppressEntries(0.35)
-                default:
-                    // 停稳：立刻放行，并让积压的内容补上
-                    model.setSuppressEntries(0)
-                    model.resumePendingSync()
-                }
-            }
-        } else {
-            content
-        }
-    }
-}
