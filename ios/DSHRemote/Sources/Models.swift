@@ -49,6 +49,8 @@ struct ChatEntry: Identifiable, Hashable {
     var detail: String?
     var at: Date
     var running: Bool = false
+    /// 工具结果的成功/失败，nil 表示还没回来
+    var ok: Bool? = nil
 }
 
 struct FsEntry: Identifiable, Hashable {

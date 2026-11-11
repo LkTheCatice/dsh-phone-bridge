@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
     private var reconnectAttempt = 0
+    /// turn.start 的时间，用来在 turn.end 显示"用时 N 秒"
+    private var turnStartedAt: [String: Date] = [:]
 
     init() {
         pairing = PairingStore.load()
@@ -134,11 +136,12 @@ final class AppModel: ObservableObject {
 
         switch type {
         case "turn.start":
+            turnStartedAt[sid] = Date()
             append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: Date(), running: true))
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
-            upsertStreaming(sid, id: "\(sid)#think\(turn)", kind: .thinking, delta: text, header: "思考")
+            upsertStreaming(sid, id: "\(sid)#think\(turn)", kind: .thinking, delta: text, header: "")
 
         case "assistant.delta":
             let text = (frame["text"] as? String) ?? ""
@@ -148,7 +151,8 @@ final class AppModel: ObservableObject {
             let callId = (frame["callId"] as? String) ?? UUID().uuidString
             let name = (frame["name"] as? String) ?? "tool"
             let detail = Self.jsonText(frame["args"])
-            append(sid, ChatEntry(id: "\(sid)#tool\(callId)", kind: .toolCall, text: name, detail: detail, at: Date(), running: true))
+            // text 存"中文动作名"，detail 存可展开的原始参数
+            append(sid, ChatEntry(id: "\(sid)#tool\(callId)", kind: .toolCall, text: Self.toolLabel(name), detail: detail, at: Date(), running: true))
 
         case "tool.result":
             let callId = (frame["callId"] as? String) ?? ""
@@ -158,11 +162,10 @@ final class AppModel: ObservableObject {
                let idx = list.firstIndex(where: { $0.id == "\(sid)#tool\(callId)" }) {
                 list[idx].detail = preview
                 list[idx].running = false
-                list[idx].text = "\(list[idx].text) \(ok ? "✓" : "✗")"
+                list[idx].ok = ok
                 entries[sid] = list
-            } else {
-                append(sid, ChatEntry(id: UUID().uuidString, kind: .toolResult, text: ok ? "工具完成" : "工具失败", detail: preview, at: Date()))
             }
+            // 找不到对应调用就丢掉：电脑端也不会把"工具完成"单独列一行
 
         case "approval.asked":
             let id = (frame["id"] as? String) ?? ""
@@ -183,8 +186,31 @@ final class AppModel: ObservableObject {
             pendingApprovals.removeAll { $0.id == id }
 
         case "turn.end":
-            let reason = Self.jsonText(frame["reason"])
-            append(sid, ChatEntry(id: "\(sid)#end\(turn)", kind: .system, text: "本轮结束 · \(reason)", at: Date()))
+            // reason 是对象 {"kind":"completed"}，别把 JSON 原样怼到界面上
+            let kind = (frame["reason"] as? [String: Any])?["kind"] as? String
+                ?? (frame["reason"] as? String)
+                ?? ""
+            let elapsed: String
+            if let started = turnStartedAt[sid] {
+                let seconds = max(0, Int(Date().timeIntervalSince(started)))
+                elapsed = seconds >= 60 ? "用时 \(seconds / 60) 分 \(seconds % 60) 秒" : "用时 \(seconds) 秒"
+                turnStartedAt[sid] = nil
+            } else {
+                elapsed = ""
+            }
+            let label: String
+            switch kind {
+            case "completed", "": label = "本轮结束"
+            case "cancelled", "canceled", "aborted": label = "本轮已中止"
+            case "error": label = "本轮出错"
+            default: label = "本轮结束 · \(kind)"
+            }
+            append(sid, ChatEntry(
+                id: "\(sid)#end\(turn)",
+                kind: .system,
+                text: elapsed.isEmpty ? label : "\(label) · \(elapsed)",
+                at: Date()
+            ))
             for key in entries.keys {
                 guard var list = entries[key] else { continue }
                 for i in list.indices where list[i].running { list[i].running = false }
@@ -216,6 +242,28 @@ final class AppModel: ObservableObject {
             list.append(ChatEntry(id: id, kind: kind, text: (header.isEmpty ? "" : header + "\n") + delta, at: Date(), running: true))
         }
         entries[sessionId] = list
+    }
+
+    /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
+    static func toolLabel(_ name: String) -> String {
+        switch name {
+        case "pwsh", "bash", "shell", "terminal", "terminal_bash": return "运行命令"
+        case "read", "read_image": return "读取"
+        case "write", "edit", "str_replace_editor", "str_replace": return "写入"
+        case "present": return "展示"
+        case "skill": return "技能"
+        case "todo_write": return "任务清单"
+        case "subagent", "subagent_fork", "send_message", "list_agents": return "子代理"
+        case "workflow": return "编排"
+        case "web_search", "web_fetch": return "联网"
+        case "ask_user_question": return "提问"
+        case "load_workspace_dependencies": return "环境准备"
+        default:
+            if name.hasPrefix("schedule") { return "定时任务" }
+            if name.hasPrefix("job") { return "后台任务" }
+            if name.hasPrefix("video") { return "视频分析" }
+            return name
+        }
     }
 
     /// 安全地把任意值转成可显示的 JSON 文本。
