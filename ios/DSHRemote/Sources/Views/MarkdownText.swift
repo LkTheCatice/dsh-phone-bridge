@@ -161,7 +161,7 @@ struct MarkdownText: View {
     /// 表现就是「整个 App 卡住几十秒」（真机 STUCK 63 秒，mark=body）。
     private func inline(_ text: String) -> Text {
         // 长段落跳过行内解析：开销随长度线性涨，工具输出那种整段日志也没有行内格式可解
-        if text.count > 1_000 { return Text(text) }
+        if text.count > MarkdownCache.inlineMaxChars { return Text(text) }
         if let attributed = MarkdownCache.inline(text) {
             return Text(attributed)
         }
@@ -189,6 +189,20 @@ enum Block: Identifiable {
         case let .ordered(items): return "o-\(items.joined())"
         case .divider: return "d-\(UUID().uuidString)"
         case let .table(headers, rows): return "t-\(headers.joined())-\(rows.count)"
+        }
+    }
+
+    /// 需要做行内格式解析的文本片段（后台预解析用）
+    var inlineTexts: [String] {
+        switch self {
+        case let .heading(_, text), let .paragraph(text), let .quote(text):
+            return [text]
+        case let .bullet(items), let .ordered(items):
+            return items
+        case let .table(headers, rows):
+            return headers + rows.flatMap { $0 }
+        case .code, .divider:
+            return []
         }
     }
 }
@@ -227,7 +241,20 @@ enum MarkdownCache {
         }
         let parsed = await withCheckedContinuation { (continuation: CheckedContinuation<[Block], Never>) in
             queue.async {
-                continuation.resume(returning: MarkdownParser.parse(text))
+                let blocks = MarkdownParser.parse(text)
+                // 顺手把行内 AttributedString 也在后台算完。
+                //
+                // 为什么必须预解析：`AttributedString(markdown:)` 单次约 100ms，
+                // 而 LazyVStack 首次布局会把所有条目测量一遍 ——
+                // 19 条 × 每段一次 ≈ 95 次 ≈ 10 秒，全压在主线程上，
+                // 表现为「装完第一次打开卡十几秒」（实测 STUCK 11215ms）。
+                // 这里在后台把它们算好塞进缓存，主线程第一次取就是命中。
+                for block in blocks {
+                    for piece in block.inlineTexts where piece.count <= inlineMaxChars {
+                        _ = inline(piece)
+                    }
+                }
+                continuation.resume(returning: blocks)
             }
         }
         store(text, parsed)
@@ -256,6 +283,9 @@ enum MarkdownCache {
     private static var inlineMiss: Set<String> = []
     private static var inlineOrder: [String] = []
     private static let inlineCapacity = 400
+    /// 超过这个长度就不做行内解析（直接纯文本）：
+    /// 单次解析耗时随字数增长，而这么长的一段基本都是工具输出，没有行内格式可解。
+    static let inlineMaxChars = 800
 
     static func inline(_ text: String) -> AttributedString? {
         lock.lock()
