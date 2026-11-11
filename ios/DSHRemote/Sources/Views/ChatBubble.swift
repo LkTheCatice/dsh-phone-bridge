@@ -45,6 +45,8 @@ struct ChatBubble: View, Equatable {
     let entry: ChatEntry
     /// 极简渲染：只画一行纯文本。流式输出期间用它，避免富文本布局把主线程压住。
     var compact: Bool = false
+    /// 用户点了这条消息 → 强制用富文本渲染
+    @State private var wantRich = false
     @State private var expanded = false
     /// 工具详情 presenter（由 ChatView 统一持有，见文件末尾 ToolDetailPresenter）。
     /// 刻意**不**用 @EnvironmentObject：那会让每个气泡都订阅它，
@@ -58,8 +60,9 @@ struct ChatBubble: View, Equatable {
     var body: some View {
         // 流式期间的极简渲染：一条纯文本，不解析 markdown、不扫媒体、不建按钮。
         // 这是「无论单段多便宜，乘上每秒多次重排都会饱和」的止损手段。
-        if compact {
-            Text(String(entry.text.prefix(400)))
+        if !useRich {
+            Text(String(entry.text.prefix(600)))
+                .onTapGesture { wantRich = true }
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(6)
@@ -69,6 +72,19 @@ struct ChatBubble: View, Equatable {
         } else {
             fullBody
         }
+    }
+
+    /// 是否渲染富文本（markdown / 图片 / 按钮）。
+    ///
+    /// 这是这一夜最后、也是最根本的一条：滚动时每滑出一条消息都要给它排版
+    /// 5~10 个 Text（代码块、表格、列表各一个视图）—— 消息越多滚动越慢，
+    /// 实测滚动卡死 13309ms，25 条 STUCK 全是 mark=md。
+    /// 所以默认只画纯文本：短消息（≤300 字）直接富文本（排版便宜），
+    /// 长消息/工具行先纯文本，点一下才展开富文本。
+    private var useRich: Bool {
+        if compact { return false }
+        if wantRich { return true }
+        return entry.text.count <= 300
     }
 
     @ViewBuilder
