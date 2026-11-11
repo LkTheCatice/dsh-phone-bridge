@@ -7,6 +7,8 @@ struct ChatView: View {
     @State private var draft = ""
     /// 上传进度（已完成张数, 总张数），nil 表示没在上传
     @State private var uploadProgress: (done: Int, total: Int)?
+    /// 已上传到电脑、等着随消息一起发出的附件（显示成 chip，不塞进输入框）
+    @State private var attachments: [String] = []
     @State private var sending = false
     @FocusState private var focused: Bool
 
@@ -292,6 +294,36 @@ struct ChatView: View {
                 }
                 .padding(.vertical, 4)
             }
+            // 已上传待发送的附件：显示成 chip，点 × 移除。不再把路径塞进输入框，
+            // 这样图片和文字可以自然一起发。
+            if !attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(attachments, id: \.self) { path in
+                            HStack(spacing: 5) {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 11))
+                                Text((path as NSString).lastPathComponent)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                Button {
+                                    attachments.removeAll { $0 == path }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(.quaternary, in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                }
+                .padding(.top, 6)
+            }
             // 发送方式：排队（等当前轮结束）/ 插队（打断当前轮）
             HStack(spacing: 8) {
                 Picker("发送方式", selection: $model.sendMode) {
@@ -364,7 +396,14 @@ struct ChatView: View {
 
     private func submit() {
         let text = draft
+        // 附件和文字合并成一条消息：附件路径放后面，文字保持原样在前面
+        let attachmentLines = attachments.map { "[附件] \($0)" }.joined(separator: "\n")
+        let payload = attachmentLines.isEmpty
+            ? text
+            : ([text, attachmentLines].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+                .joined(separator: "\n")
         draft = ""
+        attachments = []
         // 草稿按会话存，发完要清掉对应那一格
         model.drafts[model.draftKey(model.selectedSessionId)] = ""
         // 自己发的消息一定要跟着滚到底，别让「不打断」规则把自己挡住
@@ -372,15 +411,16 @@ struct ChatView: View {
         hasNewBelow = false
         focused = false
         sending = true
+        let outgoing = payload
         Task {
-            await model.send(text: text)
+            await model.send(text: outgoing)
             sending = false
         }
     }
 
     // MARK: - 附件
 
-    /// 一次可以选多张（最多 9 张），逐张上传后把路径都写进输入框
+    /// 一次可以选多张（最多 9 张），逐张压缩后上传，成功后挂成附件 chip
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         uploading = true
         uploadProgress = (0, items.count)
@@ -391,11 +431,13 @@ struct ChatView: View {
         }
         for (index, item) in items.enumerated() {
             do {
-                guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                guard let raw = try await item.loadTransferable(type: Data.self) else { continue }
+                // 相册原图常有十几 MB，上传前先压到 2048 / q0.82，否则手机端会卡死
+                let data = ImagePrep.compress(raw)
                 let stamp = Int(Date().timeIntervalSince1970)
                 let name = "image-\(stamp)-\(index).jpg"
                 let remote = try await model.uploadAttachment(data, filename: name)
-                appendPath(remote)
+                attachments.append(remote)
                 uploadProgress = (index + 1, items.count)
             } catch {
                 model.showToast("第 \(index + 1) 张上传失败：\(error.localizedDescription)")
@@ -420,21 +462,13 @@ struct ChatView: View {
             Task {
                 do {
                     let remote = try await model.uploadAttachment(data, filename: url.lastPathComponent)
-                    appendPath(remote)
+                    attachments.append(remote)
                 } catch {
-                    model.lastError = "上传失败：\(error.localizedDescription)"
+                    model.showToast("上传失败：\(error.localizedDescription)")
                 }
                 uploading = false
             }
         }
     }
-
-    /// 把已上传文件的远端路径塞进输入框，模型据此读取
-    private func appendPath(_ remote: String) {
-        if draft.isEmpty {
-            draft = "[附件] \(remote)\n"
-        } else {
-            draft += "\n[附件] \(remote)\n"
-        }
-    }
 }
+
