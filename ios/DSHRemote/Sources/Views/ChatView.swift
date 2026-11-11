@@ -90,7 +90,15 @@ struct ChatView: View {
                 // 回退说明：试过把 composer 做成 ScrollView 的兄弟视图（VStack 并排），
                 // 确实能脱离 UIScrollView 的手势树，但在 GeometryReader 里 VStack 会塌缩，
                 // ScrollView 拿不到高度，整个聊天区空白。这里先回到 safeAreaInset 保证显示正常。
-                VStack(spacing: 0) {
+                // composer 用 safeAreaInset 挂在 ScrollView 上，**不再是 VStack 的兄弟**。
+                //
+                // 17:35 的 668fa8a 为了修「惯性中按钮点不动」，把 composer 挪成了兄弟视图；
+                // 代价是从那以后输入框高度一变（打字换行、键盘、上传条、附件 chip、发送方式）
+                // 就要整棵 VStack 重排 → ScrollView frame 变 → LazyVStack 全量重测。
+                // 用户观察到的「某次功能更新后卡顿大量产生」正是它。
+                // 现在改回 safeAreaInset：输入区高度变化只影响 inset，不牵动列表布局。
+                // 代价：惯性滚动中点「跳到底」偶尔不灵（按钮在 ScrollView 的手势树里），
+                // 但那是体验细节，不该用整页卡死来换。
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if entries.isEmpty { emptyState }
@@ -223,10 +231,8 @@ struct ChatView: View {
                     // 显示与否交给 JumpButtonLayer 自己（它已 @ObservedObject）。
                 }
 
-                composer
-                }
+                .safeAreaInset(edge: .bottom, spacing: 0) { composer }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
-            .background(.bar)
             .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
                 handleFile(result)
             }
