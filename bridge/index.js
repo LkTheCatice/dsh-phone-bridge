@@ -484,7 +484,116 @@ function applyBridge(ctx, config) {
   const PREVIEW_QUALITY = 86;
   const PREVIEW_MIN_BYTES = 800 * 1024;
   const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"]);
+  const VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"]);
   const previewCacheDir = path.join(stateDir(), "preview-cache");
+
+  /** ffmpeg 可执行文件位置（winget / 手动放置 / PATH 三处找） */
+  const FFMPEG_CANDIDATES = [
+    "D:\\tools\\ffmpeg\\ffmpeg.exe",
+    path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
+  ];
+
+  async function ffmpegPath() {
+    if (ffmpegPath._cache !== undefined) return ffmpegPath._cache;
+    let found = null;
+    for (const candidate of FFMPEG_CANDIDATES) {
+      if (!candidate) continue;
+      try {
+        await fsp.access(candidate);
+        found = candidate;
+        break;
+      } catch {
+        /* 继续找 */
+      }
+    }
+    if (!found) {
+      // 最后看 PATH
+      try {
+        const { stdout } = await execFileAsync("where", ["ffmpeg"], { windowsHide: true });
+        const line = String(stdout).split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+        if (line) found = line;
+      } catch {
+        /* 没有就没有 */
+      }
+    }
+    ffmpegPath._cache = found;
+    return found;
+  }
+
+  /**
+   * 视频封面帧：抽第 0 秒的一帧做成小图。
+   * 手机侧大视频只显示这张封面 + 「点击下载」，不会因为滚过去就吃掉几十 MB。
+   */
+  async function videoPoster(real, stat) {
+    const ffmpeg = await ffmpegPath();
+    if (!ffmpeg) return null;
+    const key = createHash("sha1").update(`poster|${real}|${stat.mtimeMs}`).digest("hex");
+    const cachedPath = path.join(previewCacheDir, `${key}.jpg`);
+    try {
+      return { buffer: await fsp.readFile(cachedPath) };
+    } catch {
+      /* 无缓存 */
+    }
+    try {
+      await fsp.mkdir(previewCacheDir, { recursive: true });
+      await execFileAsync(
+        ffmpeg,
+        [
+          "-y", "-loglevel", "error",
+          "-ss", "0.5",            // 稍微进去一点，避开开头的黑帧
+          "-i", real,
+          "-vframes", "1",
+          "-vf", "scale=720:-2",
+          "-q:v", "4",
+          cachedPath,
+        ],
+        { timeout: 30000, windowsHide: true },
+      );
+      return { buffer: await fsp.readFile(cachedPath) };
+    } catch (error) {
+      logLine({ step: "poster/failed", error: String(error?.message || error).slice(0, 160) });
+      return null;
+    }
+  }
+
+  /**
+   * 视频压缩：给手机看的预览版。
+   * 长边 1280、CRF 32、veryfast —— 手机上看清楚够用，体积通常降到 1/5 以下。
+   * 只在 preview=1 且文件超过阈值时调用，原件始终留在电脑上。
+   */
+  async function videoPreview(real, stat) {
+    const ffmpeg = await ffmpegPath();
+    if (!ffmpeg) return null;
+    const key = createHash("sha1").update(`video|${real}|${stat.mtimeMs}`).digest("hex");
+    const cachedPath = path.join(previewCacheDir, `${key}.mp4`);
+    try {
+      return { buffer: await fsp.readFile(cachedPath) };
+    } catch {
+      /* 无缓存 */
+    }
+    try {
+      await fsp.mkdir(previewCacheDir, { recursive: true });
+      await execFileAsync(
+        ffmpeg,
+        [
+          "-y", "-loglevel", "error",
+          "-i", real,
+          "-vf", "scale='min(1280,iw)':-2",
+          "-c:v", "libx264", "-crf", "32", "-preset", "veryfast",
+          "-c:a", "aac", "-b:a", "96k",
+          "-movflags", "+faststart",
+          cachedPath,
+        ],
+        { timeout: 180000, windowsHide: true },
+      );
+      const buffer = await fsp.readFile(cachedPath);
+      logLine({ step: "video-preview", srcBytes: stat.size, outBytes: buffer.length });
+      return { buffer };
+    } catch (error) {
+      logLine({ step: "video-preview/failed", error: String(error?.message || error).slice(0, 160) });
+      return null;
+    }
+  }
 
   /**
    * 生成图片预览：电脑侧压好再传，手机只为「看一眼确认」。
@@ -494,9 +603,10 @@ function applyBridge(ctx, config) {
    * 结果按 path+mtime 缓存，同一张图只压一次。
    * 小于 800KB 的图不压（原样更清楚）；视频/音频不处理。
    */
-  async function imagePreview(target) {
+  async function imagePreview(target, options = {}) {
     const ext = path.extname(String(target)).toLowerCase();
-    if (!IMAGE_EXT.has(ext)) return null;
+    const isVideo = VIDEO_EXT.has(ext);
+    if (!IMAGE_EXT.has(ext) && !isVideo) return null;
 
     let real;
     try {
@@ -510,6 +620,13 @@ function applyBridge(ctx, config) {
     } catch {
       return null;
     }
+
+    // 视频有两条路：只要封面帧，或者要压好的预览片
+    if (isVideo) {
+      if (options.mode === "poster") return videoPoster(real, stat);
+      return videoPreview(real, stat);
+    }
+
     if (stat.size < PREVIEW_MIN_BYTES) return null;
 
     const key = createHash("sha1")
@@ -1551,11 +1668,12 @@ function applyBridge(ctx, config) {
       const offset = Number(url.searchParams.get("offset")) || 0;
       const limit = Number(url.searchParams.get("limit")) || MAX_FILE_CHUNK;
 
-      // preview=1：图片先在电脑侧压成预览再传。
-      // ComfyUI 出的 PNG 动辄十几 MB，手机只为「看一眼确认」，
-      // 原样传既慢又占内存；高清原件始终在电脑上。
+      // preview=1：电脑侧先压好再传。
+      // 图片用 Pillow 缩到 2048；视频用 ffmpeg 抽封面（mode=poster）或压成 720p 预览。
+      // 手机只为「看一眼确认」，原件始终在电脑上。
       if (url.searchParams.get("preview") === "1" && offset === 0) {
-        const preview = await imagePreview(target);
+        const mode = url.searchParams.get("mode") || "auto";
+        const preview = await imagePreview(target, { mode });
         if (preview) {
           return sendBinary(res, 200, preview.buffer, ctxEnc, {
             "x-file-size": String(preview.buffer.length),

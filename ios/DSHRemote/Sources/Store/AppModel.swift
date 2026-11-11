@@ -950,6 +950,18 @@ final class AppModel: ObservableObject {
         return client.lastFileSize ?? 0
     }
 
+    /// 取视频封面帧（电脑侧 ffmpeg 抽第 0.5 秒，720 宽，通常 20–40KB）
+    func downloadPoster(path: String) async -> Data? {
+        guard let client else { return nil }
+        return try? await client.readFile(
+            path: path,
+            offset: 0,
+            limit: 4 * 1024 * 1024,
+            preview: true,
+            mode: "poster"
+        )
+    }
+
     func entriesForSelection() -> [ChatEntry] {
         // 直接读发布属性：ChatView 依赖它，才能和其他会话的写入隔离开
         currentEntries

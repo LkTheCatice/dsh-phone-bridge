@@ -18,6 +18,8 @@ struct RemoteVideo: View {
     @State private var failed = false
     /// 探到的大小（0 = 未知）
     @State private var knownBytes: Int64 = 0
+    /// 封面帧（大视频才取）
+    @State private var poster: UIImage?
     /// 超过阈值，等用户点击
     @State private var waitingForTap = false
     /// 已下载字节 / 总字节
@@ -41,22 +43,50 @@ struct RemoteVideo: View {
                     }
                 }
             } else if waitingForTap {
-                // 大文件：只给一张卡，点了才下载
+                // 大文件：先要封面帧（电脑侧 ffmpeg 抽好，几十 KB），点了才下整段
                 card {
-                    HStack(spacing: 10) {
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 30))
-                            .foregroundStyle(Color.accentColor)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(filename)
-                                .font(.system(size: 12))
-                                .lineLimit(1)
-                            Text("\(byteText(knownBytes)) · 点击下载播放")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
+                    ZStack(alignment: .bottomLeading) {
+                        if let poster {
+                            Image(uiImage: poster)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(height: 160)
+                                .clipped()
+                        } else {
+                            Rectangle()
+                                .fill(.quaternary.opacity(0.25))
+                                .frame(height: 160)
+                                .overlay {
+                                    Image(systemName: "video")
+                                        .font(.system(size: 26))
+                                        .foregroundStyle(.secondary)
+                                }
                         }
-                        Spacer(minLength: 0)
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.55)],
+                            startPoint: .center,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 160)
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 26))
+                                .foregroundStyle(.white)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(filename)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text("\(byteText(knownBytes)) · 点击下载")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.85))
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(8)
                     }
+                    .frame(height: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -101,6 +131,11 @@ struct RemoteVideo: View {
         if size > Self.autoDownloadLimit {
             waitingForTap = true
             loading = false
+            // 封面帧只有几十 KB，先取来占位
+            if let data = await model.downloadPoster(path: path),
+               let image = UIImage(data: data) {
+                poster = image
+            }
             return
         }
         await prepare()

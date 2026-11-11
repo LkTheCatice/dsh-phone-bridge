@@ -317,7 +317,8 @@ final class BridgeClient {
         path: String,
         offset: Int,
         limit: Int,
-        preview: Bool = false
+        preview: Bool = false,
+        mode: String? = nil
     ) async throws -> Data {
         var query: [(String, String)] = [
             ("path", path),
@@ -325,6 +326,8 @@ final class BridgeClient {
             ("limit", String(limit)),
         ]
         if preview { query.append(("preview", "1")) }
+        // mode=poster 时服务端只返回封面帧；不传则按类型自动（图片压缩 / 视频压预览）
+        if let mode, !mode.isEmpty { query.append(("mode", mode)) }
         let (data, headers) = try await sendWithHeaders(method: "GET", path: "/v1/fs/read", query: query)
         if let sizeText = headers["x-file-size"], let size = Int64(sizeText) {
             lastFileSize = size
