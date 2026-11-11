@@ -745,46 +745,40 @@ final class AppModel: ObservableObject {
     /// - `gap>120ms:` 有一堆 + `body` 很高 → 失效风暴：每次状态写入都让整棵树重算并重新布局
     /// - `body` 不高但 `max` 很大 → 单次阻塞操作（回填、解析、同步 IO）
     private var watchdogTimer: Timer?
-    private var lastHeartbeat: CFAbsoluteTime = 0
-    private var stallCount = 0
-    private var worstGapMs = 0
-    private var bodyEvals = 0
-    private var prefEvents = 0
 
     /// ChatView.body 每求值一次 +1。只累加整数、不发通知，不会引起任何重算。
-    func recordBodyEval() { bodyEvals += 1 }
+    func recordBodyEval() { watchdogStats.bodies += 1 }
 
     /// onPreferenceChange 每触发一次 +1（布局回调频率）
-    func recordPrefEvent() { prefEvents += 1 }
+    func recordPrefEvent() { watchdogStats.prefs += 1 }
 
     func startWatchdog() {
         guard watchdogTimer == nil else { return }
-        lastHeartbeat = CFAbsoluteTimeGetCurrent()
-        var ticks = 0
+        watchdogStats.last = CFAbsoluteTimeGetCurrent()
         watchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            guard let self else { return }
             let now = CFAbsoluteTimeGetCurrent()
-            let gap = now - self.lastHeartbeat
-            self.lastHeartbeat = now
-            let gapMs = Int(gap * 1000)
+            let gapMs = Int((now - watchdogStats.last) * 1000)
+            watchdogStats.last = now
             if gapMs > 120 {
-                self.stallCount += 1
-                self.worstGapMs = max(self.worstGapMs, gapMs)
+                watchdogStats.stalls += 1
+                watchdogStats.worst = max(watchdogStats.worst, gapMs)
             }
-            ticks += 1
-            guard ticks >= 8 else { return }   // 2 秒一个窗口
-            ticks = 0
-            let bodies = self.bodyEvals
-            let prefs = self.prefEvents
-            let stalls = self.stallCount
-            let worst = self.worstGapMs
-            self.bodyEvals = 0
-            self.prefEvents = 0
-            self.stallCount = 0
-            self.worstGapMs = 0
+            watchdogStats.ticks += 1
+            guard watchdogStats.ticks >= 8 else { return }   // 2 秒一个窗口
+            watchdogStats.ticks = 0
+            let bodies = watchdogStats.bodies
+            let prefs = watchdogStats.prefs
+            let stalls = watchdogStats.stalls
+            let worst = watchdogStats.worst
+            watchdogStats.bodies = 0
+            watchdogStats.prefs = 0
+            watchdogStats.stalls = 0
+            watchdogStats.worst = 0
             // 全平静时不打日志，免得把真有信息的行淹掉
             guard stalls > 0 || bodies > 12 || prefs > 12 else { return }
-            self.pingDiagnostic("wd gap>120ms:\(stalls) max:\(worst)ms body:\(bodies)/2s pref:\(prefs)/2s")
+            Task { @MainActor in
+                self?.pingDiagnostic("wd gap>120ms:\(stalls) max:\(worst)ms body:\(bodies)/2s pref:\(prefs)/2s")
+            }
         }
     }
 
@@ -1184,3 +1178,24 @@ final class AppModel: ObservableObject {
         }
     }
 }
+
+// MARK: - 看门狗计数器（文件级，非隔离）
+
+/// 看门狗要用的几个数字。
+///
+/// 为什么单独放一个普通 class：`Timer.scheduledTimer` 的闭包是**非隔离**上下文，
+/// 直接读写 `@MainActor` 类上的属性，编译器会一条一条报 main actor-isolated 警告
+/// （上一版一次就多了 11 条，把真正该看的警告淹掉了）。
+/// 这些数字本来就只由主线程读写，装进一个非隔离的引用类型就够了。
+private final class WatchdogStats {
+    var last: CFAbsoluteTime = 0
+    var ticks = 0
+    var stalls = 0
+    var worst = 0
+    var bodies = 0
+    var prefs = 0
+}
+
+/// 文件级全局（非隔离）：Timer 闭包与 AppModel 都能直接访问
+private let watchdogStats = WatchdogStats()
+
