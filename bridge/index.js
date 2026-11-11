@@ -405,7 +405,7 @@ function applyBridge(ctx, config) {
     if (cached && cached.mtimeMs === stat.mtimeMs) return cached.title;
     let title = null;
     try {
-      const text = zstdDecompressSync(fs.readFileSync(file)).toString("utf8");
+      const text = zstdReadAll(fs.readFileSync(file)).toString("utf8");
       for (const line of text.split("\n")) {
         if (!line.includes("session/title")) continue;
         try {
@@ -425,13 +425,46 @@ function applyBridge(ctx, config) {
   }
 
   /**
-   * 会话标题不在 list() 的返回里，只能从会话日志里折出来。
+   * 解压「流式追加写」的 zstd 文件。
+   *
+   * DSH 每追加一批事件就写一个独立的 zstd frame，而 Electron 44 内置的 zlib
+   * （Chromium 实现，不是 Node 原生）的 zstdDecompressSync 只处理**第一个** frame：
+   * 890KB 的会话日志只解出 230 字符 —— 标题和历史因此全读不到。
+   * 独立 node 里没这毛病，所以命令行验证一直是通的。
+   *
+   * 这里按 zstd magic number 手动切分，逐片解压再拼接，绕开它的 frame 行为。
+   */
+  const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+
+  function zstdReadAll(buffer) {
+    const starts = [];
+    let index = buffer.indexOf(ZSTD_MAGIC, 0);
+    while (index !== -1) {
+      starts.push(index);
+      index = buffer.indexOf(ZSTD_MAGIC, index + 4);
+    }
+    if (starts.length <= 1) return zstdDecompressSync(buffer);
+
+    const parts = [];
+    for (let i = 0; i < starts.length; i += 1) {
+      const start = starts[i];
+      const end = i + 1 < starts.length ? starts[i + 1] : buffer.length;
+      try {
+        parts.push(zstdDecompressSync(buffer.subarray(start, end)));
+      } catch {
+        /* 分片切错就跳过：宁可少一条事件，也别整个失败 */
+      }
+    }
+    if (parts.length === 0) return zstdDecompressSync(buffer);
+    return Buffer.concat(parts);
+  }
+
   /** 冷会话的历史：直接用磁盘日志重建（和标题走同一套 zstd 读取） */
   function framesFromLog(sessionId) {
     const file = sessionLogIndex().get(sessionId);
     if (!file) return null;
     try {
-      const text = zstdDecompressSync(fs.readFileSync(file)).toString("utf8");
+      const text = zstdReadAll(fs.readFileSync(file)).toString("utf8");
       const frames = [];
       // normalizeEvent 只在 sessionIdOf 里用 session，给个最小替身就够
       const stub = { id: sessionId };
@@ -814,8 +847,10 @@ function applyBridge(ctx, config) {
         if (file) {
           report.probePathExists = fs.existsSync(file);
           try {
-            const text = zstdDecompressSync(fs.readFileSync(file)).toString("utf8");
+            const raw = fs.readFileSync(file);
+            const text = zstdReadAll(raw).toString("utf8");
             report.probeBytes = text.length;
+            report.probeRawBytes = raw.length;
             report.probeHasTitleEvent = text.includes("session/title");
             let title = null;
             for (const line of text.split("\n")) {
