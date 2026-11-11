@@ -29,6 +29,17 @@ targets:
         # 否则存进沙盒等于拿不出来
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # 注册为「用其他应用打开」的处理程序：微信「更多 → 用其他应用打开」、
+        # QQ「其他应用打开」都能把文件直接递进来（Share Extension 需要 App Groups，
+        # 免费签名拿不到，所以走这条原生通道）
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 任意文件
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.data
+              - public.image
+              - public.movie
+              - public.audio
         # 局域网走 HTTP，但每个请求体都是端到端加密的；外网请走 Tailscale 的 HTTPS
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

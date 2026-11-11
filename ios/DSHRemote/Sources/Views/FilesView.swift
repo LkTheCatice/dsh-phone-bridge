@@ -23,55 +23,60 @@ struct FilesView: View {
     @State private var message: String?
     @State private var shareItems: [Any] = []
 
+    private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp"]
+
+    /// 文件夹优先，其余按首字母分组；非字母开头归到 #
+    private var grouped: [(String, [FsEntry])] {
+        let sorted = rows.sorted { lhs, rhs in
+            if lhs.dir != rhs.dir { return lhs.dir }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        let dict = Dictionary(grouping: sorted) { entry -> String in
+            guard let first = entry.name.first else { return "#" }
+            let upper = String(first).uppercased()
+            return upper.range(of: "^[A-Z]$", options: .regularExpression) != nil ? upper : "#"
+        }
+        return dict.keys.sorted { a, b in
+            if a == "#" { return false }
+            if b == "#" { return true }
+            return a < b
+        }.map { ($0, dict[$0] ?? []) }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Text(path.isEmpty ? "（取第一个允许的根目录）" : path)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-
-                if loading {
-                    HStack { ProgressView(); Text("读取中…").font(.caption) }
-                }
-
-                Section("目录内容") {
-                    ForEach(rows) { row in
-                        Button {
-                            if row.dir {
-                                load(row.fullPath)
-                            } else {
-                                Task { await download(row) }
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: row.dir ? "folder.fill" : "doc.text")
-                                    .foregroundStyle(row.dir ? Color.accentColor : .secondary)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(row.name).lineLimit(1)
-                                    if let size = row.size {
-                                        Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer()
-                                if !row.dir { Image(systemName: "arrow.down.circle").foregroundStyle(.secondary) }
-                            }
-                        }
-                    }
-                }
-
-                if !path.isEmpty {
+            ScrollViewReader { proxy in
+                List {
                     Section {
-                        Button("返回上一级") {
-                            let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
-                            if let idx = trimmed.lastIndex(where: { $0 == "/" || $0 == "\\" }) {
-                                load(String(trimmed[trimmed.startIndex..<idx]))
+                        Text(path.isEmpty ? "（取第一个允许的根目录）" : path)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if loading {
+                        HStack { ProgressView(); Text("读取中…").font(.caption) }
+                    }
+
+                    ForEach(grouped, id: \.0) { letter, entries in
+                        Section {
+                            ForEach(entries) { row in
+                                rowView(row)
                             }
+                        } header: {
+                            Text(letter)
+                                .id(letter)
                         }
                     }
+
+                    if !path.isEmpty {
+                        Section {
+                            Button("返回上一级") { goUp() }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .overlay(alignment: .trailing) {
+                    indexBar(proxy)
                 }
             }
             .navigationTitle("文件")
@@ -106,6 +111,85 @@ struct FilesView: View {
         }
     }
 
+    @ViewBuilder
+    private func rowView(_ row: FsEntry) -> some View {
+        Button {
+            if row.dir {
+                load(row.fullPath)
+            } else {
+                Task { await download(row) }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: row.dir ? "folder.fill" : iconFor(row.name))
+                    .foregroundStyle(row.dir ? Color.accentColor : .secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.name).lineLimit(1)
+                    if let size = row.size {
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if !row.dir {
+                    Image(systemName: isImage(row.name) ? "photo" : "arrow.down.circle")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .id(row.id)
+    }
+
+    /// 右侧 A–Z 索引条：点一下就跳到那个分组
+    @ViewBuilder
+    private func indexBar(_ proxy: ScrollViewProxy) -> some View {
+        let letters = grouped.map(\.0)
+        if letters.count > 3 {
+            VStack(spacing: 1) {
+                ForEach(letters, id: \.self) { letter in
+                    Text(letter)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 18, height: 14)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        }
+                }
+            }
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.trailing, 2)
+        }
+    }
+
+    private func isImage(_ name: String) -> Bool {
+        Self.imageExtensions.contains((name as NSString).pathExtension.lowercased())
+    }
+
+    private func iconFor(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "bmp": return "photo"
+        case "md", "txt", "log": return "doc.text"
+        case "json", "yml", "yaml", "js", "ts", "py", "swift": return "chevron.left.forwardslash.chevron.right"
+        case "zip", "7z", "rar", "tar", "gz": return "archivebox"
+        case "mp4", "mov", "mkv", "webm": return "film"
+        case "pdf": return "doc.richtext"
+        default: return "doc"
+        }
+    }
+
+    private func goUp() {
+        let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
+        if let idx = trimmed.lastIndex(where: { $0 == "/" || $0 == "\\" }) {
+            load(String(trimmed[trimmed.startIndex..<idx]))
+        }
+    }
+
     private func load(_ target: String) {
         loading = true
         Task {
@@ -124,11 +208,16 @@ struct FilesView: View {
     private func download(_ row: FsEntry) async {
         do {
             let data = try await model.download(path: row.fullPath)
+            // 图片直接进相册，别让用户再去分享面板里绕一圈
+            if isImage(row.name), let image = UIImage(data: data) {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                message = "已存到相册：\(row.name)"
+                return
+            }
             let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let target = dir.appendingPathComponent(row.name)
             try data.write(to: target, options: .atomic)
             message = "已保存 \(row.name)（\(data.count) 字节）"
-            // 直接弹系统分享：可以存到「文件」/ 相册 / AirDrop / 发给别人
             shareItems = [target]
         } catch {
             message = "下载失败：\(error.localizedDescription)"

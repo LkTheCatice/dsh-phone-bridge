@@ -23,6 +23,14 @@ struct RootView: View {
                 PairingView()
             }
         }
+        // 微信 / QQ / 文件 App 里「用其他应用打开」递进来的文件
+        .onOpenURL { url in
+            Task { await model.ingestExternalFile(url) }
+        }
+        .sheet(item: $model.pendingIncoming) { file in
+            IncomingFileSheet(file: file)
+                .environmentObject(model)
+        }
         .alert("出错了", isPresented: Binding(
             get: { model.lastError != nil },
             set: { if !$0 { model.lastError = nil } }

@@ -21,6 +21,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastSeq: Int = 0
     @Published var lastError: String?
     @Published var busy: Bool = false
+    /// 外部 App 递过来的文件，等用户选会话后再发
+    @Published var pendingIncoming: IncomingFile?
 
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
@@ -445,6 +447,45 @@ final class AppModel: ObservableObject {
     func cancelCurrentTurn() async {
         guard let client, let sid = selectedSessionId else { return }
         _ = try? await client.cancel(sessionId: sid)
+    }
+
+    /// 外部 App（微信 / QQ / 文件）通过「用其他应用打开」递进来的文件
+    func ingestExternalFile(_ url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        var data: Data?
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            data = nil
+        }
+        // 有的来源给的是「在文件 App 里的引用」，直接读可能失败，走协作副本
+        if data == nil {
+            let coordinator = NSFileCoordinator()
+            var coordError: NSError?
+            var copy: Data?
+            coordinator.coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
+                copy = try? Data(contentsOf: readURL)
+            }
+            data = copy
+        }
+
+        guard let payload = data else {
+            lastError = "读取不了这个文件：\(url.lastPathComponent)"
+            return
+        }
+        pendingIncoming = IncomingFile(name: url.lastPathComponent, data: payload)
+    }
+
+    /// 把待发送文件上传到电脑并投递到指定会话（nil = 新建会话）
+    func sendIncoming(_ file: IncomingFile, to sessionId: String?, note: String) async throws {
+        let remote = try await uploadAttachment(file.data, filename: file.name)
+        selectedSessionId = sessionId
+        var text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = file.isImage ? "[图片] \(remote)" : "[文件] \(remote)"
+        text = text.isEmpty ? tag : "\(text)\n\(tag)"
+        await send(text: text)
     }
 
     func entriesForSelection() -> [ChatEntry] {

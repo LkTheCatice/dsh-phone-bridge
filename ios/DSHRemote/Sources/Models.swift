@@ -59,8 +59,23 @@ struct ChatEntry: Identifiable, Hashable {
     var folded: [ChatEntry] = []
 }
 
-struct FsEntry: Identifiable, Hashable {
-    let id: String
+/// 从别的 App（微信/QQ/文件）用「用其他应用打开」递过来的文件
+struct IncomingFile: Identifiable {
+    let id = UUID()
+    let name: String
+    let data: Data
+
+    var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
+    }
+
+    var isImage: Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"].contains(ext)
+    }
+}
+
+struct FsEntry: Identifiable, Hashable {    let id: String
     var name: String
     var dir: Bool
     var size: Int?

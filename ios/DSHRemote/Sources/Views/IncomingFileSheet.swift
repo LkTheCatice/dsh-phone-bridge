@@ -1,0 +1,117 @@
+import SwiftUI
+
+/// 从微信 / QQ / 文件 App 递过来文件后，让用户挑一个会话发过去。
+///
+/// 为什么不做成 Share Extension：那需要 App Groups capability，
+/// 而免费 Apple ID 签名拿不到它（Personal Team 不支持）。但「用其他应用打开」
+/// 是 iOS 原生通道，微信里「更多 → 用其他应用打开」、QQ 里「其他应用打开」都能点，
+/// 文件会直接进主 App，不需要任何特殊 entitlement。
+struct IncomingFileSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    let file: IncomingFile
+
+    @State private var target: String = "__new__"
+    @State private var note: String = ""
+    @State private var sending = false
+    @State private var localError: String?
+
+    private let newSessionTag = "__new__"
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("要发送的文件") {
+                    LabeledContent("名称", value: file.name)
+                    LabeledContent("大小", value: file.formattedSize)
+                    if file.isImage {
+                        LabeledContent("类型", value: "图片")
+                    }
+                }
+
+                Section("发送到") {
+                    Button {
+                        target = newSessionTag
+                    } label: {
+                        HStack {
+                            Label("新对话", systemImage: "square.and.pencil")
+                            Spacer()
+                            if target == newSessionTag { checkmark }
+                        }
+                    }
+
+                    ForEach(model.sessions.prefix(30)) { session in
+                        Button {
+                            target = session.id
+                        } label: {
+                            HStack {
+                                Label(
+                                    "\(session.running ? "● " : "")\(session.displayTitle)",
+                                    systemImage: "bubble.left"
+                                )
+                                Spacer()
+                                if target == session.id { checkmark }
+                            }
+                        }
+                    }
+                }
+
+                Section("附言（可选）") {
+                    TextField("想让 DSH 对它做点什么…", text: $note, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+
+                if let localError {
+                    Section {
+                        Text(localError).font(.caption).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("转发到电脑")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        model.pendingIncoming = nil
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if sending {
+                            HStack(spacing: 4) {
+                                ProgressView().controlSize(.mini)
+                                Text("发送中")
+                            }
+                        } else {
+                            Text("发送")
+                        }
+                    }
+                    .disabled(sending)
+                }
+            }
+            .interactiveDismissDisabled(sending)
+        }
+    }
+
+    private var checkmark: some View {
+        Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+    }
+
+    private func submit() async {
+        sending = true
+        localError = nil
+        defer { sending = false }
+        do {
+            let sessionId = target == newSessionTag ? nil : target
+            try await model.sendIncoming(file, to: sessionId, note: note)
+            model.pendingIncoming = nil
+            dismiss()
+        } catch {
+            localError = "发送失败：\(error.localizedDescription)"
+        }
+    }
+}
