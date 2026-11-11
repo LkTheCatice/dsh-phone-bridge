@@ -1,0 +1,210 @@
+# 重构方案：聊天列表换成 cell 复用架构
+
+> 起因：2026-11-12 通宵排查「点发送/打字/滚动卡死」，最后发现**不是某处慢，
+> 而是渲染结构本身**：一条消息被拆成 N 个 SwiftUI `Text`，`LazyVStack` 没有 cell 复用，
+> 20 条消息就是上百个视图节点参与测量 —— 中文 CoreText 排版又贵，流式输出每秒触发多次，
+> 主线程永远追不上。为了不卡，只能一路降级（纯文本、可见 4 条、markdown 关闭），
+> 这时候功能已经被拆得只剩骨架。
+>
+> 结论：**不再打补丁，按 cell 复用的思路重建聊天页。**
+
+---
+
+## 一、功能清点（重建后必须一项不少）
+
+### 1.1 聊天页（现 `ChatView` 692 行 + `ChatBubble` 365 行）
+
+**消息渲染**
+- [ ] 用户消息（含自发的图片/视频/音频路径解析）
+- [ ] AI 回答：markdown（标题/段落/粗体/斜体/行内代码/代码块/列表/引用/分隔线/表格）
+- [ ] 思考过程（可折叠）
+- [ ] 工具调用行：`> 动作 · 摘要 ✓/✗`，可点开看详情（详情含参数 JSON、工具读过的图片）
+- [ ] 本轮过程折叠（思考 + 工具合成「本轮过程 · N 步」）
+- [ ] 系统行（开始第 N 轮 / 本轮结束 · 用时 / 中止 / 出错）
+- [ ] 时间戳（与上一条隔 5 分钟以上才显示）
+- [ ] 图片缩略图（后台解码缩略图 + 内存缓存 + 点击看大图 + 存相册）
+- [ ] 视频（封面帧 / 点击下载 / 播放 / >20MB 不自动取）
+- [ ] 音频（播放器）
+- [ ] 长文本折叠与展开（**手风琴：同时只展开一条**）
+- [ ] 文本可选中复制（可开关）
+
+**输入区**
+- [ ] 多行输入（1~5 行自增高）
+- [ ] 发送 / 发送中状态
+- [ ] 附件入口菜单：图片 / 视频 / 音乐 / 文件
+- [ ] 图片多选（≤9）→ 压缩 → 上传 → chip 列表（可单个移除）
+- [ ] 单张图片弹标注编辑器（PencilKit）
+- [ ] 视频多选（≤3）→ 上传
+- [ ] 音乐/文件走文件选择器
+- [ ] 上传进度（第 N/M 张）
+- [ ] 发送方式：排队 / 插队（segmented）
+- [ ] 草稿按会话保存、切会话回填
+
+**列表与滚动**
+- [ ] 自动跟随（只有手机自己发的才跟随；电脑端发消息不带动滚动）
+- [ ] 「新消息」/「跳到底」浮动按钮，**惯性滚动中点击也要生效**
+- [ ] 冷启动/切会话后停在最新一条
+- [ ] 从后台回前台贴回底部
+- [ ] 历史按需加载（更早的折叠成一行按钮）
+
+**工具栏**
+- [ ] 会话列表入口、重命名、归档、清除本机记录（保留 5 轮/全清）、停止本轮
+- [ ] 模型选择（含 reasoning effort）
+- [ ] ComfyUI 状态点（在线/生图中/队列数）
+- [ ] 连接状态图标 + 文案
+
+### 1.2 会话列表（`SessionListSheet` 173 行）
+- [ ] 搜索、运行中标记、未读蓝点、相对时间、「已完成」状态
+- [ ] 归档区（可取消归档）
+- [ ] 重命名、归档、新建会话
+
+### 1.3 文件页（`FilesView` 317 行）
+- [ ] 目录浏览、索引条、上传、下载、新建目录、删除、预览（图片/视频/音频/文本）
+
+### 1.4 设置页（`SettingsView` 148 行）
+- [ ] 连接状态/地址/通道/服务器信息/事件序号/重连
+- [ ] 电脑公钥指纹展示
+- [ ] 账户余额（含状态：未登录/不可用/失败）
+- [ ] 允许的文件根目录
+- [ ] 加密说明
+- [ ] 忘记这台电脑
+- [ ] 诊断实验开关（跟随/文本选择/markdown）
+
+### 1.5 全局
+- [ ] 配对页（配对串、手动填 host/port/token）
+- [ ] 断线横幅（含重连、回前台宽限期）
+- [ ] 审批横幅（允许/拒绝）
+- [ ] toast（3 秒消失）
+- [ ] 外部文件导入（`.onOpenURL` → 选会话 → 发送）
+- [ ] 通知（Bark/ntfy，服务端发）
+
+### 1.6 数据层（`AppModel` 1050+ 行、`BridgeClient`、`EventStream`）
+- [ ] E2EE 握手（X25519 + HKDF + AES-GCM）、指纹钉住
+- [ ] SSE 事件流（sealed 解密）、断线退避重连、`since` 补缺口
+- [ ] 帧归一化 → 条目（append/upsertStreaming/foldSteps/trim）
+- [ ] 历史回填（分片 yield、只加载当前会话）
+- [ ] 未读 / 运行态（零内容维护）
+- [ ] 审批挂起与回填
+- [ ] 文件分块上传下载
+- [ ] **保留**：`build` 版本指纹、`StallWatcher` 后台卡顿监视
+
+---
+
+## 二、现有架构的问题（都是实测过的）
+
+| # | 问题 | 实测证据 |
+|---|---|---|
+| 1 | 一条消息 = N 个 `Text`（每 block 一个） | 展开卡 **19594 ms**；关掉 markdown 后 716 ms |
+| 2 | `LazyVStack` 无 cell 复用，内容变化就重建子树 | 22 条消息滚动卡 13309 ms |
+| 3 | `ChatView` 单文件 692 行：列表 + 输入 + 工具栏 + 6 个 sheet + 4 个 picker + 滚动控制 + 打点 | 任何状态变化都可能触发全树重算 |
+| 4 | `AppModel` 20+ 个 `@Published`，被所有视图 `@EnvironmentObject` 订阅 | 会话列表刷新引起 700 ms 级重算；`lastSeq` 每帧通知 |
+| 5 | 输入区与列表共享 `VStack`（17:35 的结构改动） | 打字换行/键盘一变就整表重排 |
+| 6 | 滚动控制换了五套实现（UIKit 探针 / preference / 手势 / scrollTo / defaultScrollAnchor） | 每套都是「读布局→写状态→再布局」的环，43 秒 / 300 次每秒 |
+| 7 | `@State` 存不可比较类型、`@StateObject` 宿主订阅、每帧回调写状态 | 一次 30 秒、一次 15 秒、一次 19 秒 |
+
+**共同点：所有问题都在「视图树规模 × 更新频率」。** 打补丁只能压其中一个因子。
+
+---
+
+## 三、新架构
+
+### 3.1 渲染：cell 复用（核心决策）
+
+```
+UICollectionView (UIViewRepresentable)
+ ├─ CompositionalLayout: 单列，按内容自适应高度
+ ├─ DataSource: diffable (ChatEntry.ID)
+ └─ Cell: MessageCell（UICollectionViewCell）
+      └─ 一个 RichTextView（UITextView, isEditable=false, isScrollEnabled=false）
+            └─ 整条消息一个 NSAttributedString（TextKit 排版一次，cell 复用后不重排）
+```
+
+**为什么这是对的**：
+- cell 复用：滚动成本与消息总数**无关**（QQ/微信都是这条路）
+- `UITextView`：一次 TextKit 排版，滚动时直接复用图层
+- 一条消息 = 一个视图 = 一次排版，节点数从 N 降到 1
+- 流式更新只 `reconfigureItems([lastID])`，不碰其它 cell
+
+### 3.2 富文本：markdown → 单个 NSAttributedString
+
+复用已写好的 `MarkdownAttributed`（把 blocks 合成一个 AttributedString）：
+- 标题：字号 + 粗细
+- 代码块：等宽 + 背景色（NSAttributedString 逐字符着色，视觉接近块）
+- 列表：`• ` / `1. ` 前缀 + 缩进段落样式
+- 引用：`▍ ` 前缀 + 灰色 + 缩进
+- 表格：对齐文本行（保留可读性，不做 Grid 布局）
+- 行内：粗体/斜体/行内代码用 attributes
+
+> 不再有「一个 block 一个视图」，也就不存在 block 数决定卡顿的问题。
+
+### 3.3 状态分层（每层独立 ObservableObject）
+
+| Store | 内容 | 谁订阅 |
+|---|---|---|
+| `ChatStore` | 当前会话条目数组、`isStreaming`、流式增量 | 聊天页列表 |
+| `SessionListStore` | 会话列表、归档、运行中集合、未读 | 会话列表 sheet |
+| `ConnectionStore` | phase / pairing / serverInfo / 重连 | 断线横幅、工具栏图标 |
+| `DraftStore` | 每会话草稿、附件 chip、上传进度 | 输入区 |
+| `ToolbarStore` | comfy 状态、模型 | 对应小徽标 |
+
+**规则**：视图只 `@ObservedObject` 自己用的 store；**任何 store 都不持有视图状态**。
+
+### 3.4 输入区
+
+- 用 `.safeAreaInset(edge: .bottom)` 挂在列表上（**不是** VStack 兄弟）
+- 输入区高度变化只影响 inset，不改变列表尺寸
+- 所有 `fileImporter` / `photosPicker` / `sheet` 挂在**页面层级**，不挂在输入框上
+
+### 3.5 滚动
+
+- 只用系统行为：`scrollToItem(animated:)` + `scrollViewDidScroll` 判断是否到底
+- 自动跟随：流式更新时若用户在看底部 → `scrollToItem(last, at: .bottom)`，**节流 300ms**
+- 「跳到底」按钮：命中区在列表外层，**不参与列表布局**
+- 不做 `setContentOffset` 手工夹取、不做 preference 位置上报
+
+### 3.6 观测（保留）
+
+- `build=<sha>.<run> os=<ver>`：连上就报
+- `StallWatcher`：后台线程监视主线程心跳，`STUCK <ms> mark=<x>`
+- mark 分层：`cell:apply` / `cell:layout` / `diff` / `stream`
+- 心跳 `hb body= cell= diff=`
+
+---
+
+## 四、迁移步骤（每步可构建、可测、可回滚）
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| **0** | 冻结当前可用版本（`f5d0f96` 已装） | 打 tag `legacy-ok` |
+| **1** | 抽状态层：`ChatStore` / `SessionListStore` / `ConnectionStore` / `DraftStore`（UI 不动，只搬状态） | 构建通过、行为不变 |
+| **2** | 会话列表页换数据源（仍 SwiftUI） | 列表状态正常 |
+| **3** | **聊天列表换 `UICollectionView`**（最大收益）：先纯文本 cell | 滚动 200 条不卡、`STUCK` 消失 |
+| **4** | cell 内换成 `UITextView` + 单个 `NSAttributedString`（markdown 回归） | 富文本恢复且不卡 |
+| **5** | 输入区拆出 + sheet 上移 | 打字/换行不触发列表重排 |
+| **6** | 删诊断补丁（mark 降级、纯文本开关、可见条目上限） | 功能全量回归 |
+
+**顺序原则**：先换渲染管道（3、4），再拆输入区（5），最后清理补丁（6）。
+每一步都要在真机上看 `STUCK` 与 `hb`。
+
+---
+
+## 五、风险与对策
+
+| 风险 | 对策 |
+|---|---|
+| `UICollectionView` 自适应高度抖动 | 用 `preferredLayoutAttributesFitting` + 估算高度缓存（按 entry 内容 hash） |
+| 流式增量更新全表刷新 | diffable data source 只 reconfigure 最后一项；或 cell 内部直接改 textView.text |
+| 富文本 cell 复用后脏数据 | `prepareForReuse` 里清空 textStorage |
+| 桥接层难调试 | 保留 `StallWatcher` + `build` 指纹，出问题能定位 |
+| 改动面大 | 分 6 阶段，每阶段独立可回滚（git tag） |
+
+---
+
+## 六、不打算保留的东西
+
+- UIKit `ScrollViewAccessor` 探针（已删）
+- `BottomYKey` / `coordinateSpace` / `onPreferenceChange` 底部判定（已删）
+- `freezeContent` / `unfreezeContent` 冻结机制（已删）
+- `DragGesture` 判底、`defaultScrollAnchor` 自动锚定（已删）
+- 手工 `setContentOffset` 夹取（已删）
+- 纯文本降级开关、markdown 总开关、可见条目上限（重构完成后删）

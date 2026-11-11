@@ -24,19 +24,13 @@ struct MarkdownText: View {
 
     var body: some View {
         stallWatcher.setMark("md")
-        return VStack(alignment: .leading, spacing: 9) {
+        return Group {
             if let blocks {
-                // 用下标做 id，**不要**用 Block.id：divider 那条以前是
-                // "d-\(UUID().uuidString)"，每次求值都变 → ForEach 认为整行是新元素，
-                // 每帧销毁重建一遍，白烧主线程。
-                ForEach(Array(blocks.prefix(shownBlocks).enumerated()), id: \.offset) { _, block in
-                    view(for: block)
-                }
-                if blocks.count > shownBlocks {
-                    Text("… 还有 \(blocks.count - shownBlocks) 段，正在加载")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
+                // **一个 Text 渲染整条消息**（见 MarkdownAttributed 的注释）。
+                // 之前是每个 block 一个 Text：20 条消息上百个视图节点，
+                // LazyVStack 又没有 cell 复用 → 测量一次就要几秒。
+                Text(attributed)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 // blocks 还没解析好：**绝不要在这里渲染 Text(raw)**。
                 //
@@ -52,15 +46,6 @@ struct MarkdownText: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // 每 0.5 秒多放 6 段出来，直到全部渲染
-        .task(id: blocks?.count ?? 0) {
-            guard let total = blocks?.count, total > 0 else { return }
-            while shownBlocks < total {
-                try? await Task.sleep(nanoseconds: Self.stepInterval)
-                if Task.isCancelled { return }
-                shownBlocks = min(shownBlocks + Self.blocksPerStep, total)
-            }
-        }
         .task(id: raw) {
             // 命中缓存直接写（Block 是 Equatable，同值不会触发重算）
             if let cached = MarkdownCache.cached(raw) {
