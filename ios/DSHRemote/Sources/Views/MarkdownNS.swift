@@ -18,8 +18,10 @@ enum MarkdownNS {
         if let hit = cache.object(forKey: text as NSString) { return hit }
         let blocks = MarkdownCache.blocksSync(for: text)
         let built = build(blocks)
-        cache.setObject(built, forKey: text as NSString)
-        return built
+        // 缓存不可变副本：可变对象被别处改动会污染缓存
+        let frozen = NSAttributedString(attributedString: built)
+        cache.setObject(frozen, forKey: text as NSString)
+        return frozen
     }
 
     static func build(_ blocks: [Block]) -> NSAttributedString {
@@ -177,14 +179,18 @@ enum MarkdownNS {
             string: text,
             attributes: [.font: base, .foregroundColor: UIColor.label]
         )
-        let full = NSRange(location: 0, length: (text as NSString).length)
 
         for (regex, kind) in patterns {
-            for match in regex.matches(in: text, range: full).reversed() {
+            // ⚠️ 必须基于**当前**字符串重算 range：
+            // 上一轮替换已经改变了长度（去掉了 ** 和反引号），
+            // 沿用旧 NSRange 会越界 —— 这就是「点开就闪退」的原因。
+            let current = result.string as NSString
+            let full = NSRange(location: 0, length: current.length)
+            let matches = regex.matches(in: current as String, range: full)
+            for match in matches.reversed() {
                 let inner = match.range(at: 1)
-                guard inner.location != NSNotFound,
-                      let swiftRange = Range(inner, in: text) else { continue }
-                let content = String(text[swiftRange])
+                guard inner.location != NSNotFound, NSMaxRange(inner) <= current.length else { continue }
+                let content = current.substring(with: inner)
                 let replacement = NSMutableAttributedString(string: content)
                 switch kind {
                 case "bold":
