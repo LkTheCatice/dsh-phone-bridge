@@ -8,6 +8,7 @@ import SwiftUI
 /// 文件会直接进主 App，不需要任何特殊 entitlement。
 struct IncomingFileSheet: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var sessionList: SessionListStore
     @Environment(\.dismiss) private var dismiss
 
     let file: IncomingFile
@@ -41,7 +42,7 @@ struct IncomingFileSheet: View {
                         }
                     }
 
-                    ForEach(model.sessions.prefix(30)) { session in
+                    ForEach(sessionList.rows.prefix(30)) { session in
                         Button {
                             target = session.id
                         } label: {

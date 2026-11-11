@@ -8,6 +8,7 @@ struct DSHRemoteApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+            .environmentObject(model.sessionList)
         }
     }
 }
@@ -30,6 +31,7 @@ struct RootView: View {
         .sheet(item: $model.pendingIncoming) { file in
             IncomingFileSheet(file: file)
                 .environmentObject(model)
+            .environmentObject(model.sessionList)
         }
         // 错误改成顶部 toast：alert 会挡住操作，且每次都要点「知道了」
         .overlay(alignment: .top) {

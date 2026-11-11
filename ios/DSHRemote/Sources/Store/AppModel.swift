@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -13,11 +14,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var phase: Phase = .disconnected
     @Published private(set) var pairing: PairingConfig?
     @Published private(set) var serverInfo: String = ""
-    @Published private(set) var sessions: [SessionRow] = [] {
-        didSet { refreshCurrentTitle() }
-    }
-    /// 已归档的会话（列表里单独一段，可取消归档）
-    @Published private(set) var archivedSessions: [SessionRow] = []
+    /// 会话列表搬到独立对象：它每条消息结束都刷新，留在 AppModel 上会让
+    /// 订阅 AppModel 的 ChatView 白重算（实测 700ms 级）。见 SessionListStore 注释。
+    let sessionList = SessionListStore()
     @Published var selectedSessionId: String? {
         didSet {
             guard selectedSessionId != oldValue else { return }
@@ -37,7 +36,7 @@ final class AppModel: ObservableObject {
     private func refreshCurrentTitle() {
         let next: String
         if let id = selectedSessionId {
-            if let row = sessions.first(where: { $0.id == id }) {
+            if let row = sessionList.rows.first(where: { $0.id == id }) {
                 next = row.displayTitle
             } else {
                 next = "会话 \(id.suffix(8))"
@@ -171,8 +170,18 @@ final class AppModel: ObservableObject {
     /// turn.start 的时间，用来在 turn.end 显示"用时 N 秒"
     private var turnStartedAt: [String: Date] = [:]
 
+    /// 会话列表变化时刷新标题标量（标题要单独一个 @Published，
+    /// 否则 ChatView 得自己去 sessions 里查，列表一刷新整棵聊天树就重算）
+    private var cancellables = Set<AnyCancellable>()
+
     init() {
         pairing = PairingStore.load()
+        sessionList.$rows
+            .sink { [weak self] _ in
+                // @Published 的 sink 在 willSet 阶段触发，延一拍才能读到新值
+                DispatchQueue.main.async { self?.refreshCurrentTitle() }
+            }
+            .store(in: &cancellables)
     }
 
     var isPaired: Bool { pairing != nil }
@@ -241,7 +250,7 @@ final class AppModel: ObservableObject {
         disconnect()
         PairingStore.clear()
         pairing = nil
-        sessions = []
+        sessionList.rows = []
         entries = [:]
         pendingApprovals = []
     }
@@ -717,7 +726,7 @@ final class AppModel: ObservableObject {
         do {
             let state = try await client.fetchState()
             if let rows = state["sessions"] as? [[String: Any]] {
-                sessions = rows.compactMap(SessionRow.parse)
+                sessionList.rows = rows.compactMap(SessionRow.parse)
             }
             if let rootsRaw = state["roots"] as? [String] { roots = rootsRaw }
             // 服务端重启后 seq 会从头开始。本地存的上次 seq 如果比服务端还大，
@@ -726,7 +735,7 @@ final class AppModel: ObservableObject {
                 lastSeq = serverSeq.intValue
                 UserDefaults.standard.set(lastSeq, forKey: "dsh.lastSeq")
             }
-            if selectedSessionId == nil { selectedSessionId = sessions.first?.id }
+            if selectedSessionId == nil { selectedSessionId = sessionList.rows.first?.id }
         } catch {
             lastError = error.localizedDescription
         }
@@ -756,11 +765,11 @@ final class AppModel: ObservableObject {
         let archResult = try? await archTask
 
         if let rows = mainResult?["sessions"] as? [[String: Any]] {
-            sessions = rows.compactMap(SessionRow.parse)
+            sessionList.rows = rows.compactMap(SessionRow.parse)
         }
         // 已归档的会话单独一份，列表里给它一个分区
         if let rows = archResult?["sessions"] as? [[String: Any]] {
-            archivedSessions = rows.compactMap(SessionRow.parse)
+            sessionList.archived = rows.compactMap(SessionRow.parse)
         }
     }
 
@@ -837,14 +846,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// 看门狗。两路输出：
+    /// 看门狗。三档输出，频率由高到低：
     ///
-    /// - `act b= f= s= last=`：**每一拍**（0.25 秒）只要有任何回调在动就立刻上报。
-    ///   这是「遗言」：主线程彻底锁死时，这条链先断，日志最后几行就是锁死前
-    ///   正在疯跑的那个回调。上一版两秒才报一次，死锁之后什么都留不下来。
-    /// - `wd over=N max=Xms`：每 2 秒一行，量的是**超出正常周期的部分**
-    ///   （`gap - 0.25s`）。注意：gap 本身就恒等于 Timer 周期，直接拿 gap 当卡顿
-    ///   是错的 —— 上一版把阈值设在 gap>120ms 上，于是每拍都算「卡」，全成了噪声。
+    /// - 每拍（0.25s）：只推进后台 StallWatcher 的心跳，不发请求。
+    ///   卡死时由那个独立线程上报 `STUCK <ms> mark=<x>`（主线程死了它照样活着）。
+    /// - 每 2 秒：**只有真卡顿才说话** —— `wd over=N max=Xms last=<x>`，
+    ///   量的是「超出正常周期的部分」（`gap - 0.25s`）。
+    /// - 每 10 秒：无条件一行 `hb`，带这一段的回调计数。
+    ///   这是给「瞬时卡死来不及被 STUCK 抓到」留的上下文 —— 出问题时能看出
+    ///   那段时间 body 求值/跟随/发送各发生了几次、最后动的是谁。
+    ///
+    /// 正常使用时日志量 ≈ 6 行/分钟（以前是 240 行/分钟）。
     func startWatchdog() {
         guard watchdogTimer == nil else { return }
         startStallWatcher()
@@ -859,30 +871,34 @@ final class AppModel: ObservableObject {
                 watchdogStats.stalled += 1
                 watchdogStats.worstOver = max(watchdogStats.worstOver, overMs)
             }
-            // ① 遗言：这一拍有没有回调在动、最后动的是谁
+            watchdogStats.ticks += 1
+
+            // ① 每 2 秒：只有卡顿才报
+            if watchdogStats.ticks % 8 == 0, watchdogStats.stalled > 0 {
+                let stalled = watchdogStats.stalled
+                let worst = watchdogStats.worstOver
+                let tag = watchdogStats.lastTag
+                watchdogStats.stalled = 0
+                watchdogStats.worstOver = 0
+                Task { @MainActor in
+                    self?.pingDiagnostic("wd over>120ms:\(stalled) max:\(worst)ms last=\(tag)")
+                }
+            }
+
+            // ② 每 10 秒：无条件心跳（计数在 10 秒窗口内累计）
+            guard watchdogStats.ticks % 40 == 0 else { return }
             let b = watchdogStats.bodies
             let f = watchdogStats.follows
             let s = watchdogStats.submits
+            let worst10 = watchdogStats.worstOver
             let tag = watchdogStats.lastTag
             watchdogStats.bodies = 0
             watchdogStats.follows = 0
             watchdogStats.submits = 0
-            if b + f + s > 0 {
-                Task { @MainActor in
-                    self?.pingDiagnostic("act b=\(b) f=\(f) s=\(s) last=\(tag)")
-                }
-            }
-            // ② 每 2 秒的卡顿汇总
-            watchdogStats.ticks += 1
-            guard watchdogStats.ticks >= 8 else { return }
-            watchdogStats.ticks = 0
-            let stalled = watchdogStats.stalled
-            let worst = watchdogStats.worstOver
-            watchdogStats.stalled = 0
             watchdogStats.worstOver = 0
-            guard stalled > 0 else { return }
+            watchdogStats.stalled = 0
             Task { @MainActor in
-                self?.pingDiagnostic("wd over>120ms:\(stalled) max:\(worst)ms")
+                self?.pingDiagnostic("hb body=\(b) follow=\(f) send=\(s) worst=\(worst10)ms last=\(tag)")
             }
         }
     }
@@ -937,7 +953,7 @@ final class AppModel: ObservableObject {
     func newSession() async {
         selectedSessionId = nil
         await refreshSessions()
-        if let first = sessions.first { selectedSessionId = first.id }
+        if let first = sessionList.rows.first { selectedSessionId = first.id }
     }
 
     /// 在电脑上真的新建一个会话（不是只清空本地选择）
@@ -963,8 +979,8 @@ final class AppModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
         do {
             _ = try await client.renameSession(sessionId: sessionId, title: trimmed)
-            if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-                sessions[idx].title = trimmed
+            if let idx = sessionList.rows.firstIndex(where: { $0.id == sessionId }) {
+                sessionList.rows[idx].title = trimmed
             }
         } catch {
             lastError = error.localizedDescription
@@ -975,8 +991,8 @@ final class AppModel: ObservableObject {
         guard let client else { return }
         do {
             _ = try await client.archiveSession(sessionId: sessionId, archived: archived)
-            sessions.removeAll { $0.id == sessionId }
-            if selectedSessionId == sessionId { selectedSessionId = sessions.first?.id }
+            sessionList.rows.removeAll { $0.id == sessionId }
+            if selectedSessionId == sessionId { selectedSessionId = sessionList.rows.first?.id }
         } catch {
             lastError = error.localizedDescription
         }

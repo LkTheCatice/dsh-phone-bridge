@@ -7,6 +7,7 @@ import SwiftUI
 /// 所以改成独立 sheet：能放双行、能搜索、能长按操作。
 struct SessionListSheet: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var sessionList: SessionListStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var search = ""
@@ -15,8 +16,8 @@ struct SessionListSheet: View {
 
     private var filtered: [SessionRow] {
         let keyword = search.trimmingCharacters(in: .whitespaces)
-        guard !keyword.isEmpty else { return model.sessions }
-        return model.sessions.filter {
+        guard !keyword.isEmpty else { return sessionList.rows }
+        return sessionList.rows.filter {
             $0.displayTitle.localizedCaseInsensitiveContains(keyword)
                 || $0.id.localizedCaseInsensitiveContains(keyword)
         }
@@ -78,9 +79,9 @@ struct SessionListSheet: View {
                 }
 
                 // 已归档：之前归档后就彻底消失、无处找回，现在能在这里恢复
-                if !model.archivedSessions.isEmpty {
+                if !sessionList.archived.isEmpty {
                     Section {
-                        ForEach(model.archivedSessions) { session in
+                        ForEach(sessionList.archived) { session in
                             Button {
                                 model.selectedSessionId = session.id
                                 model.markRead(session.id)
@@ -109,7 +110,7 @@ struct SessionListSheet: View {
                             }
                         }
                     } header: {
-                        Text("已归档 \(model.archivedSessions.count)")
+                        Text("已归档 \(sessionList.archived.count)")
                     }
                 }
             }

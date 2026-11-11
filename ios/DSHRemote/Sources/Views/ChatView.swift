@@ -37,6 +37,8 @@ struct ChatView: View {
     // 不能用 @State —— 它们会在 body 重算触发的回调里被改，
     // 用 @State 就是「改状态 → 重算 → 回调 → 再改」的无限循环。
     /// 标注编辑器：待编辑的图与等待中的 continuation
+    /// 惯性中点击「跳到底」时临时掐断减速用（一次点击一次，不是每帧）
+    @State private var pauseScrolling = false
     @State private var editorImage: UIImage?
     @State private var editorContinuation: CheckedContinuation<UIImage?, Never>?
 
@@ -102,6 +104,7 @@ struct ChatView: View {
                 // 指示条会跟着抖。位置感交给右下角那个「↓」按钮代替。
                 .scrollIndicators(.hidden)
                 .modifier(BottomAnchorModifier())
+                .scrollDisabled(pauseScrolling)
                 // 内容一有变化就判断要不要跟随。
                 // 用 streamTick 而不是 entries.count / last?.text：
                 // 前者漏掉「流式文字在同一行里增长」，后者漏掉
@@ -306,6 +309,7 @@ struct ChatView: View {
             .sheet(isPresented: $showingSessions) {
                 SessionListSheet()
                     .environmentObject(model)
+                    .environmentObject(model.sessionList)
                     .presentationDetents([.medium, .large])
             }
             .confirmationDialog("清除本机聊天记录", isPresented: $clearing, titleVisibility: .visible) {
@@ -379,16 +383,25 @@ struct ChatView: View {
 
     /// 「跳到最下」按钮。
     ///
-    /// 两步：先不带动画定位一次（瞬时跳到末尾，等于打断惯性），
-    /// 再用 withAnimation 收尾。全程只用 SwiftUI，不碰 UIKit。
+    /// 惯性中点击要能生效：靠 scrollDisabled 临时掐断减速，而不是直接操作 UIScrollView。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         model.recordFollowEvent()
         // 点了按钮就恢复跟随，否则按钮会一直挂在屏幕上
         if !jump.atBottom { jump.atBottom = true }
         if jump.hasNewBelow { jump.hasNewBelow = false }
-        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-        withAnimation(.easeOut(duration: 0.22)) {
+
+        // 惯性（deceleration）中点按钮没反应：scrollTo 会被系统的减速动画覆盖。
+        //
+        // 当初为此直接操作 UIScrollView（isScrollEnabled = false 硬停减速），
+        // 结果绕出一堆自激环。现在用官方 API 做同一件事：scrollDisabled 一置 true，
+        // 正在进行的减速立刻停下，紧接着的 scrollTo 就能落地；50ms 后恢复可滚动。
+        // 注意这是「一次点击 → 一次重算」，不是每帧回调，不会成环。
+        pauseScrolling = true
+        DispatchQueue.main.async {
             proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                pauseScrolling = false
+            }
         }
     }
 
