@@ -44,6 +44,22 @@ struct ChatView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: entries.count) { _ in scrollToEnd(proxy) }
                 .onChange(of: entries.last?.text) { _ in scrollToEnd(proxy) }
+                .overlay(alignment: .bottomTrailing) {
+                    // 长对话往上翻之后，一键回到底部
+                    if entries.count > 8 {
+                        Button {
+                            scrollToEnd(proxy)
+                        } label: {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 30))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(Color.accentColor, Color(.systemBackground))
+                                .shadow(radius: 2, y: 1)
+                        }
+                        .padding(.trailing, 14)
+                        .padding(.bottom, 10)
+                    }
+                }
             }
             .safeAreaInset(edge: .bottom) { composer }
             .navigationTitle(title)

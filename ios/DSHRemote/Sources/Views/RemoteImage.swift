@@ -61,6 +61,9 @@ enum ImageRef {
 final class ImageCache {
     static let shared = ImageCache()
     private var cache = [String: UIImage]()
+    /// 记录写入顺序，超过容量时按最久未用淘汰
+    private var order: [String] = []
+    private let capacity = 24
     private var failed = Set<String>()
 
     func cached(_ path: String) -> UIImage? { cache[path] }
@@ -76,6 +79,13 @@ final class ImageCache {
                 return nil
             }
             cache[path] = image
+            order.removeAll { $0 == path }
+            order.append(path)
+            // 图片很占内存，缓存到 24 张就淘汰最旧的
+            while order.count > capacity, let oldest = order.first {
+                order.removeFirst()
+                cache.removeValue(forKey: oldest)
+            }
             return image
         } catch {
             failed.insert(path)

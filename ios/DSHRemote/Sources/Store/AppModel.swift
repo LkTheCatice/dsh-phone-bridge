@@ -18,7 +18,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var entries: [String: [ChatEntry]] = [:]
     @Published private(set) var pendingApprovals: [ApprovalRow] = []
     @Published private(set) var roots: [String] = []
-    @Published private(set) var lastSeq: Int = 0
+    @Published private(set) var lastSeq: Int = UserDefaults.standard.integer(forKey: "dsh.lastSeq")
     @Published var lastError: String?
     @Published var busy: Bool = false
     /// 外部 App 递过来的文件，等用户选会话后再发
@@ -138,7 +138,14 @@ final class AppModel: ObservableObject {
     // MARK: - 帧处理
 
     private func apply(seq: Int, frame: [String: Any]) {
-        if seq > lastSeq { lastSeq = seq }
+        if seq > lastSeq {
+            lastSeq = seq
+            // 每 20 帧落一次盘：冷启动时就能从上次的位置续传，
+            // 不必把服务端缓冲里的 3000 帧全回放一遍
+            if seq % 20 == 0 {
+                UserDefaults.standard.set(seq, forKey: "dsh.lastSeq")
+            }
+        }
         guard let type = frame["type"] as? String else { return }
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
         let turn = (frame["turn"] as? NSNumber)?.intValue ?? 0
@@ -327,7 +334,11 @@ final class AppModel: ObservableObject {
 
     private func append(_ sessionId: String, _ entry: ChatEntry) {
         guard !sessionId.isEmpty else { return }
+        // 单个会话超过 600 条就丢掉最老的，避免长时间使用后内存一直涨
         entries[sessionId, default: []].append(entry)
+        if let list = entries[sessionId], list.count > 600 {
+            entries[sessionId] = Array(list.suffix(600))
+        }
     }
 
     /// 把某一轮里的思考 + 工具调用折叠成单个可展开条目。
@@ -421,6 +432,12 @@ final class AppModel: ObservableObject {
                 sessions = rows.compactMap(SessionRow.parse)
             }
             if let rootsRaw = state["roots"] as? [String] { roots = rootsRaw }
+            // 服务端重启后 seq 会从头开始。本地存的上次 seq 如果比服务端还大，
+            // 继续带 since=旧值会永远收不到新帧，必须归零重放。
+            if let serverSeq = state["lastSeq"] as? NSNumber, serverSeq.intValue < lastSeq {
+                lastSeq = serverSeq.intValue
+                UserDefaults.standard.set(lastSeq, forKey: "dsh.lastSeq")
+            }
             if selectedSessionId == nil { selectedSessionId = sessions.first?.id }
         } catch {
             lastError = error.localizedDescription
