@@ -787,8 +787,9 @@ final class AppModel: ObservableObject {
     /// 定位完就删。
     func pingDiagnostic(_ tag: String) {
         guard let pairing else { return }
-        let urlString = "http://\(pairing.host):\(pairing.port)/v1/health?tag=\(tag)"
-        guard let url = URL(string: urlString) else { return }
+        // 参数名必须是 d —— 服务端 /v1/health 里读的就是它，拼错就一条日志都不会有
+        let encoded = tag.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? tag
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/v1/health?d=\(encoded)") else { return }
         Task.detached(priority: .background) {
             _ = try? await URLSession.shared.data(from: url)
         }
