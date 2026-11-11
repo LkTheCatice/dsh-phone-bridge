@@ -890,6 +890,7 @@ final class AppModel: ObservableObject {
             let b = watchdogStats.bodies
             let f = watchdogStats.follows
             let s = watchdogStats.submits
+            let bubbles = stallWatcher.takeBubbles()
             let worst10 = watchdogStats.worstOver
             let tag = watchdogStats.lastTag
             watchdogStats.bodies = 0
@@ -898,7 +899,7 @@ final class AppModel: ObservableObject {
             watchdogStats.worstOver = 0
             watchdogStats.stalled = 0
             Task { @MainActor in
-                self?.pingDiagnostic("hb body=\(b) follow=\(f) send=\(s) worst=\(worst10)ms last=\(tag)")
+                self?.pingDiagnostic("hb body=\(b) bubble=\(bubbles) follow=\(f) send=\(s) worst=\(worst10)ms last=\(tag)")
             }
         }
     }
@@ -1350,11 +1351,27 @@ final class StallWatcher {
     private var hostValue = ""
     private var portValue = 0
     private var startedValue = false
+    /// 气泡 body 求值次数（用来区分「单次布局慢」和「重算风暴」）
+    private var bubbleValue = 0
 
     func tick() {
         lock.lock()
         beatValue &+= 1
         lock.unlock()
+    }
+
+    func tickBubble() {
+        lock.lock()
+        bubbleValue += 1
+        lock.unlock()
+    }
+
+    func takeBubbles() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let v = bubbleValue
+        bubbleValue = 0
+        return v
     }
 
     func setMark(_ text: String) {

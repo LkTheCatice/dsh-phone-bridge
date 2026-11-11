@@ -44,8 +44,10 @@ extension View {
 struct ChatBubble: View, Equatable {
     let entry: ChatEntry
     @State private var expanded = false
-    /// 工具详情弹窗（详情不再内联渲染，见 toolRow 里的注释）
-    @State private var detailSheet: ChatEntry?
+    /// 工具详情 presenter（由 ChatView 统一持有，见文件末尾 ToolDetailPresenter）。
+    /// 刻意**不**用 @EnvironmentObject：那会让每个气泡都订阅它，
+    /// 而每个气泡各自挂 .sheet 更贵 —— 真机实测 40 个气泡各挂一个 sheet 直接卡死。
+    @Environment(\.toolDetailPresenter) private var detailPresenter
 
     static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
         lhs.entry == rhs.entry
@@ -54,6 +56,7 @@ struct ChatBubble: View, Equatable {
     var body: some View {
         // 卡死取证：主线程最后在渲染哪一类气泡
         stallWatcher.setMark("b:\(kindName)")
+        stallWatcher.tickBubble()
         return Group {
         switch entry.kind {
         case .user:
@@ -284,7 +287,7 @@ struct ChatBubble: View, Equatable {
                 Spacer(minLength: 0)
 
                 if entry.detail != nil {
-                    Button("详情") { detailSheet = entry }
+                    Button("详情") { detailPresenter?.entry = entry }
                         .font(.system(size: 11))
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
@@ -299,9 +302,6 @@ struct ChatBubble: View, Equatable {
             // 现在改成弹出 sheet：列表布局里永远不出现长文本。
         }
         .padding(.leading, 2)
-        .sheet(item: $detailSheet) { item in
-            ToolDetailSheet(entry: item)
-        }
     }
 
     /// 工具行摘要：已经在 AppModel 收到帧时算好（见 ToolSummary），这里直接读，
@@ -362,5 +362,21 @@ struct ToolDetailSheet: View {
                 }
             }
         }
+    }
+}
+
+/// 工具详情弹窗的状态持有者（由 ChatView 用一个 .sheet 统一呈现）。
+final class ToolDetailPresenter: ObservableObject {
+    @Published var entry: ChatEntry?
+}
+
+private struct ToolDetailPresenterKey: EnvironmentKey {
+    static let defaultValue: ToolDetailPresenter? = nil
+}
+
+extension EnvironmentValues {
+    var toolDetailPresenter: ToolDetailPresenter? {
+        get { self[ToolDetailPresenterKey.self] }
+        set { self[ToolDetailPresenterKey.self] = newValue }
     }
 }

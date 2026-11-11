@@ -54,7 +54,10 @@ struct ChatView: View {
     /// 这是硬兜底：布局成本随「条目数 × 每条文本量」增长，而 LazyVStack 在
     /// 首屏/跳转时会把可见范围整体测量一遍（真机实测 20 条就能卡 19 秒）。
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
-    @State private var visibleLimit = 40
+    @State private var visibleLimit = 10
+
+    /// 工具详情弹窗（全列表共用一个，别在每个气泡上挂 sheet）
+    @StateObject private var detailPresenter = ToolDetailPresenter()
 
     private var visibleEntries: [ChatEntry] {
         entries.count <= visibleLimit ? entries : Array(entries.suffix(visibleLimit))
@@ -351,6 +354,10 @@ struct ChatView: View {
         // 诊断开关：关掉所有气泡的文本选择（iOS 上由 UITextInteraction 实现，
         // 在 LazyVStack 里反复重排时是有代价的）
         .environment(\.noTextSelection, !model.expTextSelection)
+        .environment(\.toolDetailPresenter, detailPresenter)
+        .sheet(item: $detailPresenter.entry) { item in
+            ToolDetailSheet(entry: item)
+        }
     }
 
     private var comfyColor: Color {
