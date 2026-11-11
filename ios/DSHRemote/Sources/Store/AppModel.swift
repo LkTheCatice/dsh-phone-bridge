@@ -712,13 +712,18 @@ final class AppModel: ObservableObject {
         lastSessionsFetch = Date()
         defer { sessionsFetchInFlight = false }
 
-        if let result = try? await client.fetchSessions(),
-           let rows = result["sessions"] as? [[String: Any]] {
+        // 两个请求并行：串行要 2×RTT（实测 220ms），并行只花一次往返。
+        // 这段在主线程上等，直接决定「打字时会不会丢字母」。
+        async let mainTask = client.fetchSessions()
+        async let archTask = client.sessions(archived: true)
+        let mainResult = try? await mainTask
+        let archResult = try? await archTask
+
+        if let rows = mainResult?["sessions"] as? [[String: Any]] {
             sessions = rows.compactMap(SessionRow.parse)
         }
-        // 已归档的会话单独拉一份，列表里给它一个分区
-        if let result = try? await client.sessions(archived: true),
-           let rows = result["sessions"] as? [[String: Any]] {
+        // 已归档的会话单独一份，列表里给它一个分区
+        if let rows = archResult?["sessions"] as? [[String: Any]] {
             archivedSessions = rows.compactMap(SessionRow.parse)
         }
     }

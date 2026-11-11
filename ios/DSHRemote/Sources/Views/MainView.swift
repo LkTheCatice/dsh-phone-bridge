@@ -44,7 +44,11 @@ struct MainView: View {
             model.startWatchdog()
             // ComfyUI 状态每 8 秒刷一次（聊天页顶部的状态点）
             model.startComfyPolling()
-            // 首次进入也回填一次历史；切换会话时由 ChatView 的 onChange 负责
+            // 历史回填延后 400ms：启动瞬间要做连接、会话列表、Comfy 轮询、
+            // 几百帧历史重建，全挤在一起会占住主线程 ——
+            // 表现就是「刚打开软件时，输入框第一个字母不进拼音」。
+            // 先让输入框能打字，历史晚一点到。
+            try? await Task.sleep(nanoseconds: 400_000_000)
             if let id = model.selectedSessionId {
                 await model.loadHistory(id)
             }
