@@ -3,18 +3,28 @@ import SwiftUI
 
 /// 聊天里的视频播放。
 ///
-/// 视频必须先落到本地文件才能播（AVPlayer 不吃内存 Data），
-/// 所以进视口时才下载，下载到临时目录后播放；离开视口自动暂停。
+/// 视频必须先落到本地文件才能播（AVPlayer 不吃内存 Data）。
+/// 大文件不自动下载：先读 1 字节探大小，超过 20MB 只显示占位卡，
+/// 用户点了才下载 —— 否则滚过去就悄悄吃掉几十 MB 流量。
 struct RemoteVideo: View {
+    /// 自动下载的上限；超过就等用户点
+    private static let autoDownloadLimit: Int64 = 20 * 1024 * 1024
+
     let path: String
     @EnvironmentObject private var model: AppModel
 
     @State private var player: AVPlayer?
     @State private var loading = true
     @State private var failed = false
-    /// 已下载字节 / 总字节（总字节未知时为 0）
+    /// 探到的大小（0 = 未知）
+    @State private var knownBytes: Int64 = 0
+    /// 超过阈值，等用户点击
+    @State private var waitingForTap = false
+    /// 已下载字节 / 总字节
     @State private var loadedBytes: Int64 = 0
     @State private var totalBytes: Int64 = 0
+
+    private var filename: String { (path as NSString).lastPathComponent }
 
     var body: some View {
         Group {
@@ -24,34 +34,76 @@ struct RemoteVideo: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .onDisappear { player.pause() }
             } else if failed {
-                HStack(spacing: 6) {
-                    Image(systemName: "video.slash").foregroundStyle(.secondary)
-                    Text("视频加载失败").font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
+                card {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.mini)
-                        Text("加载视频…").font(.caption).foregroundStyle(.secondary)
-                    }
-                    // 视频通常几 MB 到几十 MB，没有进度会像卡死
-                    if totalBytes > 0 {
-                        ProgressView(value: Double(loadedBytes), total: Double(totalBytes))
-                            .progressViewStyle(.linear)
-                        Text("\(byteText(loadedBytes)) / \(byteText(totalBytes))")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "video.slash").foregroundStyle(.secondary)
+                        Text("视频加载失败").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+            } else if waitingForTap {
+                // 大文件：只给一张卡，点了才下载
+                card {
+                    HStack(spacing: 10) {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 30))
+                            .foregroundStyle(Color.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(filename)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                            Text("\(byteText(knownBytes)) · 点击下载播放")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    waitingForTap = false
+                    loading = true
+                    Task { await prepare() }
+                }
+            } else {
+                card {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text("加载视频…").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if totalBytes > 0 {
+                            ProgressView(value: Double(loadedBytes), total: Double(totalBytes))
+                                .progressViewStyle(.linear)
+                            Text("\(byteText(loadedBytes)) / \(byteText(totalBytes))")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
         }
-        .task { await prepare() }
+        .task { await probe() }
+    }
+
+    @ViewBuilder
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// 先探大小，再决定自动下载还是等用户点
+    private func probe() async {
+        guard player == nil, knownBytes == 0 else { return }
+        let size = await model.probeFileSize(path: path)
+        knownBytes = size
+        if size > Self.autoDownloadLimit {
+            waitingForTap = true
+            loading = false
+            return
+        }
+        await prepare()
     }
 
     private func prepare() async {
@@ -64,8 +116,8 @@ struct RemoteVideo: View {
                 }
             }
             let ext = (path as NSString).pathExtension.isEmpty ? "mp4" : (path as NSString).pathExtension
-            let filename = "dsh-video-\(abs(path.hashValue)).\(ext)"
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            let cacheName = "dsh-video-\(abs(path.hashValue)).\(ext)"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(cacheName)
             if !FileManager.default.fileExists(atPath: url.path) {
                 try data.write(to: url, options: .atomic)
             }

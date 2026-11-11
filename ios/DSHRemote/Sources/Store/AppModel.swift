@@ -943,6 +943,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 只取文件大小：读 1 字节，靠响应头拿总大小，不下载内容
+    func probeFileSize(path: String) async -> Int64 {
+        guard let client else { return 0 }
+        _ = try? await client.readFile(path: path, offset: 0, limit: 1)
+        return client.lastFileSize ?? 0
+    }
+
     func entriesForSelection() -> [ChatEntry] {
         // 直接读发布属性：ChatView 依赖它，才能和其他会话的写入隔离开
         currentEntries
