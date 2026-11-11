@@ -392,6 +392,16 @@ struct ChatView: View {
             // ⑤ 稍后解冻：积压的内容一次性追上来，跟随会把它补到底
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 model.unfreezeContent()
+                // 解冻后内容结构可能又变了：如果积压里带 turn.end，
+                // foldSteps 会把一整轮过程折成一行 —— 高度骤减，offset 就超出去了。
+                // 这里再夹一次边界，保证不会停在「下面」。
+                DispatchQueue.main.async {
+                    scroll.layoutIfNeeded()
+                    let limit = scroll.bottomOffsetY
+                    if scroll.contentOffset.y > limit + 1 {
+                        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: limit), animated: false)
+                    }
+                }
             }
         }
     }
