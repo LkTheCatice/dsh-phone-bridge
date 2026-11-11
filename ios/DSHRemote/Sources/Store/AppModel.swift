@@ -115,8 +115,11 @@ final class AppModel: ObservableObject {
         set {
             entriesStorage = newValue
             if !isBatchingEntries {
-                objectWillChange.send()
-                // 攒 60ms 再比对当前会话，别让每个流式 delta 都跑一遍全量比较
+                // **不要在这里 objectWillChange.send()**。
+                // 流式输出时每个 delta 都会走这个 setter，立刻发通知就等于
+                // 每秒让所有订阅 AppModel 的视图重算几十次 —— 而数据往往还没变。
+                // 通知改由 markCurrentDirty 的节流回调触发：
+                // syncCurrentEntries() 里给 @Published currentEntries 赋值时才发。
                 markCurrentDirty()
             }
         }
@@ -136,7 +139,12 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var pendingApprovals: [ApprovalRow] = []
     @Published private(set) var roots: [String] = []
-    @Published private(set) var lastSeq: Int = UserDefaults.standard.integer(forKey: "dsh.lastSeq")
+    /// 已处理到的最大事件序号。
+    ///
+    /// **刻意不是 @Published**：它每个流式帧都在涨（seq 递增），
+    /// 之前每帧都发 objectWillChange，等于每秒让所有订阅 AppModel 的视图重算几十次。
+    /// 只有设置页要显示它，进设置页时读一次就够，不需要实时刷新。
+    private(set) var lastSeq: Int = UserDefaults.standard.integer(forKey: "dsh.lastSeq")
     @Published var lastError: String?
     @Published var busy: Bool = false
     /// 外部 App 递过来的文件，等用户选会话后再发
