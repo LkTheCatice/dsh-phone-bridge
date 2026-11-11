@@ -89,14 +89,16 @@ extension UIScrollView {
         // ③ 布局稳定后一次性定位
         layoutIfNeeded()
         setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
-        // ④ 单次越界校正
+        // ④ 单次校正：两个方向都修 —— 只跑一次就不会循环。
+        //    之前是「只修越界」，结果误差总是偏向「差一点没到底」，
+        //    视觉上就是离底部留着一小段空隙。
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard !self.isDragging, !self.isDecelerating, !self.isTracking else { return }
             self.layoutIfNeeded()
-            let limit = self.bottomOffsetY
-            if self.contentOffset.y > limit {
-                self.setContentOffset(CGPoint(x: self.contentOffset.x, y: limit), animated: false)
+            let exact = self.bottomOffsetY
+            if abs(self.contentOffset.y - exact) > 1 {
+                self.setContentOffset(CGPoint(x: self.contentOffset.x, y: exact), animated: false)
             }
         }
     }

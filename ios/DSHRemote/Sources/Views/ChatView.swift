@@ -121,7 +121,9 @@ struct ChatView: View {
                 .onChange(of: entries.last?.text) { _ in
                     guard jump.atBottom else { return }
                     let now = Date()
-                    guard now.timeIntervalSince(lastFollowAt) > 0.08 else { return }
+                    // 节流 150ms：配合 scrollToEnd 里的 layoutIfNeeded，
+                    // 再快就会把主线程压在布局上（之前 80ms 且无节流时卡死过）
+                    guard now.timeIntervalSince(lastFollowAt) > 0.15 else { return }
                     lastFollowAt = now
                     scrollToEnd(proxy)
                 }
@@ -329,8 +331,11 @@ struct ChatView: View {
         jump.atBottom = true
         jump.hasNewBelow = false
         if let scroll = uiScrollView {
+            // layoutIfNeeded 让 contentSize 追到最新，否则跟随总会差一截。
+            // 调用频率由外面的 200ms 节流控制，不会像之前那样把主线程拖死。
+            scroll.layoutIfNeeded()
             let target = scroll.bottomOffsetY
-            if abs(scroll.contentOffset.y - target) > 2 {
+            if abs(scroll.contentOffset.y - target) > 1 {
                 scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
             }
             return
