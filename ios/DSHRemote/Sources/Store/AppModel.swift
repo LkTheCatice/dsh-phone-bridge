@@ -211,12 +211,16 @@ final class AppModel: ObservableObject {
     @Published var expNoAutoFollow = UserDefaults.standard.bool(forKey: "dsh.exp.noAutoFollow") {
         didSet { UserDefaults.standard.set(expNoAutoFollow, forKey: "dsh.exp.noAutoFollow") }
     }
-    /// 富文本（markdown）总开关。**默认关闭**。
+    /// 富文本（markdown）总开关。**默认开启**。
     ///
-    /// 用来做 A/B 验证：关掉后所有消息都只渲染纯文本（每条 1 个 Text）。
-    /// 如果关掉就不卡、打开就卡，说明 markdown 渲染确实是主因；
-    /// 如果关了还卡，那问题不在它，需要另找。
-    @Published var richTextEnabled = UserDefaults.standard.bool(forKey: "dsh.richText") {
+    /// 曾经默认关闭，是因为当时渲染是「一条消息 N 个 SwiftUI Text」，
+    /// 打开就会卡死。现在渲染管道换成了「一个 cell = 一个 UITextView = 一个
+    /// NSAttributedString」，且行内富化改成扫描式分段（零 NSRange 替换、已被
+    /// selftest 覆盖），打开是安全的。
+    ///
+    /// 保留开关作为逃生阀：万一某条特殊内容把渲染拖慢，可以一键退回纯文本。
+    /// 注意 UserDefaults 里已存的值优先（老用户仍是关闭状态，需要手动打开）。
+    @Published var richTextEnabled = UserDefaults.standard.object(forKey: "dsh.richText") as? Bool ?? true {
         didSet { UserDefaults.standard.set(richTextEnabled, forKey: "dsh.richText") }
     }
     /// 是否开启气泡文本选择。**默认关闭**。
