@@ -443,7 +443,11 @@ function applyBridge(ctx, config) {
         } catch {
           continue;
         }
-        for (const frame of normalizeEvent(stub, event)) frames.push(frame);
+        for (const frame of normalizeEvent(stub, event)) {
+          // "event" 是没被归一化的原始事件，手机端不渲染，纯占带宽
+          if (frame.type === "event") continue;
+          frames.push(frame);
+        }
       }
       return frames;
     } catch (error) {
