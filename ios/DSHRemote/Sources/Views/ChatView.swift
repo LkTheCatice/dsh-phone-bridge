@@ -40,7 +40,10 @@ struct ChatView: View {
     private static let bottomAnchor = "__chat_bottom__"
     private static let scrollSpace = "__chat_scroll__"
 
-    private var entries: [ChatEntry] { model.entriesForSelection() }
+    /// 当前会话的条目。
+    /// 读 model.currentEntries（@Published）而不是每次现查字典 ——
+    /// 这样别的会话收到消息不会让这里重建、也不会误触发 onChange 的滚动。
+    private var entries: [ChatEntry] { model.currentEntries }
 
     private var currentSession: SessionRow? {
         guard let id = model.selectedSessionId else { return nil }

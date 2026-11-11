@@ -16,7 +16,29 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessions: [SessionRow] = []
     /// 已归档的会话（列表里单独一段，可取消归档）
     @Published private(set) var archivedSessions: [SessionRow] = []
-    @Published var selectedSessionId: String?
+    @Published var selectedSessionId: String? {
+        didSet {
+            guard selectedSessionId != oldValue else { return }
+            syncCurrentEntries()
+        }
+    }
+
+    /// 当前会话的条目。
+    ///
+    /// 单独抽出来是有原因的：`entries` 是全局字典，任何**其他会话**收到消息
+    /// 也会触发 objectWillChange，ChatView 跟着重建，
+    /// `onChange(of: entries.count)` 就会在错误时机被触到 —— 表现就是
+    /// 「明明在这个对话，却被别的对话的更新拉到底部」。
+    /// 现在 ChatView 只观察这个属性，别的会话怎么变都不影响它。
+    @Published private(set) var currentEntries: [ChatEntry] = []
+
+    private func syncCurrentEntries() {
+        let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
+        if next.count != currentEntries.count || next.last?.id != currentEntries.last?.id
+            || next.last?.text != currentEntries.last?.text {
+            currentEntries = next
+        }
+    }
     /// 聊天条目。
     ///
     /// 刻意不用 `@Published`：回填历史时会有几百次写入，每次 @Published 都会发一次
@@ -27,7 +49,11 @@ final class AppModel: ObservableObject {
         get { entriesStorage }
         set {
             entriesStorage = newValue
-            if !isBatchingEntries { objectWillChange.send() }
+            if !isBatchingEntries {
+                objectWillChange.send()
+                // 只关心「当前会话」的内容有没有变；别的会话写入不惊动当前界面
+                syncCurrentEntries()
+            }
         }
     }
     /// 批量写入中：期间不对外发变更通知
@@ -41,6 +67,7 @@ final class AppModel: ObservableObject {
         guard isBatchingEntries else { return }
         isBatchingEntries = false
         objectWillChange.send()
+        syncCurrentEntries()
     }
     @Published private(set) var pendingApprovals: [ApprovalRow] = []
     @Published private(set) var roots: [String] = []
@@ -897,8 +924,8 @@ final class AppModel: ObservableObject {
     }
 
     func entriesForSelection() -> [ChatEntry] {
-        guard let sid = selectedSessionId else { return [] }
-        return entries[sid] ?? []
+        // 直接读发布属性：ChatView 依赖它，才能和其他会话的写入隔离开
+        currentEntries
     }
 
     // MARK: - 文件
