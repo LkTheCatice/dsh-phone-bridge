@@ -188,8 +188,11 @@ final class AppModel: ObservableObject {
 
         switch type {
         case "turn.start":
-            turnStartedAt[sid] = Date()
-            append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: Date(), running: true))
+            // 用帧里的事件时间，不要用 Date()：回填历史时两者差距是几十毫秒，
+            // turn.start/turn.end 会被挤在同一瞬间，于是永远显示「用时 0 秒」
+            let startedAt = Self.frameDate(frame)
+            turnStartedAt[sid] = startedAt
+            append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: startedAt, running: true))
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
@@ -254,7 +257,9 @@ final class AppModel: ObservableObject {
                 ?? ""
             let elapsed: String
             if let started = turnStartedAt[sid] {
-                let seconds = max(0, Int(Date().timeIntervalSince(started)))
+                // 同样用帧里的事件时间，历史轮次才算得出真实时长
+                let endedAt = Self.frameDate(frame)
+                let seconds = max(0, Int(endedAt.timeIntervalSince(started)))
                 elapsed = seconds >= 60 ? "用时 \(seconds / 60) 分 \(seconds % 60) 秒" : "用时 \(seconds) 秒"
                 turnStartedAt[sid] = nil
             } else {
@@ -507,6 +512,15 @@ final class AppModel: ObservableObject {
     ///
     /// 关键：`JSONSerialization.data(withJSONObject:)` 对顶层标量（字符串/数字/bool）
     /// 抛的是 **ObjC 异常（NSException）**，Swift 的 `try?` 捕不到，会直接 SIGABRT。
+    /// 帧自带的事件时间（毫秒）。回填历史时用它算每轮用时，
+    /// 否则 turn.start / turn.end 在同一毫秒内处理，永远是「用时 0 秒」。
+    private static func frameDate(_ frame: [String: Any]) -> Date {
+        if let ms = (frame["at"] as? NSNumber)?.doubleValue, ms > 0 {
+            return Date(timeIntervalSince1970: ms / 1000)
+        }
+        return Date()
+    }
+
     /// DSH 的 `tool.call` 事件里 `args` 经常就是一段 JSON 字符串 —— 就是这个把 App 崩了。
     /// 所以必须先 `isValidJSONObject` 判断，绝不能让异常冒出去。
     private static func jsonText(_ value: Any?) -> String {

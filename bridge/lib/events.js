@@ -100,7 +100,10 @@ export function normalizeEvent(session, event) {
   const data = event.data && typeof event.data === "object" ? event.data : {};
   const sessionId = sessionIdOf(session, data);
   const frames = [];
-  const base = { sessionId };
+  // 带上事件原始时间（毫秒）。回填历史时手机端要用它算每轮用时，
+  // 否则 turn.start / turn.end 在同一毫秒内连续处理，永远显示「用时 0 秒」。
+  const eventAt = typeof event.time === "number" ? event.time : null;
+  const base = eventAt ? { sessionId, at: eventAt } : { sessionId };
   const turn = Number(data.turn ?? 0) || null;
 
   switch (type) {
