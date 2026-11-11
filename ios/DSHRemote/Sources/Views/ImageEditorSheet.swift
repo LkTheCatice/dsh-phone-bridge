@@ -125,7 +125,10 @@ struct ImageEditorSheet: View {
         let rect = CGRect(origin: .zero, size: image.size)
         // 笔迹先按原图分辨率渲染，再叠到原图上
         let strokeImage = drawing.image(from: rect, scale: image.scale)
-        let renderer = UIGraphicsImageRenderer(size: image.size, scale: image.scale)
+        // UIGraphicsImageRenderer 没有 scale: 初始化器，用 format 指定
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
         return renderer.image { _ in
             image.draw(in: rect)
             strokeImage.draw(in: rect)
