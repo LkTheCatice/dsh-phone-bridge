@@ -43,6 +43,8 @@ extension View {
 /// 几百条历史时这部分开销非常可观 —— 加 equatable 后内容没变的条目直接跳过。
 struct ChatBubble: View, Equatable {
     let entry: ChatEntry
+    /// 极简渲染：只画一行纯文本。流式输出期间用它，避免富文本布局把主线程压住。
+    var compact: Bool = false
     @State private var expanded = false
     /// 工具详情 presenter（由 ChatView 统一持有，见文件末尾 ToolDetailPresenter）。
     /// 刻意**不**用 @EnvironmentObject：那会让每个气泡都订阅它，
@@ -50,10 +52,27 @@ struct ChatBubble: View, Equatable {
     @Environment(\.toolDetailPresenter) private var detailPresenter
 
     static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry && lhs.compact == rhs.compact
     }
 
     var body: some View {
+        // 流式期间的极简渲染：一条纯文本，不解析 markdown、不扫媒体、不建按钮。
+        // 这是「无论单段多便宜，乘上每秒多次重排都会饱和」的止损手段。
+        if compact {
+            Text(String(entry.text.prefix(400)))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
+        } else {
+            fullBody
+        }
+    }
+
+    @ViewBuilder
+    private var fullBody: some View {
         // 卡死取证：主线程最后在渲染哪一类气泡
         stallWatcher.setMark("b:\(kindName)")
         stallWatcher.tickBubble()

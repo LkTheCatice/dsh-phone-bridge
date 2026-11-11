@@ -67,6 +67,13 @@ final class AppModel: ObservableObject {
     /// 最后一条若是 thinking 或工具行，文本不变但高度在长，
     /// 只看 text 就会漏掉，位置掉队后 atBottom 判为 false，跟随彻底停摆。
     @Published private(set) var streamTick = 0
+    /// 当前会话是否正在生成（turn.start ~ turn.end）。
+    ///
+    /// 用途：流式期间 ChatView 改用「极简渲染」——只画纯文本、不画 markdown/图片/按钮。
+    /// 因为这台设备上 LazyVStack + 富文本单次布局就要几百毫秒，
+    /// 而流式每秒触发多次重排，无论单段优化到多便宜都会饱和（实测 b:sys 也能卡 14 秒）。
+    /// 只在 true/false 翻转时写，不会造成额外通知。
+    @Published private(set) var isStreaming = false
     /// 历史重建完成的计数。界面靠它决定「该滚到底了」——
     /// 回填时底部哨兵还没渲染，proxy.scrollTo 找不到目标，
     /// 所以必须等渲染完再滚，否则冷启动会停在最早的消息上。
@@ -358,6 +365,16 @@ final class AppModel: ObservableObject {
         stallWatcher.setMark("apply:\(type)")
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
         let turn = (frame["turn"] as? NSNumber)?.intValue ?? 0
+
+        // 流式状态：只在翻转时写
+        switch type {
+        case "turn.start", "assistant.delta", "assistant.thinking":
+            if !isStreaming { isStreaming = true }
+        case "turn.end":
+            if isStreaming { isStreaming = false }
+        default:
+            break
+        }
 
         // 运行状态：只看帧类型，不碰内容 —— 未选中的会话也能在列表里显示「在跑」
         switch type {

@@ -68,7 +68,9 @@ struct ChatView: View {
     @StateObject private var detailPresenter = ToolDetailPresenter()
 
     private var visibleEntries: [ChatEntry] {
-        entries.count <= visibleLimit ? entries : Array(entries.suffix(visibleLimit))
+        // 流式期间只留最后 4 条：渲染量恒定且极小，避免「每秒多次重排 × 富文本」饱和
+        let limit = model.isStreaming ? 4 : visibleLimit
+        return entries.count <= limit ? entries : Array(entries.suffix(limit))
     }
 
     /// 标题直接用 AppModel 里的标量：不要再读 model.sessions，
@@ -105,6 +107,7 @@ struct ChatView: View {
                             .buttonStyle(.plain)
                         }
                         ForEach(visibleEntries) { entry in
+                            // 流式期间用极简渲染（见 ChatBubble.compact）
                             // 和上一条隔了 5 分钟以上才打时间戳（由 AppModel 填 timeLabel）
                             if let label = entry.timeLabel {
                                 Text(label)
@@ -113,7 +116,7 @@ struct ChatView: View {
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.vertical, 2)
                             }
-                            ChatBubble(entry: entry)
+                            ChatBubble(entry: entry, compact: model.isStreaming)
                                 .equatable()
                                 .id(entry.id)
                         }
