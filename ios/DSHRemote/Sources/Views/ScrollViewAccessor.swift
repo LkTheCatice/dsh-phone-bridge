@@ -68,30 +68,31 @@ extension UIScrollView {
         setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
     }
 
-    /// 先强制掐断惯性，再贴到底（按钮用）。
+    /// 先强制掐断惯性，再滚到底（按钮用）。
     ///
-    /// 定位之后补一次「只修越界」的校正：
-    /// 从很靠上的位置跳转时，LazyVStack 中间那段还没真正渲染，
-    /// contentSize 是估算值、可能偏大 —— 按它跳就会越过底部露出空白。
-    /// 所以落位后下一帧再量一次真实的 bottomOffsetY，超出才拉回来。
+    /// 定位方式用 `scrollRectToVisible`，而不是手算 contentOffset：
+    /// 给它「内容最末尾的一个 1pt 矩形」，系统自己算该滚到哪 ——
+    /// contentInset、safeArea、边界夹取都由它处理，不会像手算那样越界或留缝。
     ///
-    /// 只修「超出」不修「差一点」，而且只跑一次：
-    /// 之前做过多帧双向校准，会和自动跟随互相触发（高度变→跟随→校准→再变），
-    /// 几秒把主线程打满直接卡死。
+    /// 前置的三步是为了让它在惯性中也能生效：
+    /// ① isScrollEnabled 关再开 —— 系统级打断减速模拟
+    /// ② 原地 setContentOffset + 清 layer 动画 —— 清掉残留滚动状态
+    /// ③ layoutIfNeeded —— 让 contentSize 追上最新内容
+    ///
+    /// 最后补一次单次校正：内容可能还在长（工具行追加、流式输出），
+    /// 落位后下一帧再量一次真实的底部，差超过 1pt 就修正。
+    /// 只跑一次且用户开始滑动就放弃 —— 多帧反复校准会和自动跟随互相触发，之前因此卡死过。
     func stopThenScrollToBottom() {
-        // ① 系统级打断减速模拟
         let wasEnabled = isScrollEnabled
         isScrollEnabled = false
         isScrollEnabled = wasEnabled
-        // ② 清掉残留的 offset 动画
         setContentOffset(contentOffset, animated: false)
         layer.removeAllAnimations()
-        // ③ 布局稳定后一次性定位
         layoutIfNeeded()
-        setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
-        // ④ 单次校正：两个方向都修 —— 只跑一次就不会循环。
-        //    之前是「只修越界」，结果误差总是偏向「差一点没到底」，
-        //    视觉上就是离底部留着一小段空隙。
+
+        let tail = CGRect(x: 0, y: max(0, contentSize.height - 1), width: 1, height: 1)
+        scrollRectToVisible(tail, animated: true)
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard !self.isDragging, !self.isDecelerating, !self.isTracking else { return }
