@@ -101,14 +101,7 @@ struct RemoteImage: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .onTapGesture { shown = true }
                     .fullScreenCover(isPresented: $shown) {
-                        ZStack {
-                            Color.black.ignoresSafeArea()
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .padding(8)
-                        }
-                        .onTapGesture { shown = false }
+                        ImageViewer(image: image, remotePath: path)
                     }
             } else if loading {
                 HStack(spacing: 6) {
@@ -128,6 +121,151 @@ struct RemoteImage: View {
             loading = true
             image = await ImageCache.shared.load(path: path, model: model)
             loading = false
+        }
+    }
+}
+
+/// 全屏看图：双指缩放、双击放大、拖动平移，可存相册或分享。
+struct ImageViewer: View {
+    let image: UIImage
+    let remotePath: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var savedToast: String?
+    @State private var shareURL: URL?
+
+    private let minScale: CGFloat = 1
+    private let maxScale: CGFloat = 8
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(scale)
+                .offset(offset)
+                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.82), value: scale)
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            scale = min(maxScale, max(minScale * 0.6, lastScale * value))
+                        }
+                        .onEnded { _ in
+                            lastScale = scale
+                            if scale < minScale {
+                                withAnimation { scale = minScale; offset = .zero; lastOffset = .zero }
+                            }
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { value in
+                            guard scale > 1 else { return }
+                            offset = CGSize(
+                                width: lastOffset.width + value.translation.width,
+                                height: lastOffset.height + value.translation.height
+                            )
+                        }
+                        .onEnded { _ in lastOffset = offset }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation {
+                        if scale > 1.05 {
+                            scale = 1; offset = .zero; lastOffset = .zero
+                        } else {
+                            scale = 3
+                        }
+                        lastScale = scale
+                    }
+                }
+
+            VStack {
+                HStack(spacing: 22) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+
+                    Spacer()
+
+                    Button {
+                        saveToPhotos()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+
+                    if let shareURL {
+                        ShareLink(item: shareURL) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+                Spacer()
+
+                VStack(spacing: 6) {
+                    if let savedToast {
+                        Text(savedToast)
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    Text(scale > 1.05 ? "双指缩放 · 拖动平移 · 双击还原" : "双指缩放 · 双击放大")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.55))
+                    Text(remotePath)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .padding(.horizontal, 24)
+                }
+                .padding(.bottom, 18)
+            }
+        }
+        .statusBarHidden(true)
+        .onAppear(perform: prepareShareFile)
+    }
+
+    private func prepareShareFile() {
+        guard shareURL == nil else { return }
+        let name = (remotePath as NSString).lastPathComponent
+        let safe = name.isEmpty ? "image.png" : name
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(safe)
+        let data = image.pngData() ?? image.jpegData(compressionQuality: 0.95)
+        guard let data else { return }
+        try? data.write(to: url, options: .atomic)
+        shareURL = url
+    }
+
+    private func saveToPhotos() {
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        withAnimation { savedToast = "已保存到相册" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation { savedToast = nil }
         }
     }
 }
