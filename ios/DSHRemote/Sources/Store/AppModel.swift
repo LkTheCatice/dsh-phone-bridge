@@ -1182,6 +1182,17 @@ final class AppModel: ObservableObject {
             }
             suppressTrim = false
             trimIfNeeded(sessionId)
+            // 历史回填完成后清掉残留的 running。
+            // 拉的是最近 N 帧，很可能截在某一轮中间 —— 那些没有 turn.end 收尾的
+            // 工具条会永远 running=true，界面上永远转着「进行中」。
+            if var list = entriesStorage[sessionId] {
+                var changed = false
+                for i in list.indices where list[i].running {
+                    list[i].running = false
+                    changed = true
+                }
+                if changed { entriesStorage[sessionId] = list }
+            }
             endBatch()
             let totalMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
             trace("hist n=\(frames.count) total=\(totalMs)ms worstChunk=\(worstChunkMs)ms")

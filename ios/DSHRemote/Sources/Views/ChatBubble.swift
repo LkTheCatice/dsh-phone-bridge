@@ -117,7 +117,9 @@ struct ChatBubble: View, Equatable {
 
         case .system:
             HStack(spacing: 5) {
-                if entry.running { ProgressView().controlSize(.mini) }
+                if entry.running {
+                    Circle().fill(Color.secondary).frame(width: 5, height: 5)
+                }
                 Text(entry.text)
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
@@ -144,7 +146,10 @@ struct ChatBubble: View, Equatable {
             HStack(spacing: 5) {
                 Image(systemName: "sparkles").font(.caption2).foregroundStyle(Color.accentColor)
                 Text("回答").font(.caption2).foregroundStyle(Color.accentColor)
-                if entry.running { ProgressView().controlSize(.mini) }
+                if entry.running {
+                    // 同上：静态圆点，不做无限动画
+                    Circle().fill(Color.accentColor).frame(width: 5, height: 5)
+                }
             }
             if entry.running {
                 // 流式期间只渲染纯文本，而且**只渲染尾部**：排版在主线程，
@@ -277,7 +282,12 @@ struct ChatBubble: View, Equatable {
                 Spacer(minLength: 4)
 
                 if entry.running {
-                    ProgressView().controlSize(.mini)
+                    // 不要用 ProgressView：它是无限循环动画，历史里若有多个
+                    // 「没有 turn.end 收尾」的工具条（running 永远是 true），
+                    // 滚动时十几个 spinner 同时重绘 —— 实测拖动卡死 21688ms（mark=b:tool）。
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 6, height: 6)
                 } else if let ok = entry.ok {
                     Text(ok ? "✓" : "✗")
                         .font(.system(size: 11, weight: .semibold))
@@ -287,10 +297,12 @@ struct ChatBubble: View, Equatable {
                 Spacer(minLength: 0)
 
                 if entry.detail != nil {
-                    Button("详情") { detailPresenter?.entry = entry }
+                    // 用文本 + 手势而不是 Button：Button 在 LazyVStack 里反复创建/销毁更贵
+                    Text("详情")
                         .font(.system(size: 11))
-                        .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
+                        .contentShape(Rectangle())
+                        .onTapGesture { detailPresenter?.entry = entry }
                 }
             }
 
