@@ -42,6 +42,9 @@ struct ChatBubble: View {
         case .toolResult:
             EmptyView()   // 结果已合并进调用行
 
+        case .collapsedSteps:
+            foldedSteps
+
         case .system:
             HStack(spacing: 5) {
                 if entry.running { ProgressView().controlSize(.mini) }
@@ -71,6 +74,42 @@ struct ChatBubble: View {
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// 一轮跑完后的过程折叠行：点一下才展开里面的思考与工具调用
+    private var foldedSteps: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                    Text(entry.text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(entry.folded) { item in
+                        ChatBubble(entry: item)
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.vertical, 2)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.18))
+                        .frame(width: 1)
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     /// `> 运行命令 · 摘要` —— 和电脑端一样紧凑的一行，需要时才展开

@@ -141,18 +141,18 @@ final class AppModel: ObservableObject {
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
-            upsertStreaming(sid, id: "\(sid)#think\(turn)", kind: .thinking, delta: text, header: "")
+            upsertStreaming(sid, id: "\(sid)#think\(turn)", kind: .thinking, delta: text, header: "", turn: turn)
 
         case "assistant.delta":
             let text = (frame["text"] as? String) ?? ""
-            upsertStreaming(sid, id: "\(sid)#ans\(turn)", kind: .assistant, delta: text, header: "")
+            upsertStreaming(sid, id: "\(sid)#ans\(turn)", kind: .assistant, delta: text, header: "", turn: turn)
 
         case "tool.call":
             let callId = (frame["callId"] as? String) ?? UUID().uuidString
             let name = (frame["name"] as? String) ?? "tool"
             let detail = Self.jsonText(frame["args"])
             // text 存"中文动作名"，detail 存可展开的原始参数
-            append(sid, ChatEntry(id: "\(sid)#tool\(callId)", kind: .toolCall, text: Self.toolLabel(name), detail: detail, at: Date(), running: true))
+            append(sid, ChatEntry(id: "\(sid)#tool\(callId)", kind: .toolCall, text: Self.toolLabel(name), detail: detail, at: Date(), running: true, turn: turn))
 
         case "tool.result":
             let callId = (frame["callId"] as? String) ?? ""
@@ -216,6 +216,9 @@ final class AppModel: ObservableObject {
                 for i in list.indices where list[i].running { list[i].running = false }
                 entries[key] = list
             }
+            // 本轮跑完就把过程收起来：思考 + 工具调用合成一行「本轮过程 · N 步」，
+            // 点开才展开。否则几十轮下来 log 会把聊天记录埋掉。
+            foldSteps(sid, turn: turn)
             Task { await refreshSessions() }
 
         case "user.message":
@@ -237,14 +240,44 @@ final class AppModel: ObservableObject {
         entries[sessionId, default: []].append(entry)
     }
 
-    private func upsertStreaming(_ sessionId: String, id: String, kind: ChatEntry.Kind, delta: String, header: String) {
+    /// 把某一轮里的思考 + 工具调用折叠成单个可展开条目。
+    /// 少于 3 步就不折 —— 只有一两步时折起来反而多一次点击。
+    private func foldSteps(_ sessionId: String, turn: Int) {
+        guard var list = entries[sessionId] else { return }
+        let processKinds: Set<ChatEntry.Kind> = [.thinking, .toolCall]
+        let stepIndexes = list.indices.filter {
+            processKinds.contains(list[$0].kind) && list[$0].turn == turn
+        }
+        guard stepIndexes.count >= 3, let firstIdx = stepIndexes.first else { return }
+
+        let foldedEntries = stepIndexes.map { list[$0] }
+        let fold = ChatEntry(
+            id: "\(sessionId)#fold\(turn)",
+            kind: .collapsedSteps,
+            text: "本轮过程 · \(foldedEntries.count) 步",
+            detail: nil,
+            at: Date(),
+            running: false,
+            ok: nil,
+            turn: turn,
+            folded: foldedEntries
+        )
+        // 从后往前删，索引才不会错位
+        for idx in stepIndexes.reversed() {
+            list.remove(at: idx)
+        }
+        list.insert(fold, at: min(firstIdx, list.count))
+        entries[sessionId] = list
+    }
+
+    private func upsertStreaming(_ sessionId: String, id: String, kind: ChatEntry.Kind, delta: String, header: String, turn: Int = 0) {
         guard !sessionId.isEmpty else { return }
         var list = entries[sessionId] ?? []
         if let idx = list.firstIndex(where: { $0.id == id }) {
             list[idx].text += delta
             list[idx].running = true
         } else {
-            list.append(ChatEntry(id: id, kind: kind, text: (header.isEmpty ? "" : header + "\n") + delta, at: Date(), running: true))
+            list.append(ChatEntry(id: id, kind: kind, text: (header.isEmpty ? "" : header + "\n") + delta, at: Date(), running: true, turn: turn))
         }
         entries[sessionId] = list
     }

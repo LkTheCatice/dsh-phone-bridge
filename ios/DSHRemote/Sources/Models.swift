@@ -41,6 +41,8 @@ struct ChatEntry: Identifiable, Hashable {
         case toolCall
         case toolResult
         case system
+        /// 一轮跑完后把该轮的思考/工具调用收成一行，点开才展开
+        case collapsedSteps
     }
 
     let id: String
@@ -51,6 +53,10 @@ struct ChatEntry: Identifiable, Hashable {
     var running: Bool = false
     /// 工具结果的成功/失败，nil 表示还没回来
     var ok: Bool? = nil
+    /// 属于哪一轮，折叠时按它筛
+    var turn: Int = 0
+    /// collapsedSteps 里包着的原始条目
+    var folded: [ChatEntry] = []
 }
 
 struct FsEntry: Identifiable, Hashable {
