@@ -273,11 +273,30 @@ struct ChatView: View {
         .padding(.top, 80)
     }
 
+    /// 自动跟随等场景用：带动画，平滑滚到底
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
         atBottom = true
         hasNewBelow = false
         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+    }
+
+    /// 「跳到最下」按钮专用：先终止正在进行的滚动，再瞬间到位。
+    ///
+    /// 拆成两步而不是直接 withAnimation：
+    /// 1) 不带 animation 的 scrollTo 是**瞬时定位**，它会立刻打断进行中的惯性滚动；
+    /// 2) 再用一次带 animation 的调用收尾。
+    /// 如果只有第二步，惯性还在跑的时候叠加动画，画面会先被惯性拖一截再弹回去。
+    private func jumpToBottom(_ proxy: ScrollViewProxy) {
+        guard let last = entries.last else { return }
+        atBottom = true
+        hasNewBelow = false
+        // 第一步：瞬时钉到底 —— 同时终止当前滚动（含惯性）
+        proxy.scrollTo(last.id, anchor: .bottom)
+        // 第二步：给一次很短的动画收尾，避免"啪"地一下硬切
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(last.id, anchor: .bottom)
+        }
     }
 
     /// 浮动在输入栏上方的两个按钮。
@@ -288,9 +307,7 @@ struct ChatView: View {
         ZStack(alignment: .bottomTrailing) {
             // 有新内容但你在上面看旧记录 → 只提示，不抢滚动位置
             Button {
-                hasNewBelow = false
-                atBottom = true
-                scrollToEnd(proxy)
+                jumpToBottom(proxy)
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.down")
@@ -311,8 +328,7 @@ struct ChatView: View {
 
             // 单纯往上翻（没新内容）时给个回底箭头
             Button {
-                atBottom = true
-                scrollToEnd(proxy)
+                jumpToBottom(proxy)
             } label: {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.system(size: 30))
