@@ -44,12 +44,9 @@ final class AppModel: ObservableObject {
 
     private func syncCurrentEntries() {
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
-        let changed = next.count != currentEntries.count
-            || next.last?.id != currentEntries.last?.id
-            || next.last?.text != currentEntries.last?.text
-            || next.last?.summary != currentEntries.last?.summary
-            || next.last?.running != currentEntries.last?.running
-        guard changed else { return }
+        // 整数组比较：只比 count / last 会漏掉「中间某条在变」的情况，
+        // 那正是跟随失效的原因之一。ChatEntry 实现了 ==，逐项比较很快。
+        guard next != currentEntries else { return }
         currentEntries = next
         streamTick &+= 1
     }
@@ -387,6 +384,15 @@ final class AppModel: ObservableObject {
                 || text.contains("Current DSH file policy")
                 || text.contains("Approval prompts are disabled in this session")
             guard !injected else { return }
+            // 去重：send() 已经本地乐观插入过同一条，服务端回显时不能再插一次
+            // —— 否则自己发的消息会显示两遍。
+            let recent = entries[sid]?.suffix(3) ?? []
+            let duplicated = recent.contains { item in
+                item.kind == .user
+                    && item.text == text
+                    && abs(item.at.timeIntervalSinceNow) < 15
+            }
+            guard !duplicated else { return }
             append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Date()))
 
         default:
