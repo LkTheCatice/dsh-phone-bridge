@@ -37,3 +37,5 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         ENABLE_BITCODE: NO
+        # 应用图标（Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png）
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
