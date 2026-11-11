@@ -36,6 +36,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var historyNote: String?
     /// 有结果但还没点开看过的会话（列表里显示「已完成」蓝点）
     @Published private(set) var unreadSessions: Set<String> = []
+    /// 每个会话各自的输入框草稿，切会话不会串
+    @Published var drafts: [String: String] = [:]
+    /// 轻量提示（3 秒自动消失），比 alert 不打断操作
+    @Published var toast: String?
 
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
@@ -355,11 +359,41 @@ final class AppModel: ObservableObject {
 
     private func append(_ sessionId: String, _ entry: ChatEntry) {
         guard !sessionId.isEmpty else { return }
-        // 单个会话超过 600 条就丢掉最老的，避免长时间使用后内存一直涨
-        entries[sessionId, default: []].append(entry)
-        if let list = entries[sessionId], list.count > 600 {
-            entries[sessionId] = Array(list.suffix(600))
+        var item = entry
+        // 和上一条隔了 5 分钟以上才打时间戳，否则每条都挂时间太吵
+        let previous = entries[sessionId]?.last
+        if let previous {
+            if item.at.timeIntervalSince(previous.at) >= 300 {
+                item.timeLabel = Self.clockFormatter.string(from: item.at)
+            }
+        } else {
+            item.timeLabel = Self.clockFormatter.string(from: item.at)
         }
+        entries[sessionId, default: []].append(item)
+        trimIfNeeded(sessionId)
+    }
+
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    /// 单个会话超过 600 条就丢最老的，避免长时间使用后内存一直涨。
+    /// 必须按 turn 边界裁：直接 suffix(600) 会把「本轮过程 · N 步」这种
+    /// 折叠块从中间切开，界面上会露出一半。
+    private func trimIfNeeded(_ sessionId: String) {
+        guard let list = entries[sessionId], list.count > 600 else { return }
+        var keepFrom = 0
+        var counted = 0
+        for entry in list.reversed() {
+            counted += 1
+            if counted >= 600 {
+                keepFrom = entry.turn
+                break
+            }
+        }
+        entries[sessionId] = list.filter { $0.turn >= keepFrom || $0.turn == 0 }
     }
 
     /// 把某一轮里的思考 + 工具调用折叠成单个可展开条目。
@@ -622,6 +656,19 @@ final class AppModel: ObservableObject {
     /// 打开某个会话时把它标记成已读
     func markRead(_ sessionId: String) {
         unreadSessions.remove(sessionId)
+    }
+
+    /// 草稿用的键：还没选会话时共用一个「新对话」草稿位
+    func draftKey(_ sessionId: String?) -> String {
+        sessionId ?? "__new__"
+    }
+
+    func showToast(_ text: String) {
+        toast = text
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if self?.toast == text { self?.toast = nil }
+        }
     }
 
     /// 把某个会话的历史事件拉回来重建成聊天记录。

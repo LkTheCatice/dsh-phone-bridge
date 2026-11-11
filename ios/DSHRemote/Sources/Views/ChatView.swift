@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct ChatView: View {
     @EnvironmentObject private var model: AppModel
     @State private var draft = ""
+    /// 上传进度（已完成张数, 总张数），nil 表示没在上传
+    @State private var uploadProgress: (done: Int, total: Int)?
     @State private var sending = false
     @FocusState private var focused: Bool
 
@@ -37,6 +39,14 @@ struct ChatView: View {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if entries.isEmpty { emptyState }
                         ForEach(entries) { entry in
+                            // 和上一条隔了 5 分钟以上才打时间戳（由 AppModel 填 timeLabel）
+                            if let label = entry.timeLabel {
+                                Text(label)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 2)
+                            }
                             ChatBubble(entry: entry).id(entry.id)
                         }
                     }
@@ -199,6 +209,14 @@ struct ChatView: View {
         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
     }
 
+    /// 上传进度文案：单张只说「正在上传」，多张带上 2/5
+    private var uploadText: String {
+        guard let progress = uploadProgress, progress.total > 1 else {
+            return "正在上传附件…"
+        }
+        return "正在上传 \(min(progress.done + 1, progress.total))/\(progress.total)"
+    }
+
     private var statusColor: Color {
         switch model.phase {
         case .connected: return .green
@@ -223,7 +241,7 @@ struct ChatView: View {
             if uploading {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("正在上传附件…").font(.caption).foregroundStyle(.secondary)
+                    Text(uploadText).font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             }
@@ -291,6 +309,8 @@ struct ChatView: View {
         // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
         .onChange(of: model.selectedSessionId) { sessionId in
             guard let sessionId else { return }
+            // 草稿按会话存：切过去要把那一格的内容取回来
+            draft = model.drafts[model.draftKey(sessionId)] ?? ""
             Task { await model.loadHistory(sessionId) }
         }
     }
@@ -298,6 +318,8 @@ struct ChatView: View {
     private func submit() {
         let text = draft
         draft = ""
+        // 草稿按会话存，发完要清掉对应那一格
+        model.drafts[model.draftKey(model.selectedSessionId)] = ""
         focused = false
         sending = true
         Task {
@@ -311,8 +333,10 @@ struct ChatView: View {
     /// 一次可以选多张（最多 9 张），逐张上传后把路径都写进输入框
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         uploading = true
+        uploadProgress = (0, items.count)
         defer {
             uploading = false
+            uploadProgress = nil
             photoItems = []
         }
         for (index, item) in items.enumerated() {
@@ -322,8 +346,10 @@ struct ChatView: View {
                 let name = "image-\(stamp)-\(index).jpg"
                 let remote = try await model.uploadAttachment(data, filename: name)
                 appendPath(remote)
+                uploadProgress = (index + 1, items.count)
             } catch {
-                model.lastError = "第 \(index + 1) 张上传失败：\(error.localizedDescription)"
+                model.showToast("第 \(index + 1) 张上传失败：\(error.localizedDescription)")
+                uploadProgress = (index + 1, items.count)
             }
         }
     }

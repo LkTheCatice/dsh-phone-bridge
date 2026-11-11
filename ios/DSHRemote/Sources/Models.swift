@@ -74,6 +74,8 @@ struct ChatEntry: Identifiable, Hashable {
     var turn: Int = 0
     /// collapsedSteps 里包着的原始条目
     var folded: [ChatEntry] = []
+    /// 时间标签：只有和上一条隔了 5 分钟以上才填，nil 表示不显示
+    var timeLabel: String? = nil
 }
 
 /// ComfyUI 的在线/生图状态
