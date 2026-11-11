@@ -59,8 +59,60 @@ struct ChatEntry: Identifiable, Hashable {
     var folded: [ChatEntry] = []
 }
 
-/// 从别的 App（微信/QQ/文件）用「用其他应用打开」递过来的文件
-struct IncomingFile: Identifiable {
+/// ComfyUI 的在线/生图状态
+struct ComfyStatus: Equatable {
+    var online = false
+    var generating = false
+    var running = 0
+    var pending = 0
+    var version: String?
+    var url: String = ""
+
+    var label: String {
+        if !online { return "ComfyUI 离线" }
+        if generating {
+            return pending > 0 ? "生图中 · 队列 \(pending)" : "生图中"
+        }
+        return pending > 0 ? "空闲 · 队列 \(pending)" : "空闲"
+    }
+}
+
+struct ModelOption: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let provider: String
+    let providerName: String
+}
+
+struct ModelGroup: Identifiable, Hashable {
+    let id: String
+    let name: String
+    var models: [ModelOption]
+}
+
+/// 发送方式：排队（等当前轮结束）或插队（打断当前轮）
+enum SendMode: String, CaseIterable, Identifiable {
+    case queue
+    case steer
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .queue: return "排队"
+        case .steer: return "插队"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .queue: return "等当前这轮跑完再处理"
+        case .steer: return "立刻打断当前这轮"
+        }
+    }
+}
+
+/// 从别的 App（微信/QQ/文件）用「用其他应用打开」递过来的文件struct IncomingFile: Identifiable {
     let id = UUID()
     let name: String
     let data: Data

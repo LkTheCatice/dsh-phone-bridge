@@ -207,6 +207,8 @@ function applyBridge(ctx, config) {
     requireE2ee: config.requireE2ee !== false,
     notify: config.notify && typeof config.notify === "object" ? config.notify : {},
     maxFileBytes: Number(config.maxFileBytes) || 512 * 1024 * 1024,
+    // ComfyUI 地址（qwen-paint 插件用的是同一个），用于手机上看在线/生图状态
+    comfyUrl: String(config.comfyUrl || "http://127.0.0.1:8188").replace(/\/+$/, ""),
   };
 
   const pair = ensurePairState();
@@ -355,8 +357,7 @@ function applyBridge(ctx, config) {
   /**
    * 会话标题不在 list() 的返回里，只能问 sessionTitle 服务。
    * 需要 session 对象（冷会话 get 会立刻返回 undefined，不会触发加载）。
-   */
-  function titleOf(sessionId) {
+   */  function titleOf(sessionId) {
     try {
       const titles = ctx.get?.("sessionTitle");
       const store = ctx.get?.("sessions");
@@ -370,6 +371,90 @@ function applyBridge(ctx, config) {
           ? snapshot
           : snapshot?.title ?? snapshot?.text ?? snapshot?.value ?? null;
       return typeof title === "string" && title.trim() ? title.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 查 ComfyUI 是否在线、是否在生图（手机上的状态灯用它） */
+  async function comfyStatus() {
+    const base = cfg.comfyUrl;
+    try {
+      const signal = AbortSignal.timeout(2500);
+      const [statsRes, queueRes] = await Promise.all([
+        fetch(`${base}/system_stats`, { signal }),
+        fetch(`${base}/queue`, { signal }),
+      ]);
+      if (!statsRes.ok) return { online: false, url: base };
+      let stats = null;
+      try {
+        stats = await statsRes.json();
+      } catch {
+        /* 结构变化时忽略 */
+      }
+      let running = 0;
+      let pending = 0;
+      if (queueRes.ok) {
+        try {
+          const queue = await queueRes.json();
+          running = Array.isArray(queue?.queue_running) ? queue.queue_running.length : 0;
+          pending = Array.isArray(queue?.queue_pending) ? queue.queue_pending.length : 0;
+        } catch {
+          /* 忽略 */
+        }
+      }
+      const device = Array.isArray(stats?.devices) ? stats.devices[0] : null;
+      return {
+        online: true,
+        url: base,
+        generating: running > 0,
+        running,
+        pending,
+        version: stats?.system?.comfyui_version ?? null,
+        vramFreeMB: device?.vram_free ? Math.round(Number(device.vram_free) / 1024 / 1024) : null,
+        vramTotalMB: device?.vram_total ? Math.round(Number(device.vram_total) / 1024 / 1024) : null,
+      };
+    } catch {
+      return { online: false, url: base };
+    }
+  }
+
+  /** 当前会话的模型选择 + 全部可用模型 */
+  async function modelCatalog() {
+    const ctrl = sessionController || ctx.sessionController;
+    if (!ctrl || typeof ctrl.modelCatalog !== "function") return { groups: [], failures: [], default: null };
+    try {
+      const raw = await ctrl.modelCatalog();
+      const groups = Array.isArray(raw?.groups) ? raw.groups : [];
+      return {
+        groups: groups.map((group) => ({
+          id: String(group?.id ?? ""),
+          name: String(group?.name ?? group?.id ?? ""),
+          models: (Array.isArray(group?.models) ? group.models : []).map((model) => ({
+            id: String(model?.id ?? ""),
+            name: String(model?.name ?? model?.id ?? ""),
+            description: model?.description ?? null,
+          })),
+        })),
+        failures: Array.isArray(raw?.failures) ? raw.failures : [],
+        default: raw?.default ?? null,
+      };
+    } catch (error) {
+      logLine({ step: "modelCatalog", error: String(error?.message || error).slice(0, 300) });
+      return { groups: [], failures: [{ message: String(error?.message || error) }], default: null };
+    }
+  }
+
+  /** 读某个会话当前用的模型：从 session 的模型选择投影里拿 */
+  function currentSelection(sessionId) {
+    try {
+      const store = ctx.get?.("sessions");
+      const session = store?.get?.(sessionId);
+      if (!session) return null;
+      const agents = ctx.get?.("agents");
+      const selection = agents?.selectionFor?.(session)?.current;
+      if (!selection) return null;
+      return { provider: selection.provider ?? null, model: selection.model ?? null };
     } catch {
       return null;
     }
@@ -780,6 +865,49 @@ function applyBridge(ctx, config) {
 
     if (method === "GET" && pathname === "/v1/sessions") {
       return sendJson(res, 200, { ok: true, sessions: await listSessions() }, ctxEnc);
+    }
+
+    // ComfyUI 在线/生图状态
+    if (method === "GET" && pathname === "/v1/comfy") {
+      const status = await comfyStatus();
+      return sendJson(res, 200, { ok: true, ...status, at: Date.now() }, ctxEnc);
+    }
+
+    // 可用模型列表（附当前会话的选择）
+    if (method === "GET" && pathname === "/v1/models") {
+      const catalog = await modelCatalog();
+      const sessionId = url.searchParams.get("sessionId") || "";
+      const current = sessionId ? currentSelection(sessionId) : null;
+      return sendJson(res, 200, { ok: true, ...catalog, current }, ctxEnc);
+    }
+
+    // 切换某个会话的模型
+    if (method === "POST" && pathname === "/v1/session/model") {
+      const body = await readJsonBody();
+      const ctrl = sessionController || ctx.sessionController;
+      if (!ctrl) throw new HttpError(503, "not-ready", "sessionController 尚未就绪");
+      const sessionId = String(body.sessionId || "");
+      const provider = String(body.provider || "");
+      const model = String(body.model || "");
+      if (!sessionId || !provider || !model) {
+        throw new HttpError(400, "bad-request", "需要 sessionId、provider、model");
+      }
+      try {
+        const result = await ctrl.selectModel(
+          {
+            sessionId,
+            provider,
+            model,
+            ...(body.reasoningEffort ? { reasoningEffort: String(body.reasoningEffort) } : {}),
+          },
+          AbortSignal.timeout(20000),
+        );
+        logLine({ step: "session/model", sessionId, provider, model });
+        return sendJson(res, 200, { ok: true, sessionId, provider, model, result: result ?? null }, ctxEnc);
+      } catch (error) {
+        logLine({ step: "session/model", sessionId, error: String(error?.message || error).slice(0, 300) });
+        throw error;
+      }
     }
 
     if (method === "POST" && pathname === "/v1/task") {

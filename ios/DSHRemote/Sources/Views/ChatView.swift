@@ -14,6 +14,7 @@ struct ChatView: View {
     @State private var uploading = false
     @State private var renaming = false
     @State private var renameText = ""
+    @State private var showingModels = false
 
     private var entries: [ChatEntry] { model.entriesForSelection() }
 
@@ -88,6 +89,13 @@ struct ChatView: View {
                             Label("归档当前对话", systemImage: "archivebox")
                         }
                         Divider()
+                        Button {
+                            showingModels = true
+                        } label: {
+                            Label(model.currentModel.map { "模型 · \($0.name)" } ?? "选择模型",
+                                  systemImage: "cpu")
+                        }
+                        Divider()
                         Button(role: .destructive) {
                             Task { await model.cancelCurrentTurn() }
                         } label: {
@@ -95,6 +103,25 @@ struct ChatView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Label(model.comfy.label, systemImage: "flame")
+                        if let version = model.comfy.version {
+                            Text("ComfyUI v\(version)")
+                        }
+                        if !model.comfy.url.isEmpty {
+                            Text(model.comfy.url)
+                        }
+                        Button("刷新状态") { model.startComfyPolling() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Circle().fill(comfyColor).frame(width: 7, height: 7)
+                            Text(comfyShort)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -110,7 +137,24 @@ struct ChatView: View {
                 }
                 Button("取消", role: .cancel) {}
             }
+            .sheet(isPresented: $showingModels) {
+                ModelPickerSheet()
+                    .environmentObject(model)
+            }
         }
+    }
+
+    private var comfyColor: Color {
+        if !model.comfy.online { return .gray }
+        return model.comfy.generating ? .orange : .green
+    }
+
+    private var comfyShort: String {
+        if !model.comfy.online { return "离线" }
+        if model.comfy.generating {
+            return model.comfy.pending > 0 ? "生图+\(model.comfy.pending)" : "生图"
+        }
+        return "空闲"
     }
 
     private var emptyState: some View {
@@ -148,6 +192,23 @@ struct ChatView: View {
                 }
                 .padding(.vertical, 4)
             }
+            // 发送方式：排队（等当前轮结束）/ 插队（打断当前轮）
+            HStack(spacing: 8) {
+                Picker("发送方式", selection: $model.sendMode) {
+                    ForEach(SendMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 132)
+                Text(model.sendMode.hint)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
             HStack(alignment: .bottom, spacing: 8) {
                 // 附件入口跟 QQ 一样放在输入框左边
                 Menu {

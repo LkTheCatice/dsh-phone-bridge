@@ -23,6 +23,13 @@ final class AppModel: ObservableObject {
     @Published var busy: Bool = false
     /// 外部 App 递过来的文件，等用户选会话后再发
     @Published var pendingIncoming: IncomingFile?
+    /// ComfyUI 状态（聊天页顶部状态点）
+    @Published private(set) var comfy = ComfyStatus()
+    /// 可选模型
+    @Published private(set) var modelGroups: [ModelGroup] = []
+    @Published private(set) var currentModel: ModelOption?
+    /// 发送方式：排队 / 插队
+    @Published var sendMode: SendMode = .queue
 
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
@@ -237,6 +244,87 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 轮询 ComfyUI 状态（聊天页顶部那个状态点）
+    private var comfyTask: Task<Void, Never>?
+
+    func startComfyPolling() {
+        comfyTask?.cancel()
+        comfyTask = Task { [weak self] in
+            while !Task.isCancelled {
+                if let client = self?.client {
+                    if let raw = try? await client.comfyStatus() {
+                        self?.applyComfy(raw)
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+            }
+        }
+    }
+
+    private func applyComfy(_ raw: [String: Any]) {
+        var status = ComfyStatus()
+        status.online = (raw["online"] as? Bool) ?? false
+        status.generating = (raw["generating"] as? Bool) ?? false
+        status.running = (raw["running"] as? NSNumber)?.intValue ?? 0
+        status.pending = (raw["pending"] as? NSNumber)?.intValue ?? 0
+        status.version = raw["version"] as? String
+        status.url = (raw["url"] as? String) ?? ""
+        comfy = status
+    }
+
+    /// 拉取可用模型列表（打开选择器时调用）
+    func loadModels() async {
+        guard let client else { return }
+        do {
+            let raw = try await client.models(sessionId: selectedSessionId)
+            var groups: [ModelGroup] = []
+            if let rawGroups = raw["groups"] as? [[String: Any]] {
+                for group in rawGroups {
+                    let providerId = (group["id"] as? String) ?? ""
+                    let providerName = (group["name"] as? String) ?? providerId
+                    let models = (group["models"] as? [[String: Any]] ?? []).compactMap { item -> ModelOption? in
+                        guard let id = item["id"] as? String else { return nil }
+                        return ModelOption(
+                            id: id,
+                            name: (item["name"] as? String) ?? id,
+                            provider: providerId,
+                            providerName: providerName
+                        )
+                    }
+                    if !models.isEmpty {
+                        groups.append(ModelGroup(id: providerId, name: providerName, models: models))
+                    }
+                }
+            }
+            modelGroups = groups
+            if let current = raw["current"] as? [String: Any],
+               let provider = current["provider"] as? String,
+               let model = current["model"] as? String {
+                currentModel = ModelOption(
+                    id: model,
+                    name: model,
+                    provider: provider,
+                    providerName: groups.first(where: { $0.id == provider })?.name ?? provider
+                )
+            }
+        } catch {
+            lastError = "读取模型列表失败：\(error.localizedDescription)"
+        }
+    }
+
+    func selectModel(_ option: ModelOption) async {
+        guard let client, let sessionId = selectedSessionId else {
+            lastError = "先选一个会话再换模型"
+            return
+        }
+        do {
+            _ = try await client.selectModel(sessionId: sessionId, provider: option.provider, model: option.id)
+            currentModel = option
+        } catch {
+            lastError = "切换模型失败：\(error.localizedDescription)"
+        }
+    }
+
     private func append(_ sessionId: String, _ entry: ChatEntry) {
         guard !sessionId.isEmpty else { return }
         entries[sessionId, default: []].append(entry)
@@ -347,17 +435,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func send(text: String) async {
+    func send(text: String, mode: SendMode? = nil) async {
         guard let client else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let effective = mode ?? sendMode
         busy = true
         defer { busy = false }
         let target = selectedSessionId
         let sid = target ?? "pending"
         append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: trimmed, at: Date()))
         do {
-            let result = try await client.sendTask(text: trimmed, sessionId: target)
+            let result = try await client.sendTask(
+                text: trimmed,
+                sessionId: target,
+                mode: effective == .steer ? "steer" : nil
+            )
             if let newId = result["sessionId"] as? String {
                 if selectedSessionId == nil { selectedSessionId = newId }
                 if sid != newId, let moved = entries.removeValue(forKey: "pending") {

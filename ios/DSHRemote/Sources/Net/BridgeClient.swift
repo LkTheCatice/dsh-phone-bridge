@@ -226,6 +226,24 @@ final class BridgeClient {
         try await postJSON("/v1/session/archive", json: ["sessionId": sessionId, "archived": archived])
     }
 
+    func comfyStatus() async throws -> [String: Any] {
+        try await getJSON("/v1/comfy")
+    }
+
+    func models(sessionId: String?) async throws -> [String: Any] {
+        var query: [(String, String)] = []
+        if let sessionId, !sessionId.isEmpty { query.append(("sessionId", sessionId)) }
+        return try await getJSON("/v1/models", query: query)
+    }
+
+    func selectModel(sessionId: String, provider: String, model: String) async throws -> [String: Any] {
+        try await postJSON("/v1/session/model", json: [
+            "sessionId": sessionId,
+            "provider": provider,
+            "model": model,
+        ])
+    }
+
     func listFiles(path: String) async throws -> [String: Any] {
         try await getJSON("/v1/fs/list", query: [("path", path)])
     }

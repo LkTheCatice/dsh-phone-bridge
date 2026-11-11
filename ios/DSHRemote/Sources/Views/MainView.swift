@@ -23,6 +23,8 @@ struct MainView: View {
         .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
         .task {
             if !model.isConnected { await model.connect() }
+            // ComfyUI 状态每 8 秒刷一次（聊天页顶部的状态点）
+            model.startComfyPolling()
         }
     }
 }
