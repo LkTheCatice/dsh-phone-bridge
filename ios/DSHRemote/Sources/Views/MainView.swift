@@ -40,6 +40,8 @@ struct MainView: View {
         }
         .task {
             if !model.isConnected { await model.connect() }
+            // 主线程看门狗：卡死时能留下「卡了多久」的记录
+            model.startWatchdog()
             // ComfyUI 状态每 8 秒刷一次（聊天页顶部的状态点）
             model.startComfyPolling()
             // 首次进入也回填一次历史；切换会话时由 ChatView 的 onChange 负责

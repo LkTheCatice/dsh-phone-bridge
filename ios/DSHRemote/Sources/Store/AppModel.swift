@@ -740,6 +740,28 @@ final class AppModel: ObservableObject {
         pingDiagnostic(label)
     }
 
+    /// 主线程看门狗。
+    ///
+    /// Timer 跑在主线程上：主线程一被占住 Timer 就停跑，
+    /// 恢复后间隔会明显变大 —— 这样能直接量出「卡了多久」，
+    /// 也能区分「真卡死」和「只是网络慢」。
+    private var watchdogTimer: Timer?
+    private var lastHeartbeat: CFAbsoluteTime = 0
+
+    func startWatchdog() {
+        guard watchdogTimer == nil else { return }
+        lastHeartbeat = CFAbsoluteTimeGetCurrent()
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let now = CFAbsoluteTimeGetCurrent()
+            let gap = now - self.lastHeartbeat
+            if gap > 1.0 {
+                self.pingDiagnostic("stall=\(Int(gap * 1000))ms")
+            }
+            self.lastHeartbeat = now
+        }
+    }
+
     func send(text: String, mode: SendMode? = nil) async {
         guard let client else { return }
         let t0 = CFAbsoluteTimeGetCurrent()
