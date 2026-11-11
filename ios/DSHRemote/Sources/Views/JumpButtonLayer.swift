@@ -11,6 +11,19 @@ final class JumpButtonState: ObservableObject {
     @Published var atBottom = true
     @Published var hasNewBelow = false
 
+    // MARK: - 只用于内部节流/防重入的状态
+    //
+    // 这些刻意不是 @Published，也绝不能用 ChatView 的 @State：
+    // @State 一改就触发 body 重算，而它们正是在 body 重算触发的回调里被改的 ——
+    // 「改状态 → 重算 → 回调 → 再改状态」立刻变成无限循环，主线程被占死，
+    // 连刚发出的消息都渲染不出来（用户看到的就是「秒卡、消息不出现」）。
+    // 放在引用类型的普通属性里，改了不通知任何人，循环天然断开。
+
+    /// 越界 clamp 的防重入锁
+    var clamping = false
+    /// 自动跟随的节流时间戳
+    var lastFollowAt = Date.distantPast
+
     /// 是否该显示按钮（用于外层占位高度判断）
     var needsLayer: Bool {
         hasNewBelow || !atBottom

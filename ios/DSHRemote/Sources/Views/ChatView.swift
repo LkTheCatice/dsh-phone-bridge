@@ -33,10 +33,9 @@ struct ChatView: View {
     /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
     /// 电脑端发消息不再带动手机滚动
     @State private var lastPhoneSendAt: Date?
-    /// 流式跟随的节流时间戳
-    @State private var lastFollowAt = Date.distantPast
-    /// 越界 clamp 的防重入锁：setContentOffset 会再次触发 onPreferenceChange
-    @State private var isClamping = false
+    // 注意：节流时间戳和 clamp 防重入锁都放在 jump（JumpButtonState）里，
+    // 不能用 @State —— 它们会在 body 重算触发的回调里被改，
+    // 用 @State 就是「改状态 → 重算 → 回调 → 再改」的无限循环。
     /// 标注编辑器：待编辑的图与等待中的 continuation
     @State private var editorImage: UIImage?
     @State private var editorContinuation: CheckedContinuation<UIImage?, Never>?
@@ -124,11 +123,11 @@ struct ChatView: View {
                 // 「最后一条是 thinking 或工具行、文本不变但高度在长」。
                 .onChange(of: model.streamTick) { _ in
                     if jump.atBottom {
-                        // 节流 150ms：scrollToEnd 里有 layoutIfNeeded，
-                        // 太密会把主线程压在布局上（之前 80ms 无节流时卡死过）
+                        // 节流 150ms。时间戳存在 jump 里（引用类型普通属性），
+                        // 用 @State 会因为「改状态触发重算」而无限循环。
                         let now = Date()
-                        guard now.timeIntervalSince(lastFollowAt) > 0.15 else { return }
-                        lastFollowAt = now
+                        guard now.timeIntervalSince(jump.lastFollowAt) > 0.15 else { return }
+                        jump.lastFollowAt = now
                         let t0 = CFAbsoluteTimeGetCurrent()
                         scrollToEnd(proxy)
                         model.traceFollow("follow=\(Int((CFAbsoluteTimeGetCurrent() - t0) * 1000))ms n=\(entries.count)")
@@ -164,20 +163,20 @@ struct ChatView: View {
                 .onPreferenceChange(BottomYKey.self) { maxY in
                     let viewport = outer.size.height
 
-                    // 防御越界：contentSize 会变小（600 条裁剪、一轮结束折叠、
+                    // 防御越界：contentSize 会变小（条目裁剪、一轮结束折叠、
                     // 切换会话重建），而 contentOffset 仍停在旧位置 —— 于是「进到下面」。
-                    // 必须带 isClamping 防重入：setContentOffset 会再次触发这个回调，
-                    // 不加锁就会自己喂自己，几秒内把主线程打满。
+                    // 防重入锁存在 jump 里（引用类型普通属性）：
+                    // setContentOffset 会再次触发这个回调，用 @State 存锁会自己喂自己。
                     if let scroll = uiScrollView,
-                       !isClamping,
+                       !jump.clamping,
                        !scroll.isDragging,
                        !scroll.isDecelerating,
                        !scroll.isTracking {
                         let limit = scroll.bottomOffsetY
                         if scroll.contentOffset.y > limit + 1 {
-                            isClamping = true
+                            jump.clamping = true
                             scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: limit), animated: false)
-                            DispatchQueue.main.async { isClamping = false }
+                            DispatchQueue.main.async { jump.clamping = false }
                         }
                     }
 
