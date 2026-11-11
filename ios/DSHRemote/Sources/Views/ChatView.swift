@@ -45,11 +45,9 @@ struct ChatView: View {
         NavigationStack {
             GeometryReader { outer in
                 ScrollViewReader { proxy in
-                // composer 与 ScrollView 用 VStack 并排（不是 safeAreaInset）。
-                // safeAreaInset 的内容在 UIKit 层级上仍属于 UIScrollView，
-                // 而 UIScrollView 手势优先级高于子视图 —— 惯性滚动时触摸先被它截走，
-                // 子视图按钮收不到事件。这就是前面几版修改都没生效的原因。
-                // 换成兄弟视图后，按钮完全脱离滚动视图的手势树。
+                // 回退说明：试过把 composer 做成 ScrollView 的兄弟视图（VStack 并排），
+                // 确实能脱离 UIScrollView 的手势树，但在 GeometryReader 里 VStack 会塌缩，
+                // ScrollView 拿不到高度，整个聊天区空白。这里先回到 safeAreaInset 保证显示正常。
                 VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
@@ -117,7 +115,8 @@ struct ChatView: View {
                             .padding(.trailing, 14)
                             .offset(y: -54)
                     }
-                }   // VStack
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
