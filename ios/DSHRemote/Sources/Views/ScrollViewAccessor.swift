@@ -17,38 +17,35 @@ struct ScrollViewAccessor: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // 关键：只解析一次。
-        //
-        // 之前这里写着「每次 updateUIView 就排 3 个延迟重试」，
-        // 而 updateUIView 在每次 body 重算时都会跑 —— 于是：
-        //   body 重算 → 排 3 个 → resolve 触发 @State → body 再重算 → 又排 3 个 …
-        // 主线程队列被无限灌满，触控彻底失效。这就是那个「卡死」。
-        guard !context.coordinator.scheduled else { return }
-        context.coordinator.scheduled = true
-
-        resolve(uiView, coordinator: context.coordinator)
-        for delay in [0.1, 0.35, 0.9] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak uiView] in
-                guard let uiView, !context.coordinator.resolved else { return }
-                resolve(uiView, coordinator: context.coordinator)
+        // 已经能拿到就直接交付，别排任何任务。
+        if let scroll = uiView.enclosingScrollView() {
+            if !Self.delivered {
+                Self.delivered = true
+                DispatchQueue.main.async { onResolve(scroll) }
             }
+            return
+        }
+
+        // 还没接上视图层级时，只排一次重试。
+        //
+        // 用 static 而不是 Coordinator：onResolve 闭包每次 body 重算都是新值，
+        // SwiftUI 判定 representable 变了会重建 Coordinator —— 标志跟着归零，
+        // 于是「排任务 → 改 @State → body 重算 → 又排任务」的循环永远停不下来。
+        // static 跨实例存在，才能真正只排一次。
+        guard !Self.retryScheduled else { return }
+        Self.retryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak uiView] in
+            guard let uiView, let scroll = uiView.enclosingScrollView() else { return }
+            guard !Self.delivered else { return }
+            Self.delivered = true
+            onResolve(scroll)
         }
     }
 
-    private func resolve(_ uiView: UIView, coordinator: Coordinator) {
-        guard let scroll = uiView.enclosingScrollView() else { return }
-        coordinator.resolved = true
-        DispatchQueue.main.async { onResolve(scroll) }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator {
-        /// updateUIView 已经排过重试任务，不再重复排
-        var scheduled = false
-        /// 已经成功拿到 UIScrollView
-        var resolved = false
-    }
+    /// 是否已经交付过 UIScrollView（跨实例）
+    private static var delivered = false
+    /// 是否已经排过延迟重试（跨实例）
+    private static var retryScheduled = false
 }
 
 extension UIView {
