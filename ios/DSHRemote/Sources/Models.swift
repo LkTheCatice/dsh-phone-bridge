@@ -112,7 +112,8 @@ enum SendMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// 从别的 App（微信/QQ/文件）用「用其他应用打开」递过来的文件struct IncomingFile: Identifiable {
+/// 从别的 App（微信/QQ/文件）用「用其他应用打开」递过来的文件
+struct IncomingFile: Identifiable {
     let id = UUID()
     let name: String
     let data: Data
@@ -127,7 +128,8 @@ enum SendMode: String, CaseIterable, Identifiable {
     }
 }
 
-struct FsEntry: Identifiable, Hashable {    let id: String
+struct FsEntry: Identifiable, Hashable {
+    let id: String
     var name: String
     var dir: Bool
     var size: Int?
