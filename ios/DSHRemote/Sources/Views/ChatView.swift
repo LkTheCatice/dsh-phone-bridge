@@ -316,14 +316,14 @@ struct ChatView: View {
     /// 之前用 `proxy.scrollTo(last.id, anchor: .bottom)`，流式输出时最后一条还在长高，
     /// 用旧高度定位总会差几像素 —— 底部判定失败，之后就再也不跟随、按钮还乱冒。
     /// 改成走 UIKit：先 layoutIfNeeded 让 contentSize 追上，再按真实底部定位。
+    /// 自动跟随用：滚到内容末尾的哨兵。
+    ///
+    /// 刻意不用 UIKit 的 layoutIfNeeded + setContentOffset：
+    /// 那套在流式输出时每秒被调十几次，强制布局叠加起来会把主线程拖死（实测会卡死）。
+    /// 跟随走 SwiftUI 的 scrollTo 就够；需要「瞬间精确到位」的只有按钮，那里才用 UIKit。
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         jump.atBottom = true
         jump.hasNewBelow = false
-        if let scroll = uiScrollView {
-            scroll.scrollToBottomInstant()
-            return
-        }
-        // 拿不到 UIScrollView 时退回内容末尾的哨兵（比 last.id 稳）
         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
     }
 

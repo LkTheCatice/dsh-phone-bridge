@@ -70,32 +70,19 @@ extension UIScrollView {
 
     /// 先强制掐断惯性，再贴到底（按钮用）。
     ///
-    /// 三个阶段：
-    /// ① 系统级硬停减速（disabled → enabled 会打断减速模拟）
-    /// ② 立即定位到当前算出的底部
-    /// ③ 后续几帧再校准 —— 工具调用正在追加时 contentSize 每分钟都在变，
-    ///    单次定位必然偏，校准能把位置拉回真正的底部，也避免停在「最新消息下面」
+    /// 只做一次定位，**不做多帧校准**。
+    /// 之前在校准里反复 setContentOffset，会和自动跟随互相触发
+    /// （内容高度变 → 跟随 → 校准 → offset 变 → 判定又变），几秒内把主线程打满直接卡死。
     func stopThenScrollToBottom() {
+        // ① 系统级打断减速模拟
         let wasEnabled = isScrollEnabled
         isScrollEnabled = false
         isScrollEnabled = wasEnabled
+        // ② 清掉残留的 offset 动画
         setContentOffset(contentOffset, animated: false)
         layer.removeAllAnimations()
-
+        // ③ 布局稳定后一次性定位
         layoutIfNeeded()
         setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
-
-        // 内容还在长（log 追加、流式输出），隔几帧追一次
-        for delay in [0.06, 0.18, 0.36] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else { return }
-                // 用户自己开始滑了就不要再抢
-                guard !self.isDragging, !self.isDecelerating, !self.isTracking else { return }
-                let target = self.bottomOffsetY
-                if abs(self.contentOffset.y - target) > 1 {
-                    self.setContentOffset(CGPoint(x: self.contentOffset.x, y: target), animated: false)
-                }
-            }
-        }
     }
 }
