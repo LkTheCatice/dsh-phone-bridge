@@ -27,6 +27,7 @@ struct ChatView: View {
     @State private var hasNewBelow = false
 
     private static let bottomAnchor = "__chat_bottom__"
+    private static let scrollSpace = "__chat_scroll__"
 
     private var entries: [ChatEntry] { model.entriesForSelection() }
 
@@ -42,7 +43,8 @@ struct ChatView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
+            GeometryReader { outer in
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if entries.isEmpty { emptyState }
@@ -57,22 +59,27 @@ struct ChatView: View {
                             }
                             ChatBubble(entry: entry).id(entry.id)
                         }
-                        // 底部哨兵：在视口里说明已经到底了，滚出去才显示「跳到最下」。
-                        // 比「条目数 > N 就常驻」准，也不会挡住刚滚到底时的最后一条。
+                        // 底部标记：用 GeometryReader 上报它在滚动坐标系里的位置。
+                        // 之前用 onAppear/onDisappear 判断，但 LazyVStack 会预渲染这一格，
+                        // onAppear 一触发就把 hasNewBelow 清掉 —— 按钮闪一下就没，点不到。
                         Color.clear
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
-                            .onAppear {
-                                atBottom = true
-                                hasNewBelow = false
-                            }
-                            .onDisappear { atBottom = false }
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: BottomYKey.self,
+                                        value: geo.frame(in: .named(Self.scrollSpace)).maxY
+                                    )
+                                }
+                            )
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
                 }
+                .coordinateSpace(name: Self.scrollSpace)
                 .scrollDismissesKeyboard(.interactively)
-                // 已经在底部才跟着滚；往上翻的时候不准把人拽下去，只挂个「新消息」提示
+                // 只在「底部标记还在视口里」时跟随滚动；否则挂个「新消息」提示
                 .onChange(of: entries.count) { _ in
                     if atBottom {
                         scrollToEnd(proxy)
@@ -119,6 +126,12 @@ struct ChatView: View {
                         .padding(.trailing, 14)
                         .padding(.bottom, 10)
                     }
+                }
+                // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」
+                .onPreferenceChange(BottomYKey.self) { maxY in
+                    let visible = maxY <= outer.size.height + 40
+                    if visible != atBottom { atBottom = visible }
+                    if visible && hasNewBelow { hasNewBelow = false }
                 }
             }
             .safeAreaInset(edge: .bottom) { composer }
@@ -226,6 +239,7 @@ struct ChatView: View {
             } message: {
                 Text("只影响手机上显示的内容，电脑端的会话记录不受影响。")
             }
+            }   // 关闭 GeometryReader
         }
     }
 
@@ -469,6 +483,17 @@ struct ChatView: View {
                 uploading = false
             }
         }
+    }
+}
+
+/// 把列表底部标记在滚动坐标系里的位置往上报，用来判断「是否真的滚到底」。
+///
+/// 之前用 onAppear/onDisappear 判断，但 LazyVStack 会预渲染末尾那一格，
+/// onAppear 一触发就把「新消息」标记清掉 —— 按钮闪一下就没，根本点不到。
+struct BottomYKey: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
     }
 }
 
