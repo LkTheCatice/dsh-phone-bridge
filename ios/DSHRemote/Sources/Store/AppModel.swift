@@ -393,11 +393,25 @@ final class AppModel: ObservableObject {
                     let providerName = (group["name"] as? String) ?? providerId
                     let models = (group["models"] as? [[String: Any]] ?? []).compactMap { item -> ModelOption? in
                         guard let id = item["id"] as? String else { return nil }
+                        // reasoning.efforts 是可选块，只有支持档位的模型才有
+                        var efforts: [ReasoningEffort] = []
+                        if let reasoning = item["reasoning"] as? [String: Any],
+                           let rawEfforts = reasoning["efforts"] as? [[String: Any]] {
+                            efforts = rawEfforts.compactMap { entry in
+                                guard let effortId = entry["id"] as? String else { return nil }
+                                return ReasoningEffort(
+                                    id: effortId,
+                                    name: (entry["name"] as? String) ?? effortId,
+                                    detail: entry["description"] as? String
+                                )
+                            }
+                        }
                         return ModelOption(
                             id: id,
                             name: (item["name"] as? String) ?? id,
                             provider: providerId,
-                            providerName: providerName
+                            providerName: providerName,
+                            efforts: efforts
                         )
                     }
                     if !models.isEmpty {
@@ -409,12 +423,16 @@ final class AppModel: ObservableObject {
             if let current = raw["current"] as? [String: Any],
                let provider = current["provider"] as? String,
                let model = current["model"] as? String {
-                currentModel = ModelOption(
+                let matched = groups.flatMap(\.models).first { $0.id == model && $0.provider == provider }
+                var option = ModelOption(
                     id: model,
-                    name: model,
+                    name: matched?.name ?? model,
                     provider: provider,
-                    providerName: groups.first(where: { $0.id == provider })?.name ?? provider
+                    providerName: groups.first(where: { $0.id == provider })?.name ?? provider,
+                    efforts: matched?.efforts ?? []
                 )
+                option.effort = current["reasoningEffort"] as? String
+                currentModel = option
             }
         } catch {
             lastError = "读取模型列表失败：\(error.localizedDescription)"
@@ -427,11 +445,23 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            _ = try await client.selectModel(sessionId: sessionId, provider: option.provider, model: option.id)
+            _ = try await client.selectModel(
+                sessionId: sessionId,
+                provider: option.provider,
+                model: option.id,
+                reasoningEffort: option.effort
+            )
             currentModel = option
         } catch {
             lastError = "切换模型失败：\(error.localizedDescription)"
         }
+    }
+
+    /// 只换推理档位（模型不变）
+    func selectEffort(_ effort: String?, for option: ModelOption) async {
+        var updated = option
+        updated.effort = effort
+        await selectModel(updated)
     }
 
     private func append(_ sessionId: String, _ entry: ChatEntry) {

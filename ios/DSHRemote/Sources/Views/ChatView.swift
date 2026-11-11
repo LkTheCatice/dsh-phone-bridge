@@ -33,6 +33,9 @@ struct ChatView: View {
     @State private var lastFollowAt = Date.distantPast
     /// 越界 clamp 的防重入锁：setContentOffset 会再次触发 onPreferenceChange
     @State private var isClamping = false
+    /// 标注编辑器：待编辑的图与等待中的 continuation
+    @State private var editorImage: UIImage?
+    @State private var editorContinuation: CheckedContinuation<UIImage?, Never>?
 
     private static let bottomAnchor = "__chat_bottom__"
     private static let scrollSpace = "__chat_scroll__"
@@ -538,6 +541,21 @@ struct ChatView: View {
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
+        .sheet(item: $editorImage) { image in
+            ImageEditorSheet(
+                image: image,
+                onCommit: { merged in
+                    editorImage = nil
+                    editorContinuation?.resume(returning: merged)
+                    editorContinuation = nil
+                },
+                onCancel: {
+                    editorImage = nil
+                    editorContinuation?.resume(returning: nil)
+                    editorContinuation = nil
+                }
+            )
+        }
         // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
         .onChange(of: model.selectedSessionId) { sessionId in
             guard let sessionId else { return }
@@ -588,10 +606,17 @@ struct ChatView: View {
         for (index, item) in items.enumerated() {
             do {
                 guard let raw = try await item.loadTransferable(type: Data.self) else { continue }
+                // 单张时给一次标注机会（可跳过）；多张直接走上传，免得连着弹九次编辑器
+                var working = raw
+                if items.count == 1,
+                   let preview = UIImage(data: raw),
+                   let annotated = await presentEditor(preview) {
+                    working = annotated.jpegData(compressionQuality: 0.92) ?? raw
+                }
                 // 压缩必须离开主线程：1700 万像素的图光解码就是几十 MB，
                 // 在主线程跑会把触控堵死（上传完就卡住就是这个原因）
                 let data = await Task.detached(priority: .userInitiated) {
-                    ImagePrep.compress(raw)
+                    ImagePrep.compress(working)
                 }.value
                 let stamp = Int(Date().timeIntervalSince1970)
                 let name = "image-\(stamp)-\(index).jpg"
@@ -602,6 +627,14 @@ struct ChatView: View {
                 model.showToast("第 \(index + 1) 张上传失败：\(error.localizedDescription)")
                 uploadProgress = (index + 1, items.count)
             }
+        }
+    }
+
+    /// 弹出标注编辑器并等待结果；用户取消返回 nil（走原图）
+    private func presentEditor(_ image: UIImage) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            editorContinuation = continuation
+            editorImage = image
         }
     }
 

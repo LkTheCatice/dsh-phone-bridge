@@ -240,12 +240,21 @@ final class BridgeClient {
         return try await getJSON("/v1/models", query: query)
     }
 
-    func selectModel(sessionId: String, provider: String, model: String) async throws -> [String: Any] {
-        try await postJSON("/v1/session/model", json: [
+    func selectModel(
+        sessionId: String,
+        provider: String,
+        model: String,
+        reasoningEffort: String? = nil
+    ) async throws -> [String: Any] {
+        var payload: [String: Any] = [
             "sessionId": sessionId,
             "provider": provider,
             "model": model,
-        ])
+        ]
+        if let reasoningEffort, !reasoningEffort.isEmpty {
+            payload["reasoningEffort"] = reasoningEffort
+        }
+        return try await postJSON("/v1/session/model", json: payload)
     }
 
     func transcript(sessionId: String, limit: Int = 400) async throws -> [String: Any] {

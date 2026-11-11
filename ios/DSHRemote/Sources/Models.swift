@@ -121,11 +121,22 @@ struct ComfyStatus: Equatable {
     }
 }
 
+/// 推理强度档位
+struct ReasoningEffort: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let detail: String?
+}
+
 struct ModelOption: Identifiable, Hashable {
     let id: String
     let name: String
     let provider: String
     let providerName: String
+    /// 该模型支持的推理档位；空表示不支持
+    var efforts: [ReasoningEffort] = []
+    /// 当前选中的档位（nil = 用模型默认）
+    var effort: String?
 }
 
 struct ModelGroup: Identifiable, Hashable {

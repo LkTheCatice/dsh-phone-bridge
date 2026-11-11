@@ -1,11 +1,15 @@
 import SwiftUI
 
 /// 选择当前会话使用的模型。
-/// 模型列表来自服务端 `/v1/models`（即 DSH 的 modelCatalog），选中后走 `selectModel` 真正改到会话上。
+///
+/// 模型列表来自 `/v1/models`（DSH 的 modelCatalog）。
+/// 有的模型支持推理强度档位（`reasoning.efforts`），点进去会展开档位选择。
 struct ModelPickerSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+
     @State private var applying: String?
+    @State private var effortTarget: ModelOption?
 
     var body: some View {
         NavigationStack {
@@ -31,24 +35,12 @@ struct ModelPickerSheet: View {
                     Section(group.name) {
                         ForEach(group.models) { option in
                             Button {
-                                Task { await apply(option) }
+                                tap(option)
                             } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(option.name)
-                                        Text(option.id)
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if applying == option.id {
-                                        ProgressView().controlSize(.mini)
-                                    } else if model.currentModel?.id == option.id {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
+                                row(option)
+                                    .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -56,6 +48,11 @@ struct ModelPickerSheet: View {
             .navigationTitle("选择模型")
             .navigationBarTitleDisplayMode(.inline)
             .task { await model.loadModels() }
+            .sheet(item: $effortTarget) { target in
+                EffortPickerSheet(target: target)
+                    .environmentObject(model)
+                    .presentationDetents([.height(340)])
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -64,12 +61,133 @@ struct ModelPickerSheet: View {
         }
     }
 
-    private func apply(_ option: ModelOption) async {
-        applying = option.id
-        await model.selectModel(option)
-        applying = nil
-        if model.currentModel?.id == option.id {
-            dismiss()
+    @ViewBuilder
+    private func row(_ option: ModelOption) -> some View {
+        let isCurrent = model.currentModel?.id == option.id && model.currentModel?.provider == option.provider
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(option.name)
+                    .foregroundStyle(.primary)
+                HStack(spacing: 4) {
+                    Text(option.id)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    // 有档位的模型标出来，说明还能再选一层
+                    if !option.efforts.isEmpty {
+                        Text("· \(effortLabel(option, isCurrent: isCurrent))")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            if applying == option.id {
+                ProgressView().controlSize(.mini)
+            } else if isCurrent {
+                Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+            } else if !option.efforts.isEmpty {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func effortLabel(_ option: ModelOption, isCurrent: Bool) -> String {
+        let selected = isCurrent ? (model.currentModel?.effort ?? option.effort) : option.effort
+        if let selected, let match = option.efforts.first(where: { $0.id == selected }) {
+            return match.name
+        }
+        return "推理 \(option.efforts.count) 档"
+    }
+
+    /// 有档位的先选档位，没有再直接切
+    private func tap(_ option: ModelOption) {
+        if option.efforts.isEmpty {
+            Task {
+                applying = option.id
+                await model.selectModel(option)
+                applying = nil
+                if model.currentModel?.id == option.id { dismiss() }
+            }
+            return
+        }
+        var target = option
+        // 预填当前已选档位，避免每次都要重选
+        if model.currentModel?.id == option.id, let current = model.currentModel?.effort {
+            target.effort = current
+        }
+        effortTarget = target
+    }
+}
+
+/// 推理强度档位选择
+struct EffortPickerSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    let target: ModelOption
+    @State private var selected: String?
+    @State private var applying = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(target.efforts) { effort in
+                        Button {
+                            selected = effort.id
+                        } label: {
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(effort.name).foregroundStyle(.primary)
+                                    if let detail = effort.detail, !detail.isEmpty {
+                                        Text(detail)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                                if selected == effort.id {
+                                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("\(target.name) · 推理强度")
+                } footer: {
+                    Text("档位越高思考越深、耗时越长。确定后会自动切换到这个模型。")
+                        .font(.caption2)
+                }
+            }
+            .navigationTitle("推理强度")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task {
+                            applying = true
+                            var updated = target
+                            updated.effort = selected
+                            await model.selectModel(updated)
+                            applying = false
+                            dismiss()
+                        }
+                    } label: {
+                        if applying { ProgressView().controlSize(.mini) } else { Text("确定") }
+                    }
+                    .disabled(applying)
+                }
+            }
+            .onAppear {
+                selected = target.effort ?? model.currentModel?.effort
+            }
         }
     }
 }
