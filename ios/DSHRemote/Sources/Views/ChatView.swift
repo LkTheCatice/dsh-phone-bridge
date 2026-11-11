@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var renaming = false
     @State private var renameText = ""
     @State private var showingModels = false
+    @State private var showingSessions = false
     @State private var clearing = false
 
     private var entries: [ChatEntry] { model.entriesForSelection() }
@@ -69,40 +70,10 @@ struct ChatView: View {
             .toolbar(focused ? .hidden : .visible, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Button {
-                            Task { await model.createNewSession() }
-                        } label: {
-                            Label("新建对话", systemImage: "square.and.pencil")
-                        }
-                        Divider()
-                        ForEach(model.sessions) { session in
-                            Button {
-                                model.selectedSessionId = session.id
-                                model.markRead(session.id)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text(session.id == model.selectedSessionId ? "✓" : " ")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(Color.accentColor)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(session.displayTitle).lineLimit(1)
-                                        Text(sessionSubtitle(session))
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer(minLength: 0)
-                                    if model.unreadSessions.contains(session.id) {
-                                        Circle()
-                                            .fill(Color.accentColor)
-                                            .frame(width: 6, height: 6)
-                                    }
-                                }
-                            }
-                        }
-                        Divider()
-                        Button("刷新列表") { Task { await model.refreshSessions() } }
+                    // 会话列表放不进 Menu：UIMenu 只渲染简单的文本/图片组合，
+                    // 双行布局（标题 + 状态时间）会被吞掉，只剩一个 ✓。改用 sheet。
+                    Button {
+                        showingSessions = true
                     } label: {
                         Image(systemName: "list.bullet.rectangle")
                     }
@@ -181,6 +152,11 @@ struct ChatView: View {
                 ModelPickerSheet()
                     .environmentObject(model)
             }
+            .sheet(isPresented: $showingSessions) {
+                SessionListSheet()
+                    .environmentObject(model)
+                    .presentationDetents([.medium, .large])
+            }
             .confirmationDialog("清除本机聊天记录", isPresented: $clearing, titleVisibility: .visible) {
                 Button("保留最近 5 轮") {
                     if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: 5) }
@@ -238,18 +214,6 @@ struct ChatView: View {
         case .connecting: return "wifi.exclamationmark"
         case .failed, .disconnected: return "wifi.slash"
         }
-    }
-
-    /// 会话列表里的第二行：状态 + 最后活动时间
-    private func sessionSubtitle(_ session: SessionRow) -> String {
-        var parts: [String] = []
-        if session.running {
-            parts.append("正在处理")
-        } else if model.unreadSessions.contains(session.id) {
-            parts.append("已完成")
-        }
-        if !session.relativeTime.isEmpty { parts.append(session.relativeTime) }
-        return parts.isEmpty ? " " : parts.joined(separator: " · ")
     }
 
     // MARK: - 输入区
