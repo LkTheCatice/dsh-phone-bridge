@@ -19,6 +19,10 @@ struct ChatView: View {
     @State private var showingModels = false
     @State private var showingSessions = false
     @State private var clearing = false
+    /// 是否已经滚到（或接近）底部；false 时才显示「跳到最下」
+    @State private var atBottom = true
+
+    private static let bottomAnchor = "__chat_bottom__"
 
     private var entries: [ChatEntry] { model.entriesForSelection() }
 
@@ -49,6 +53,13 @@ struct ChatView: View {
                             }
                             ChatBubble(entry: entry).id(entry.id)
                         }
+                        // 底部哨兵：在视口里说明已经到底了，滚出去才显示「跳到最下」。
+                        // 比「条目数 > N 就常驻」准，也不会挡住刚滚到底时的最后一条。
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.bottomAnchor)
+                            .onAppear { atBottom = true }
+                            .onDisappear { atBottom = false }
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
@@ -57,9 +68,10 @@ struct ChatView: View {
                 .onChange(of: entries.count) { _ in scrollToEnd(proxy) }
                 .onChange(of: entries.last?.text) { _ in scrollToEnd(proxy) }
                 .overlay(alignment: .bottomTrailing) {
-                    // 长对话往上翻之后，一键回到底部
-                    if entries.count > 8 {
+                    // 只有确实往上翻了、看不到底部时才出现
+                    if !atBottom && entries.count > 3 {
                         Button {
+                            atBottom = true
                             scrollToEnd(proxy)
                         } label: {
                             Image(systemName: "arrow.down.circle.fill")
@@ -206,6 +218,7 @@ struct ChatView: View {
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
+        atBottom = true
         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
     }
 
