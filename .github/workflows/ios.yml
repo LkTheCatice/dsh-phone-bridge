@@ -1,4 +1,4 @@
-﻿name: DSHRemote unsigned IPA
+name: DSHRemote unsigned IPA
 
 on:
   push:
@@ -28,12 +28,16 @@ jobs:
       - name: Build (no code signing)
         working-directory: ios/DSHRemote
         run: |
+          # 把 commit 短 sha 与 run 号写进 Info.plist，App 启动时上报，
+          # 日志里就能看到手机上跑的到底是哪一版
           xcodebuild \
             -project DSHRemote.xcodeproj \
             -scheme DSHRemote \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
+            MARKETING_VERSION="${GITHUB_SHA::7}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \

@@ -47,15 +47,9 @@ struct ChatView: View {
     /// 这样别的会话收到消息不会让这里重建、也不会误触发 onChange 的滚动。
     private var entries: [ChatEntry] { model.currentEntries }
 
-    private var currentSession: SessionRow? {
-        guard let id = model.selectedSessionId else { return nil }
-        return model.sessions.first { $0.id == id }
-    }
-
-    private var title: String {
-        if let s = currentSession { return s.displayTitle }
-        return model.selectedSessionId.map { "会话 \($0.suffix(8))" } ?? "新会话"
-    }
+    /// 标题直接用 AppModel 里的标量：不要再读 model.sessions，
+    /// 否则每次会话列表刷新（每条消息结束都刷）都会让整棵聊天树重算。
+    private var title: String { model.currentSessionTitle }
 
     var body: some View {
         // 打点：body 求值频率。只累加整数、不发通知，不会反过来触发重算。
@@ -219,7 +213,7 @@ struct ChatView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
-                            renameText = currentSession?.displayTitle ?? ""
+                            renameText = model.currentSessionTitle
                             renaming = true
                         } label: {
                             Label("重命名当前对话", systemImage: "pencil")

@@ -13,14 +13,39 @@ final class AppModel: ObservableObject {
     @Published private(set) var phase: Phase = .disconnected
     @Published private(set) var pairing: PairingConfig?
     @Published private(set) var serverInfo: String = ""
-    @Published private(set) var sessions: [SessionRow] = []
+    @Published private(set) var sessions: [SessionRow] = [] {
+        didSet { refreshCurrentTitle() }
+    }
     /// 已归档的会话（列表里单独一段，可取消归档）
     @Published private(set) var archivedSessions: [SessionRow] = []
     @Published var selectedSessionId: String? {
         didSet {
             guard selectedSessionId != oldValue else { return }
             syncCurrentEntries()
+            refreshCurrentTitle()
         }
+    }
+
+    /// 当前会话标题（单独一个标量，也单独 @Published）。
+    ///
+    /// 为什么不让 ChatView 自己去 `sessions` 里查：那样**任何**会话列表刷新
+    /// （每条消息结束都会刷、服务端偶尔还会抽风到 800ms+）都会让整棵 ChatView
+    /// 重算 body —— 15 条气泡连带重新排版，实测一次 700ms 级的卡顿就是这么来的。
+    /// 现在会话列表怎么变，聊天树都不关心，除非标题真的变了。
+    @Published private(set) var currentSessionTitle: String = "新会话"
+
+    private func refreshCurrentTitle() {
+        let next: String
+        if let id = selectedSessionId {
+            if let row = sessions.first(where: { $0.id == id }) {
+                next = row.displayTitle
+            } else {
+                next = "会话 \(id.suffix(8))"
+            }
+        } else {
+            next = "新会话"
+        }
+        if next != currentSessionTitle { currentSessionTitle = next }
     }
 
     /// 当前会话的条目。
@@ -185,6 +210,8 @@ final class AppModel: ObservableObject {
             serverInfo = client.serverName
             phase = .connected
             lastError = nil
+            // 版本指纹：日志里必须有它，否则分不清手机上跑的是哪一版
+            pingDiagnostic("build=\(Self.appVersion)")
             await refresh()
             startStream()
         } catch {
@@ -1107,6 +1134,14 @@ final class AppModel: ObservableObject {
     /// 如果日志里出现这条请求 → 点击到达了，问题在 scrollTo；
     /// 没有 → 点击没到达，还是 hit testing 的事。
     /// 定位完就删。
+    /// CI 注入的版本指纹（CFBundleShortVersionString = git 短 sha，
+    /// CFBundleVersion = run 号）。日志里看 `build=xxxxxxx.42` 就知道装的是哪一版。
+    static var appVersion: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return "\(short).\(build)"
+    }
+
     func pingDiagnostic(_ tag: String) {
         guard let pairing else { return }
         // 参数名必须是 d —— 服务端 /v1/health 里读的就是它，拼错就一条日志都不会有
