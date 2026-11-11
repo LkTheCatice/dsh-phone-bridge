@@ -21,6 +21,8 @@ struct ChatView: View {
     @State private var clearing = false
     /// 是否已经滚到（或接近）底部；false 时才显示「跳到最下」
     @State private var atBottom = true
+    /// 在底部之外时收到了新内容，挂一个「新消息」提示等你点
+    @State private var hasNewBelow = false
 
     private static let bottomAnchor = "__chat_bottom__"
 
@@ -58,18 +60,50 @@ struct ChatView: View {
                         Color.clear
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
-                            .onAppear { atBottom = true }
+                            .onAppear {
+                                atBottom = true
+                                hasNewBelow = false
+                            }
                             .onDisappear { atBottom = false }
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: entries.count) { _ in scrollToEnd(proxy) }
-                .onChange(of: entries.last?.text) { _ in scrollToEnd(proxy) }
+                // 已经在底部才跟着滚；往上翻的时候不准把人拽下去，只挂个「新消息」提示
+                .onChange(of: entries.count) { _ in
+                    if atBottom {
+                        scrollToEnd(proxy)
+                    } else {
+                        hasNewBelow = true
+                    }
+                }
+                .onChange(of: entries.last?.text) { _ in
+                    if atBottom { scrollToEnd(proxy) }
+                }
                 .overlay(alignment: .bottomTrailing) {
-                    // 只有确实往上翻了、看不到底部时才出现
-                    if !atBottom && entries.count > 3 {
+                    if hasNewBelow {
+                        // 有新内容但你在上面看旧记录 → 只提示，不抢滚动位置
+                        Button {
+                            hasNewBelow = false
+                            scrollToEnd(proxy)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text("新消息")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.accentColor, in: Capsule())
+                            .foregroundStyle(.white)
+                            .shadow(radius: 2, y: 1)
+                        }
+                        .padding(.trailing, 14)
+                        .padding(.bottom, 10)
+                    } else if !atBottom && entries.count > 3 {
+                        // 单纯往上翻（没新内容）时给个回底箭头
                         Button {
                             atBottom = true
                             scrollToEnd(proxy)
@@ -333,6 +367,9 @@ struct ChatView: View {
         draft = ""
         // 草稿按会话存，发完要清掉对应那一格
         model.drafts[model.draftKey(model.selectedSessionId)] = ""
+        // 自己发的消息一定要跟着滚到底，别让「不打断」规则把自己挡住
+        atBottom = true
+        hasNewBelow = false
         focused = false
         sending = true
         Task {
