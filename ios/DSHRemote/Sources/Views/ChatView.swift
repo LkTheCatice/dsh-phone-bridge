@@ -21,10 +21,9 @@ struct ChatView: View {
     @State private var showingModels = false
     @State private var showingSessions = false
     @State private var clearing = false
-    /// 是否已经滚到（或接近）底部；false 时才显示「跳到最下」
-    @State private var atBottom = true
-    /// 在底部之外时收到了新内容，挂一个「新消息」提示等你点
-    @State private var hasNewBelow = false
+    /// 跳到底按钮的状态单独持有：滚动时每帧都会更新它，
+    /// 放在 @State 里会让整个 ChatView（含 ScrollView）跟着重建
+    @StateObject private var jump = JumpButtonState()
     /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
     /// 电脑端发消息不再带动手机滚动
     @State private var lastPhoneSendAt: Date?
@@ -91,15 +90,15 @@ struct ChatView: View {
                 // - 否则（电脑端发的、别的来源）→ 不抢滚动位置，只挂「新消息」提示
                 .onChange(of: entries.count) { _ in
                     let justSentFromPhone = lastPhoneSendAt.map { Date().timeIntervalSince($0) < 3 } ?? false
-                    if justSentFromPhone && atBottom {
+                    if justSentFromPhone && jump.atBottom {
                         scrollToEnd(proxy)
-                    } else if !atBottom {
-                        hasNewBelow = true
+                    } else if !jump.atBottom {
+                        jump.hasNewBelow = true
                     }
                 }
                 // 流式文本增长时，只在已经贴底的情况下跟随（看实时输出）
                 .onChange(of: entries.last?.text) { _ in
-                    if atBottom { scrollToEnd(proxy) }
+                    if jump.atBottom { scrollToEnd(proxy) }
                 }
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
                 // 带滞后阈值：进入用 +40pt、离开必须超过 +140pt 才算离开。
@@ -108,20 +107,33 @@ struct ChatView: View {
                 .onPreferenceChange(BottomYKey.self) { maxY in
                     let viewport = outer.size.height
                     if maxY <= viewport + 40 {
-                        if !atBottom { atBottom = true }
-                        if hasNewBelow { hasNewBelow = false }
+                        if !jump.atBottom { jump.atBottom = true }
+                        if jump.hasNewBelow { jump.hasNewBelow = false }
                     } else if maxY > viewport + 140 {
-                        if atBottom { atBottom = false }
+                        if jump.atBottom { jump.atBottom = false }
                     }
                 }
 
-                // 输入栏：ScrollView 的兄弟视图，不在滚动视图的手势树里
-                composer
-                    .overlay(alignment: .topTrailing) {
-                        jumpButtons(proxy)
-                            .padding(.trailing, 14)
-                            .offset(y: -54)
+                // 输入栏 + 上方一窄条浮动按钮区。
+                // 按钮必须落在父视图 frame 内部 —— 之前用 overlay + offset 推到 composer
+                // 外面，视觉在、hit testing 却被 bounds 裁掉，所以怎么点都没反应。
+                // 这里给它一条固定高度（36pt）的空位，结构恒定不会引起输入法重建。
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        JumpButtonLayer(
+                            state: jump,
+                            entryCount: entries.count,
+                            onTap: { jumpToBottom(proxy) }
+                        )
                     }
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .opacity(jump.needsLayer ? 1 : 0)
+                    .allowsHitTesting(jump.needsLayer)
+
+                    composer
+                }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
             }
@@ -282,8 +294,8 @@ struct ChatView: View {
     /// 自动跟随等场景用：带动画，平滑滚到底
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
-        atBottom = true
-        hasNewBelow = false
+        jump.atBottom = true
+        jump.hasNewBelow = false
         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
     }
 
@@ -295,57 +307,13 @@ struct ChatView: View {
     /// 如果只有第二步，惯性还在跑的时候叠加动画，画面会先被惯性拖一截再弹回去。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
-        atBottom = true
-        hasNewBelow = false
+        jump.atBottom = true
+        jump.hasNewBelow = false
         // 第一步：瞬时钉到底 —— 同时终止当前滚动（含惯性）
         proxy.scrollTo(last.id, anchor: .bottom)
         // 第二步：给一次很短的动画收尾，避免"啪"地一下硬切
         withAnimation(.easeOut(duration: 0.18)) {
             proxy.scrollTo(last.id, anchor: .bottom)
-        }
-    }
-
-    /// 浮动在输入栏上方的两个按钮。
-    /// 结构恒定（只用 opacity/allowsHitTesting 控制），并且挂在 composer 的 overlay 上 ——
-    /// 不参与 ScrollView 的手势竞争，惯性滚动中也能一次点中。
-    @ViewBuilder
-    private func jumpButtons(_ proxy: ScrollViewProxy) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            // 有新内容但你在上面看旧记录 → 只提示，不抢滚动位置
-            Button {
-                jumpToBottom(proxy)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down")
-                        .font(.system(size: 11, weight: .bold))
-                    Text("新消息")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(Color.accentColor, in: Capsule())
-                .foregroundStyle(.white)
-                .shadow(radius: 2, y: 1)
-                .contentShape(Capsule().inset(by: -10))
-            }
-            .buttonStyle(.plain)
-            .opacity(hasNewBelow ? 1 : 0)
-            .allowsHitTesting(hasNewBelow)
-
-            // 单纯往上翻（没新内容）时给个回底箭头
-            Button {
-                jumpToBottom(proxy)
-            } label: {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 30))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(Color.accentColor, Color(.systemBackground))
-                    .shadow(radius: 2, y: 1)
-                    .contentShape(Circle().inset(by: -12))
-            }
-            .buttonStyle(.plain)
-            .opacity(!hasNewBelow && !atBottom && entries.count > 3 ? 1 : 0)
-            .allowsHitTesting(!hasNewBelow && !atBottom && entries.count > 3)
         }
     }
 
@@ -504,8 +472,8 @@ struct ChatView: View {
         // 自己发的消息一定要跟着滚到底，别让「不打断」规则把自己挡住。
         // 记下时间戳：onChange 里靠它区分「手机发的」和「电脑端发的」——
         // 电脑端发消息时不再带动手机滚动。
-        atBottom = true
-        hasNewBelow = false
+        jump.atBottom = true
+        jump.hasNewBelow = false
         lastPhoneSendAt = Date()
         focused = false
         sending = true
