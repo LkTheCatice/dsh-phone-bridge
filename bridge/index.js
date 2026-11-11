@@ -759,6 +759,52 @@ function applyBridge(ctx, config) {
       }
     };
 
+    // 诊断：标题日志兜底为什么在服务进程里读不到
+    if (method === "GET" && pathname === "/admin/debug/env") {
+      const home = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
+      const sessionsRoot = path.join(home, "sessions");
+      const probe = url.searchParams.get("sessionId") || "";
+      const index = sessionLogIndex();
+      const report = {
+        node: process.versions.node,
+        electron: process.versions.electron || null,
+        homedir: os.homedir(),
+        dshHomeEnv: process.env.DSH_HOME || null,
+        resolvedSessionsRoot: sessionsRoot,
+        sessionsRootExists: fs.existsSync(sessionsRoot),
+        logIndexSize: index.size,
+        zstdAvailable: typeof zstdDecompressSync,
+      };
+      if (probe) {
+        const file = index.get(probe);
+        report.probeId = probe;
+        report.probeFile = file || null;
+        if (file) {
+          report.probePathExists = fs.existsSync(file);
+          try {
+            const text = zstdDecompressSync(fs.readFileSync(file)).toString("utf8");
+            report.probeBytes = text.length;
+            report.probeHasTitleEvent = text.includes("session/title");
+            let title = null;
+            for (const line of text.split("\n")) {
+              if (!line.includes("session/title")) continue;
+              try {
+                const ev = JSON.parse(line);
+                if (ev?.type === "session/title" && ev.data?.title) title = ev.data.title;
+              } catch {
+                /* 坏行跳过 */
+              }
+            }
+            report.probeTitle = title;
+          } catch (error) {
+            report.probeError = String(error?.message || error).slice(0, 200);
+          }
+        }
+        report.titleOf = titleOf(probe);
+      }
+      return sendJson(res, 200, { ok: true, report }, ctxEnc);
+    }
+
     if (method === "GET" && pathname === "/admin/devices") {
       const devices = listClients().map((c) => {
         const cid = clientIdFor(c.fingerprint);
