@@ -87,7 +87,9 @@ struct ChatBubble: View, Equatable {
     private var useRich: Bool {
         if compact { return false }
         // 短消息直接富文本；长消息只在「被展开」时渲染富文本
-        return entry.text.count <= 300 || isExpanded
+        // 阈值 300 → 800：手风琴保证同时只有一条富文本，成本可控，放宽后
+        // 绝大多数正常长度的回答都能直接看到排版，不用点开
+        return entry.text.count <= Self.richThreshold || isExpanded
     }
 
     @ViewBuilder
@@ -240,7 +242,9 @@ struct ChatBubble: View, Equatable {
 
     /// 单条内容在主线程上允许排版的字数上限。
     /// 为什么要有：Text 的排版（CoreText）在主线程，几万字符就是几秒级。
-    private static let previewChars = 600
+    /// 超过这个字数就不再默认渲染富文本（短回答直接排版，长回答点开看）
+    private static let richThreshold = 800
+    private static let previewChars = 1_000
     /// 主动展开后仍允许的上限，防止「展开」变成又一次 20 秒
     private static let expandedChars = 3_000
 
