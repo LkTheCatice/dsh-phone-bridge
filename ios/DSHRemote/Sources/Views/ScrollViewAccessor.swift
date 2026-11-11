@@ -70,27 +70,28 @@ extension UIScrollView {
 
     /// 先强制掐断惯性，再动画滚到底（按钮用）。
     ///
-    /// 三步：
-    /// ① `animated: false` 的原地定位 —— 真正终止减速动画
-    /// ② `layoutIfNeeded()` 让 contentSize 追到最新
-    /// ③ `UIView.animate` + `.beginFromCurrentState` 滚过去，
-    ///    completion 里再校准一次 —— 万一被手指或残余惯性打断，也能精确到位
+    /// UIScrollView 在减速阶段（isDecelerating）会拒绝普通 setContentOffset，
+    /// 所以用「关一下 isScrollEnabled 再打开」这个系统级手段硬停减速，
+    /// 之后才能可靠接管位置。
     func stopThenScrollToBottom() {
+        let target = { () -> CGFloat in
+            layoutIfNeeded()
+            return bottomOffsetY
+        }()
+
+        // ① 系统级硬停：disabled → enabled 会打断减速模拟
+        let wasEnabled = isScrollEnabled
+        isScrollEnabled = false
+        isScrollEnabled = wasEnabled
+
+        // ② 原地钉一下，清掉残留的 contentOffset 动画
         setContentOffset(contentOffset, animated: false)
-        layoutIfNeeded()
-        let target = bottomOffsetY
-        guard contentSize.height > bounds.height else {
-            setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: false)
-            return
-        }
-        UIView.animate(
-            withDuration: 0.3,
-            delay: 0,
-            options: [.curveEaseOut, .beginFromCurrentState]
-        ) {
-            self.contentOffset = CGPoint(x: self.contentOffset.x, y: target)
-        } completion: { _ in
-            // 兜底校准：被惯性或手指打断时，最终值可能差一点
+        layer.removeAllAnimations()
+
+        // ③ 直接跳到目标位置（不用 animate：动画在惯性场景下仍可能被抢）
+        setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: false)
+        // ④ 轻微回弹感，纯视觉收尾
+        UIView.animate(withDuration: 0.12) {
             self.setContentOffset(CGPoint(x: self.contentOffset.x, y: target), animated: false)
         }
     }

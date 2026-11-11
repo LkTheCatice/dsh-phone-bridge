@@ -1012,6 +1012,9 @@ function applyBridge(ctx, config) {
 
     // 1) 健康检查：明文、无鉴权，只暴露最小事实
     if (pathname === "/v1/health") {
+      // 诊断通道：App 把点击瞬间的滚动状态塞在 ?d= 里，会进 bridge.log 供排查
+      const diag = url.searchParams.get("d");
+      if (diag) logLine({ step: "diag", d: diag });
       return sendJson(res, 200, {
         ok: true,
         version: VERSION,

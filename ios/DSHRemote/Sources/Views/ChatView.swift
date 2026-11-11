@@ -338,18 +338,23 @@ struct ChatView: View {
         jump.atBottom = true
         jump.hasNewBelow = false
 
-        // 优先走 UIKit：setContentOffset 才能真正掐断惯性。
-        // 埋点证明按钮 action 是触发的，问题在 ScrollViewReader.scrollTo
-        // 会被减速动画覆盖 —— 所以这里先原地定位掐断，再动画滚底。
-        if let scroll = uiScrollView {
-            scroll.stopThenScrollToBottom()
+        guard let scroll = uiScrollView else {
+            // 拿不到 UIScrollView 是另一种失败，埋点区分开
+            model.pingDiagnostic("no-scrollview")
+            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             return
         }
-        // 拿不到 UIScrollView（极少数情况）时退回 SwiftUI 路径
-        proxy.scrollTo(last.id, anchor: .bottom)
-        withAnimation(.easeOut(duration: 0.18)) {
-            proxy.scrollTo(last.id, anchor: .bottom)
-        }
+        // 把点击瞬间的真实状态发回去：能不能滚、滚到哪里，一目了然
+        let diag = [
+            "off=\(Int(scroll.contentOffset.y))",
+            "cs=\(Int(scroll.contentSize.height))",
+            "bh=\(Int(scroll.bounds.height))",
+            "ins=\(Int(scroll.adjustedContentInset.top))/\(Int(scroll.adjustedContentInset.bottom))",
+            "dec=\(scroll.isDecelerating ? 1 : 0)",
+            "target=\(Int(scroll.bottomOffsetY))",
+        ].joined(separator: "&")
+        model.pingDiagnostic("tap:" + diag)
+        scroll.stopThenScrollToBottom()
     }
 
     /// 上传进度文案：单张只说「正在上传」，多张带上 2/5
