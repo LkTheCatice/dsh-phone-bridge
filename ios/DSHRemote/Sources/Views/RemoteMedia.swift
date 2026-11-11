@@ -12,6 +12,9 @@ struct RemoteVideo: View {
     @State private var player: AVPlayer?
     @State private var loading = true
     @State private var failed = false
+    /// 已下载字节 / 总字节（总字节未知时为 0）
+    @State private var loadedBytes: Int64 = 0
+    @State private var totalBytes: Int64 = 0
 
     var body: some View {
         Group {
@@ -29,9 +32,19 @@ struct RemoteVideo: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
             } else {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text("加载视频…").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("加载视频…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    // 视频通常几 MB 到几十 MB，没有进度会像卡死
+                    if totalBytes > 0 {
+                        ProgressView(value: Double(loadedBytes), total: Double(totalBytes))
+                            .progressViewStyle(.linear)
+                        Text("\(byteText(loadedBytes)) / \(byteText(totalBytes))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -44,7 +57,12 @@ struct RemoteVideo: View {
     private func prepare() async {
         guard player == nil else { return }
         do {
-            let data = try await model.download(path: path)
+            let data = try await model.download(path: path) { received, total in
+                Task { @MainActor in
+                    loadedBytes = received
+                    totalBytes = total
+                }
+            }
             let ext = (path as NSString).pathExtension.isEmpty ? "mp4" : (path as NSString).pathExtension
             let filename = "dsh-video-\(abs(path.hashValue)).\(ext)"
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -60,6 +78,10 @@ struct RemoteVideo: View {
             failed = true
             loading = false
         }
+    }
+
+    private func byteText(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 

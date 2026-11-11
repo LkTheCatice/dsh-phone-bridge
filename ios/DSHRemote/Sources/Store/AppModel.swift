@@ -970,17 +970,25 @@ final class AppModel: ObservableObject {
         return try await client.delete(path: path, recursive: recursive)
     }
 
-    func download(path: String, chunkSize: Int = 1024 * 1024) async throws -> Data {
+    func download(
+        path: String,
+        chunkSize: Int = 1024 * 1024,
+        onProgress: ((Int64, Int64) -> Void)? = nil
+    ) async throws -> Data {
         guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
         var data = Data()
         var offset = 0
         var guardCount = 0
+        var total: Int64 = 0
         while true {
             let chunk = try await client.readFile(path: path, offset: offset, limit: chunkSize)
             if chunk.isEmpty { break }
             data.append(chunk)
             offset += chunk.count
             guardCount += 1
+            // 总大小由首包响应头带回；拿不到就只报已下载量
+            if total == 0, let size = client.lastFileSize, size > 0 { total = size }
+            onProgress?(Int64(data.count), total)
             if guardCount > 8192 { break }
         }
         return data

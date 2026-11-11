@@ -130,6 +130,16 @@ final class BridgeClient {
         query: [(String, String)] = [],
         body: Data? = nil
     ) async throws -> Data {
+        try await sendWithHeaders(method: method, path: path, query: query, body: body).0
+    }
+
+    /// 同 send，但把响应头一起带回来（文件大小等元信息在 header 里）
+    private func sendWithHeaders(
+        method: String,
+        path: String,
+        query: [(String, String)] = [],
+        body: Data? = nil
+    ) async throws -> (Data, [String: String]) {
         let (request, aad) = try makeRequest(method: method, path: path, query: query, body: body)
         let (data, response) = try await urlSession.data(for: request)
         let plain = try decodeResponse(data, aad: aad, response: response)
@@ -142,7 +152,14 @@ final class BridgeClient {
                 message: (obj?["message"] as? String) ?? String(data: plain, encoding: .utf8) ?? ""
             )
         }
-        return plain
+        var headers: [String: String] = [:]
+        if let http = response as? HTTPURLResponse {
+            for (key, value) in http.allHeaderFields {
+                guard let name = key as? String else { continue }
+                headers[name.lowercased()] = String(describing: value)
+            }
+        }
+        return (plain, headers)
     }
 
     func getJSON(_ path: String, query: [(String, String)] = []) async throws -> [String: Any] {
@@ -163,6 +180,14 @@ final class BridgeClient {
 
     func getRaw(_ path: String, query: [(String, String)]) async throws -> Data {
         try await send(method: "GET", path: path, query: query)
+    }
+
+    /// 需要读响应头时用（例如文件总大小）
+    func getRawWithHeaders(
+        _ path: String,
+        query: [(String, String)]
+    ) async throws -> (Data, [String: String]) {
+        try await sendWithHeaders(method: "GET", path: path, query: query)
     }
 
     // MARK: - SSE
