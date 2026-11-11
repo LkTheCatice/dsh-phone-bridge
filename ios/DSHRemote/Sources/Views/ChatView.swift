@@ -24,6 +24,8 @@ struct ChatView: View {
     /// 跳到底按钮的状态单独持有：滚动时每帧都会更新它，
     /// 放在 @State 里会让整个 ChatView（含 ScrollView）跟着重建
     @StateObject private var jump = JumpButtonState()
+    /// 背后的 UIScrollView 引用，用于「先掐断惯性再滚到底」
+    @State private var uiScrollView: UIScrollView?
     /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
     /// 电脑端发消息不再带动手机滚动
     @State private var lastPhoneSendAt: Date?
@@ -79,6 +81,13 @@ struct ChatView: View {
                                     )
                                 }
                             )
+                        // 拿到背后的 UIScrollView：惯性中 scrollTo 无效，只有它能掐断惯性
+                        ScrollViewAccessor { scroll in
+                            if let scroll, scroll !== uiScrollView {
+                                uiScrollView = scroll
+                            }
+                        }
+                        .frame(width: 0, height: 0)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
@@ -307,13 +316,18 @@ struct ChatView: View {
     /// 如果只有第二步，惯性还在跑的时候叠加动画，画面会先被惯性拖一截再弹回去。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
-        // 临时诊断：服务端日志里如果出现 /v1/health?tag=tap，说明点击确实被接收了
-        model.pingDiagnostic("tap")
         jump.atBottom = true
         jump.hasNewBelow = false
-        // 第一步：瞬时钉到底 —— 同时终止当前滚动（含惯性）
+
+        // 优先走 UIKit：setContentOffset 能真正掐断惯性。
+        // 埋点证明按钮 action 是触发的，但 ScrollViewReader.scrollTo 在减速动画
+        // 进行中会被覆盖 —— 这就是「点了没反应」的最后一块。
+        if let scroll = uiScrollView {
+            scroll.stopThenScrollToBottom(animated: true)
+            return
+        }
+        // 极端情况下拿不到 UIScrollView，退回 SwiftUI 的路径
         proxy.scrollTo(last.id, anchor: .bottom)
-        // 第二步：给一次很短的动画收尾，避免"啪"地一下硬切
         withAnimation(.easeOut(duration: 0.18)) {
             proxy.scrollTo(last.id, anchor: .bottom)
         }
