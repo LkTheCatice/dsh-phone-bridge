@@ -211,6 +211,46 @@ struct ChatView: View {
                 composer
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
+            .background(.bar)
+            .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
+                handleFile(result)
+            }
+            // 音乐走文件选择器（相册里没有音频），视频走 PhotosPicker
+            .fileImporter(isPresented: $importingAudio, allowedContentTypes: [.audio], allowsMultipleSelection: false) { result in
+                handleFile(result)
+            }
+            .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
+            .onChange(of: photoItems) { items in
+                guard !items.isEmpty else { return }
+                Task { await loadPhotos(items) }
+            }
+            .photosPicker(isPresented: $showVideos, selection: $videoItems, maxSelectionCount: 3, matching: .videos)
+            .onChange(of: videoItems) { items in
+                guard !items.isEmpty else { return }
+                Task { await loadVideos(items) }
+            }
+            .sheet(item: $editorImage) { image in
+                ImageEditorSheet(
+                    image: image,
+                    onCommit: { merged in
+                        editorImage = nil
+                        editorContinuation?.resume(returning: merged)
+                        editorContinuation = nil
+                    },
+                    onCancel: {
+                        editorImage = nil
+                        editorContinuation?.resume(returning: nil)
+                        editorContinuation = nil
+                    }
+                )
+            }
+            // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
+            .onChange(of: model.selectedSessionId) { sessionId in
+                guard let sessionId else { return }
+                // 草稿按会话存：切过去要把那一格的内容取回来
+                draft = model.drafts[model.draftKey(sessionId)] ?? ""
+                Task { await model.loadHistory(sessionId) }
+            }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -542,46 +582,8 @@ struct ChatView: View {
             .padding(.vertical, 8)
         }
         .background(.bar)
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
-            handleFile(result)
-        }
-        // 音乐走文件选择器（相册里没有音频），视频走 PhotosPicker
-        .fileImporter(isPresented: $importingAudio, allowedContentTypes: [.audio], allowsMultipleSelection: false) { result in
-            handleFile(result)
-        }
-        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
-        .onChange(of: photoItems) { items in
-            guard !items.isEmpty else { return }
-            Task { await loadPhotos(items) }
-        }
-        .photosPicker(isPresented: $showVideos, selection: $videoItems, maxSelectionCount: 3, matching: .videos)
-        .onChange(of: videoItems) { items in
-            guard !items.isEmpty else { return }
-            Task { await loadVideos(items) }
-        }
-        .sheet(item: $editorImage) { image in
-            ImageEditorSheet(
-                image: image,
-                onCommit: { merged in
-                    editorImage = nil
-                    editorContinuation?.resume(returning: merged)
-                    editorContinuation = nil
-                },
-                onCancel: {
-                    editorImage = nil
-                    editorContinuation?.resume(returning: nil)
-                    editorContinuation = nil
-                }
-            )
-        }
-        // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
-        .onChange(of: model.selectedSessionId) { sessionId in
-            guard let sessionId else { return }
-            // 草稿按会话存：切过去要把那一格的内容取回来
-            draft = model.drafts[model.draftKey(sessionId)] ?? ""
-            Task { await model.loadHistory(sessionId) }
-        }
     }
+
 
     private func submit() {
         // 立刻打一条、不节流：确认「点击真的到达了 submit」，以及它到达之后

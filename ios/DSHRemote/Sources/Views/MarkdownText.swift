@@ -43,13 +43,15 @@ struct MarkdownText: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: raw) {
+            // 命中缓存直接写（Block 是 Equatable，同值不会触发重算）
             if let cached = MarkdownCache.cached(raw) {
-                blocks = cached
+                if blocks != cached { blocks = cached }
                 return
             }
-            blocks = nil
+            // 只在确实没有结果时才清空，别每次 task 跑都抖动一次状态
+            if blocks != nil { blocks = nil }
             let parsed = await MarkdownCache.blocksAsync(for: raw)
-            blocks = parsed
+            if blocks != parsed { blocks = parsed }
         }
     }
 
@@ -186,7 +188,11 @@ struct MarkdownText: View {
     }
 }
 
-enum Block: Identifiable {
+/// 注意 **必须** 是 Equatable：`MarkdownText` 把解析结果存在 @State 里，
+/// 如果 Block 不能比较，SwiftUI 就认为「每次赋的值都变了」→
+/// body 重算 → 布局 → 视图重建 → .task 再跑 → 再赋值 …… 自己喂自己。
+/// 真机表现为回车/打字时卡 30 秒（STUCK 30607ms mark=body）。
+enum Block: Identifiable, Equatable {
     case heading(Int, String)
     case paragraph(String)
     case quote(String)
