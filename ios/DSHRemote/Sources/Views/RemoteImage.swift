@@ -7,7 +7,9 @@ import UIKit
 /// （`![](...)` 或裸路径），服务端不做渲染约定，所以手机这边负责认出来。
 enum ImageRef {
     private static let mdPattern = #"!\[[^\]]*\]\(\s*([^)]+?)\s*\)"#
-    private static let barePattern = #"((?:[A-Za-z]:\\|/)[^\s"'<>|\[\]]*?\.(?:png|jpe?g|gif|webp|bmp))"#
+    // 盘符 + 正斜杠（D:/...）也必须认：DSH 的 present 工具输出的正是这种形式，
+    // 旧正则只写了 D:\ 于是把盘符吃掉，最后按当前盘解析成 C:\Documents\... 而 404。
+    private static let barePattern = #"((?:[A-Za-z]:[\\/]|/)[^\s"'<>|\[\]]*?\.(?:png|jpe?g|gif|webp|bmp))"#
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp"]
 
@@ -25,8 +27,8 @@ enum ImageRef {
             guard !value.isEmpty else { return }
             let ext = (value as NSString).pathExtension.lowercased()
             guard imageExtensions.contains(ext) else { return }
-            // 必须像绝对路径，避免把普通文件名当路径
-            guard value.contains(":\\") || value.hasPrefix("/") else { return }
+            // 必须像绝对路径（D:\ / D:/ / 开头斜杠），避免把普通文件名当路径
+            guard value.contains(":\\") || value.contains(":/") || value.hasPrefix("/") else { return }
             guard !seen.contains(value) else { return }
             seen.insert(value)
             found.append(value)

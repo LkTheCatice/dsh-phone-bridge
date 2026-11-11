@@ -63,7 +63,7 @@ test("配对 → 握手 → 加密请求 → 文件读写 → 拒绝越界", asy
   });
   assert.equal(bad.status, 401);
 
-  // 3) 握手
+  // 3) 握手：新设备会被设备闸门拦成 pending，这正是真实流程的第一步
   const client = crypto.generateKeyPairSync("x25519", {
     publicKeyEncoding: { type: "spki", format: "pem" },
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -72,11 +72,30 @@ test("配对 → 握手 → 加密请求 → 文件读写 → 拒绝越界", asy
   const der = Buffer.from(clientPubPem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, ""), "base64");
   const clientPubRaw = der.subarray(der.length - 32);
 
-  const hs = await fetch(`${base}/v1/handshake`, {
+  const handshake = () =>
+    fetch(`${base}/v1/handshake`, {
+      method: "POST",
+      headers: { "x-dsh-token": pair.token, "content-type": "application/json" },
+      body: JSON.stringify({ clientPub: clientPubRaw.toString("base64"), clientName: "test-iphone" }),
+    });
+
+  const first = await handshake();
+  assert.equal(first.status, 403, "陌生设备必须先被拦下");
+  assert.equal((await first.json()).error, "device-pending");
+
+  // 4) 电脑端批准（管理接口只接受回环请求）
+  const devices = await (await fetch(`${base}/admin/devices`)).json();
+  assert.equal(devices.pendingCount, 1);
+  const pendingFp = devices.devices.find((d) => d.status === "pending").fingerprint;
+  const approve = await fetch(`${base}/admin/devices/status`, {
     method: "POST",
-    headers: { "x-dsh-token": pair.token, "content-type": "application/json" },
-    body: JSON.stringify({ clientPub: clientPubRaw.toString("base64"), clientName: "test-iphone" }),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fingerprint: pendingFp, status: "approved" }),
   });
+  assert.equal(approve.status, 200);
+
+  // 5) 批准后再握手
+  const hs = await handshake();
   assert.equal(hs.status, 200);
   const hsBody = await hs.json();
   assert.equal(hsBody.fingerprint, pair.fingerprint);

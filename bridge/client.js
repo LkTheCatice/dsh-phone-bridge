@@ -4,11 +4,21 @@
  * client bundle 不是 ESM，是自注册脚本（照 dsh-bili-scroll 的既有约定）：
  *   window.__ModuleLoader__.load({ id: '<包名>', factory: (require) => ({ inject, apply }) })
  *
+ * ⚠️ 为什么整个文件包在 IIFE 里并检查 window：
+ *    DSH 的 client bundle 扫描会在 **Node 侧** 加载这个文件。直接写
+ *    `window.__ModuleLoader__.load(...)` 会抛 ReferenceError: window is not defined，
+ *    把整个 profile 拖进纯净模式。加守卫后 Node 侧只得到空模块，浏览器侧照常注册。
+ *
  * 界面读的是本机 8765 的管理接口（只允许回环访问，手机与局域网一律 403）。
  */
-window.__ModuleLoader__.load({
-  id: 'dsh-phone-bridge',
-  factory: (require) => {
+;(() => {
+  if (typeof window === 'undefined') return
+  const loader = window.__ModuleLoader__
+  if (!loader || typeof loader.load !== 'function') return
+
+  loader.load({
+    id: 'dsh-phone-bridge',
+    factory: (require) => {
     const React = require('react')
     const h = React.createElement
 
@@ -196,11 +206,11 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-ui-settings',
-        '@deepseek-ai/dsh-client-ui-settings-plugins',
-      ],
+      // cordis 的 inject 收的是**服务名**，不是包名。
+      // 写包名 → 服务永远不会 ready → 这个 entry 永久 pending
+      // → web boot 直接 "1 entry did not activate"，整个界面卡在「已停止」。
+      // 包里要的 slots 由 dsh-client-ui-settings-plugins 提供，这里只声明 slots。
+      inject: ['slots'],
       apply(ctx) {
         const slots = ctx.get('slots')
         if (!slots) return
@@ -212,5 +222,6 @@ window.__ModuleLoader__.load({
         )
       },
     }
-  },
-})
+    },
+  })
+})()

@@ -352,6 +352,29 @@ function applyBridge(ctx, config) {
     /* 归档功能会降级 */
   }
 
+  /**
+   * 会话标题不在 list() 的返回里，只能问 sessionTitle 服务。
+   * 需要 session 对象（冷会话 get 会立刻返回 undefined，不会触发加载）。
+   */
+  function titleOf(sessionId) {
+    try {
+      const titles = ctx.get?.("sessionTitle");
+      const store = ctx.get?.("sessions");
+      if (!titles || typeof titles.get !== "function") return null;
+      if (!store || typeof store.get !== "function") return null;
+      const session = store.get(sessionId);
+      if (!session) return null;
+      const snapshot = titles.get(session);
+      const title =
+        typeof snapshot === "string"
+          ? snapshot
+          : snapshot?.title ?? snapshot?.text ?? snapshot?.value ?? null;
+      return typeof title === "string" && title.trim() ? title.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function listSessions() {
     const ctrl = sessionController || ctx.sessionController;
     if (ctrl && typeof ctrl.list === "function") {
@@ -359,6 +382,13 @@ function applyBridge(ctx, config) {
         const raw = await ctrl.list({}, AbortSignal.timeout(15000));
         const rows = Array.isArray(raw) ? raw : raw?.sessions ?? raw?.items ?? [];
         const mapped = rows.map(normalizeSessionRow).filter(Boolean);
+        // 只给最近 20 个补齐标题：每次都要读 session 快照，没必要全量扫
+        for (let i = 0; i < Math.min(mapped.length, 20); i += 1) {
+          if (!mapped[i].title) {
+            const t = titleOf(mapped[i].id);
+            if (t) mapped[i].title = t;
+          }
+        }
         if (mapped.length) return mapped;
       } catch (error) {
         console.warn("[phone-bridge] sessionController.list 失败:", error?.message || error);
