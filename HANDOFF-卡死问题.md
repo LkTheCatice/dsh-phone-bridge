@@ -525,4 +525,46 @@ Color.clear.frame(height: 1).id(bottomAnchor)
   卡死期间也能出证据
 
 
+---
 
+## 十五、⭐ 最终根因：嵌套横向 ScrollView 的测量成本（2026-11-12 00:50，705ede1）
+
+### 15.1 决定性对比
+
+| 版本 | 冷启动后最长停顿 | STUCK 条数 | 说明 |
+|---|---|---|---|
+| `9848edb.121` | 29824ms（另有 36632ms） | 63 | 已用 defaultScrollAnchor，os=26.6 |
+| `705ede1.122` | **722ms** | **1** | 去掉嵌套横向 ScrollView |
+
+### 15.2 根因
+
+`MarkdownText` 里**每个代码块、每张表格都套了一层 `ScrollView(.horizontal)`**。
+纵向 `LazyVStack` 做测量时，嵌套滚动容器要求完整布局 ——
+一条消息里几个代码块就是几个滚动容器，20 条一起测量就是几十秒。
+
+它伪装成「body 太慢」，实际是**测量**太慢；而三种滚动方式
+（`proxy.scrollTo` / UIKit `setContentOffset` / `defaultScrollAnchor`）
+**都会触发这个测量**，所以之前删哪条滚动路径都没用 —— 这就是连续十几轮
+改错方向的原因。
+
+### 15.3 修法
+
+- 代码块：去掉 `ScrollView(.horizontal)`，改 `Text(...).fixedSize(horizontal: false, vertical: true)` 折行
+- 表格：去掉横滑，直接用 `Grid`
+- 未展开的消息预览 2000 → 600 字；主动展开封顶 8000 字
+- 单会话条目上限 220 → 80
+
+### 15.4 新增的取证能力（这次靠它收口）
+
+- `build=<sha>.<run> os=<major>.<minor>`：每次连接上报，杜绝「不知道装的是哪版」
+- 后台线程 `StallWatcher`：主线程卡住时仍能上报 `STUCK <ms> mark=<x>`，
+  并按拍刷新（此前所有观测都挂在主线程，卡死期间零日志）
+- 气泡级 mark：`b:ans` / `b:tool` / `b:think` / `b:user` / `b:fold` / `b:sys`，以及 `md`
+
+### 15.5 仍未处理的次要项
+
+- 单次会话刷新（`/v1/sessions` 偶发 800ms+）之后会连带一次 700ms 级的 ChatView 重算：
+  `@EnvironmentObject` 会订阅整个 AppModel 的 `objectWillChange`，任何 `@Published`
+  变化都会让 ChatView 重算一次。要根治需把 `sessions` 拆成独立 ObservableObject 或
+  改成按需传递，收益是这 700ms，不是卡死级问题。
+- 诊断打点目前在正常使用时仍偏密（`act` 每 0.25 秒一条），日志增长快。
