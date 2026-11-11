@@ -34,6 +34,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var historyLoading = false
     /// 服务端对历史读取的补充说明（比如冷会话读不到）
     @Published private(set) var historyNote: String?
+    /// 有结果但还没点开看过的会话（列表里显示「已完成」蓝点）
+    @Published private(set) var unreadSessions: Set<String> = []
 
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
@@ -243,6 +245,10 @@ final class AppModel: ObservableObject {
             // 所以延迟几秒再刷一次会话列表，标题才会显示出来。
             // 回填历史时必须跳过：一次历史里几十个 turn.end，否则会刷爆 /v1/sessions
             if !isHistory {
+                // 不是当前正在看的会话 → 标记为「已完成未看」
+                if sid != selectedSessionId {
+                    unreadSessions.insert(sid)
+                }
                 Task {
                     await refreshSessions()
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -252,10 +258,12 @@ final class AppModel: ObservableObject {
 
         case "user.message":
             let text = (frame["text"] as? String) ?? ""
-            // 双保险：服务端已过滤 DSH 注入的时间上下文，历史帧再挡一次
+            // 双保险：服务端已过滤 DSH 注入的时间/运行时上下文，历史帧再挡一次
             let injected = text.hasPrefix("Time sampled while preparing")
                 || text.hasPrefix("Browser time zone for this request")
                 || text.hasPrefix("Elapsed since")
+                || text.contains("Current DSH file policy")
+                || text.contains("Approval prompts are disabled in this session")
             guard !injected else { return }
             append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Date()))
 
@@ -609,6 +617,11 @@ final class AppModel: ObservableObject {
         let tag = file.isImage ? "[图片] \(remote)" : "[文件] \(remote)"
         text = text.isEmpty ? tag : "\(text)\n\(tag)"
         await send(text: text)
+    }
+
+    /// 打开某个会话时把它标记成已读
+    func markRead(_ sessionId: String) {
+        unreadSessions.remove(sessionId)
     }
 
     /// 把某个会话的历史事件拉回来重建成聊天记录。

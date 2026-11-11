@@ -12,7 +12,9 @@
 
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { zstdDecompressSync } from "node:zlib";
 import { randomUUID, createHash } from "node:crypto";
 import { URL } from "node:url";
 
@@ -355,39 +357,108 @@ function applyBridge(ctx, config) {
   }
 
   /**
-   * 会话标题不在 list() 的返回里。DSH 的 session-title 插件会在第一条消息后
-   * 往会话日志里写一条 `session/title` 事件，标题就是从那里折叠出来的。
+   * 冷会话（没加载进 store）拿不到 session 对象，但标题其实已经写进磁盘上的
+   * 会话日志了：<DSH_HOME>/sessions/<工作区>/<会话 id>/session.v4.jsonl.zstd，
+   * 里面有一条 `session/title` 事件。node 24 自带 zstd 解压，直接读。
+   */
+  const titleLogCache = new Map(); // sessionId -> { title, mtimeMs }
+  let logIndexCache = { at: 0, map: new Map() };
+
+  function sessionLogIndex() {
+    if (Date.now() - logIndexCache.at < 60_000) return logIndexCache.map;
+    const map = new Map();
+    const home = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
+    const root = path.join(home, "sessions");
+    try {
+      for (const ws of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!ws.isDirectory()) continue;
+        const wsPath = path.join(root, ws.name);
+        let subs = [];
+        try {
+          subs = fs.readdirSync(wsPath, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of subs) {
+          if (!entry.isDirectory()) continue;
+          const file = path.join(wsPath, entry.name, "session.v4.jsonl.zstd");
+          if (fs.existsSync(file)) map.set(entry.name, file);
+        }
+      }
+    } catch {
+      /* 没有 sessions 目录就当没有 */
+    }
+    logIndexCache = { at: Date.now(), map };
+    return map;
+  }
+
+  function titleFromLog(sessionId) {
+    const file = sessionLogIndex().get(sessionId);
+    if (!file) return null;
+    let stat;
+    try {
+      stat = fs.statSync(file);
+    } catch {
+      return null;
+    }
+    const cached = titleLogCache.get(sessionId);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.title;
+    let title = null;
+    try {
+      const text = zstdDecompressSync(fs.readFileSync(file)).toString("utf8");
+      for (const line of text.split("\n")) {
+        if (!line.includes("session/title")) continue;
+        try {
+          const event = JSON.parse(line);
+          if (event?.type === "session/title" && typeof event.data?.title === "string") {
+            title = event.data.title.trim();
+          }
+        } catch {
+          /* 跳过坏行 */
+        }
+      }
+    } catch {
+      return null;
+    }
+    titleLogCache.set(sessionId, { title, mtimeMs: stat.mtimeMs });
+    return title;
+  }
+
+  /**
+   * 会话标题不在 list() 的返回里，只能从会话日志里折出来。
    *
-   * 这里走两条路：先问官方服务，取不到就直接从事件里找 —— 后者只依赖 session 对象，
-   * 不依赖 sessionTitle 服务是否已经挂到当前 ctx 上。
+   * 三条路依次尝试：
+   *   1. 官方 sessionTitle 服务（需要热会话）
+   *   2. 直接折叠 session 的事件（同样需要热会话）
+   *   3. 读磁盘日志（冷会话也能拿到，覆盖列表里绝大多数会话）
    */  function titleOf(sessionId) {
     try {
       const store = ctx.get?.("sessions");
       const session = store?.get?.(sessionId);
-      if (!session) return null;
+      if (session) {
+        const titles = ctx.get?.("sessionTitle");
+        if (titles && typeof titles.get === "function") {
+          const snapshot = titles.get(session);
+          const title = typeof snapshot === "string" ? snapshot : snapshot?.title;
+          if (typeof title === "string" && title.trim()) return title.trim();
+        }
 
-      const titles = ctx.get?.("sessionTitle");
-      if (titles && typeof titles.get === "function") {
-        const snapshot = titles.get(session);
-        const title = typeof snapshot === "string" ? snapshot : snapshot?.title;
-        if (typeof title === "string" && title.trim()) return title.trim();
-      }
-
-      const events = typeof session.snapshotEvents === "function" ? session.snapshotEvents() : null;
-      if (Array.isArray(events)) {
-        for (let i = events.length - 1; i >= 0; i -= 1) {
-          const event = events[i];
-          if (event && event.type === "session/title") {
-            const title = event.data?.title;
-            if (typeof title === "string" && title.trim()) return title.trim();
-            break;
+        const events = typeof session.snapshotEvents === "function" ? session.snapshotEvents() : null;
+        if (Array.isArray(events)) {
+          for (let i = events.length - 1; i >= 0; i -= 1) {
+            const event = events[i];
+            if (event && event.type === "session/title") {
+              const title = event.data?.title;
+              if (typeof title === "string" && title.trim()) return title.trim();
+              break;
+            }
           }
         }
       }
-      return null;
     } catch {
-      return null;
+      /* 任何一步失败都落到日志兜底 */
     }
+    return titleFromLog(sessionId);
   }
 
   /** 标题读取链路的诊断：把每一步的中间状态暴露出来 */
@@ -526,8 +597,9 @@ function applyBridge(ctx, config) {
         const raw = await ctrl.list({}, AbortSignal.timeout(15000));
         const rows = Array.isArray(raw) ? raw : raw?.sessions ?? raw?.items ?? [];
         const mapped = rows.map(normalizeSessionRow).filter(Boolean);
-        // 只给最近 20 个补齐标题：每次都要读 session 快照，没必要全量扫
-        for (let i = 0; i < Math.min(mapped.length, 20); i += 1) {
+        // 给最近的会话补齐标题。热会话走服务/事件，冷会话走磁盘日志；
+        // 日志有 60 秒索引缓存 + 按 mtime 的单条缓存，所以多补一些也不会明显变慢。
+        for (let i = 0; i < Math.min(mapped.length, 60); i += 1) {
           if (!mapped[i].title) {
             const t = titleOf(mapped[i].id);
             if (t) mapped[i].title = t;

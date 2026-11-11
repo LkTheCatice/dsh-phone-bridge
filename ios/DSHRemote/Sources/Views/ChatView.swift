@@ -79,11 +79,26 @@ struct ChatView: View {
                         ForEach(model.sessions) { session in
                             Button {
                                 model.selectedSessionId = session.id
+                                model.markRead(session.id)
                             } label: {
-                                Label(
-                                    "\(session.running ? "● " : "")\(session.displayTitle)",
-                                    systemImage: session.id == model.selectedSessionId ? "checkmark" : "bubble.left"
-                                )
+                                HStack(spacing: 8) {
+                                    Text(session.id == model.selectedSessionId ? "✓" : " ")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(session.displayTitle).lineLimit(1)
+                                        Text(sessionSubtitle(session))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer(minLength: 0)
+                                    if model.unreadSessions.contains(session.id) {
+                                        Circle()
+                                            .fill(Color.accentColor)
+                                            .frame(width: 6, height: 6)
+                                    }
+                                }
                             }
                         }
                         Divider()
@@ -147,7 +162,10 @@ struct ChatView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Circle().fill(statusColor).frame(width: 9, height: 9)
+                    // 连接状态用 wifi 图标，和右边 ComfyUI 的圆点区分开
+                    Image(systemName: connectionIcon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(statusColor)
                 }
             }
             .alert("重命名对话", isPresented: $renaming) {
@@ -212,6 +230,26 @@ struct ChatView: View {
         case .failed: return .red
         case .disconnected: return .gray
         }
+    }
+
+    private var connectionIcon: String {
+        switch model.phase {
+        case .connected: return "wifi"
+        case .connecting: return "wifi.exclamationmark"
+        case .failed, .disconnected: return "wifi.slash"
+        }
+    }
+
+    /// 会话列表里的第二行：状态 + 最后活动时间
+    private func sessionSubtitle(_ session: SessionRow) -> String {
+        var parts: [String] = []
+        if session.running {
+            parts.append("正在处理")
+        } else if model.unreadSessions.contains(session.id) {
+            parts.append("已完成")
+        }
+        if !session.relativeTime.isEmpty { parts.append(session.relativeTime) }
+        return parts.isEmpty ? " " : parts.joined(separator: " · ")
     }
 
     // MARK: - 输入区

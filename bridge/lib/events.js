@@ -177,9 +177,14 @@ export function normalizeEvent(session, event) {
 
     case "user/message": {
       const text = collectText(data).text;
-      // DSH 的 time-context 会在每轮用户消息前注入时间/时区上下文，那是给模型看的，
-      // 不该出现在手机的聊天记录里（否则满屏 "Time sampled while preparing turn N…"）
-      const injected = /^(Time sampled while preparing|Browser time zone for this request|Elapsed since)/im.test(text);
+      // DSH 会把两类内容注入到用户消息里，都是给模型看的，不该进手机聊天记录：
+      //   1. time-context：  Time sampled while preparing turn N…
+      //   2. runtime-context：Current working directory / DSH file policy / Approval prompts…
+      const injected =
+        /^(Time sampled while preparing|Browser time zone for this request|Elapsed since)/im.test(text) ||
+        /Current DSH file policy|Approval prompts are disabled in this session|Current DeepSeek Harness implementation checkout|Current DeepSeek Harness Web GUI URL/i.test(
+          text,
+        );
       if (!injected) {
         frames.push({ ...base, type: "user.message", turn, text: clip(text, TEXT_LIMIT) });
       }

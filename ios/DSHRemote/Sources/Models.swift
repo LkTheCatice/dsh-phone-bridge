@@ -5,21 +5,38 @@ struct SessionRow: Identifiable, Hashable {
     var title: String?
     var cwd: String?
     var running: Bool
+    /// 服务端给的最后活动时间（毫秒时间戳）
+    var updatedAt: Double?
 
     var displayTitle: String {
         if let title, !title.isEmpty { return title }
         return String(id.suffix(8))
     }
 
+    /// 「2 分钟前」这类相对时间
+    var relativeTime: String {
+        guard let updatedAt else { return "" }
+        let date = Date(timeIntervalSince1970: updatedAt / 1000)
+        let diff = Date().timeIntervalSince(date)
+        if diff < 0 { return "刚刚" }
+        if diff < 60 { return "刚刚" }
+        if diff < 3600 { return "\(Int(diff / 60)) 分钟前" }
+        if diff < 86400 { return "\(Int(diff / 3600)) 小时前" }
+        if diff < 86400 * 30 { return "\(Int(diff / 86400)) 天前" }
+        return date.formatted(date: .numeric, time: .omitted)
+    }
+
     static func parse(_ dict: [String: Any]) -> SessionRow? {
         guard let id = dict["id"] as? String ?? dict["sessionId"] as? String, !id.isEmpty else {
             return nil
         }
+        let stamp = (dict["updatedAt"] as? NSNumber)?.doubleValue
         return SessionRow(
             id: id,
             title: dict["title"] as? String,
             cwd: dict["cwd"] as? String,
-            running: (dict["running"] as? Bool) ?? false
+            running: (dict["running"] as? Bool) ?? false,
+            updatedAt: stamp
         )
     }
 }
