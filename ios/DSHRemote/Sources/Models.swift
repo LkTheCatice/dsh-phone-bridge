@@ -76,6 +76,8 @@ struct ChatEntry: Identifiable, Hashable {
     var folded: [ChatEntry] = []
     /// 时间标签：只有和上一条隔了 5 分钟以上才填，nil 表示不显示
     var timeLabel: String? = nil
+    /// 工具行的一行摘要（收到帧时算好；放 View 里现算会让滚动变卡）
+    var summary: String? = nil
 }
 
 /// ComfyUI 的在线/生图状态

@@ -177,8 +177,18 @@ final class AppModel: ObservableObject {
             let callId = (frame["callId"] as? String) ?? UUID().uuidString
             let name = (frame["name"] as? String) ?? "tool"
             let detail = Self.jsonText(frame["args"])
-            // text 存"中文动作名"，detail 存可展开的原始参数
-            append(sid, ChatEntry(id: "\(sid)#tool\(callId)", kind: .toolCall, text: Self.toolLabel(name), detail: detail, at: Date(), running: true, turn: turn))
+            // text 存中文动作名；detail 存可展开的原始参数；
+            // summary 是列表上那一行摘要 —— 在这里算一次，别留给 View 反复解析
+            append(sid, ChatEntry(
+                id: "\(sid)#tool\(callId)",
+                kind: .toolCall,
+                text: Self.toolLabel(name),
+                detail: detail,
+                at: Date(),
+                running: true,
+                turn: turn,
+                summary: ToolSummary.make(from: detail)
+            ))
 
         case "tool.result":
             let callId = (frame["callId"] as? String) ?? ""
