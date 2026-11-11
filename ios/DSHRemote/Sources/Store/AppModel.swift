@@ -551,16 +551,25 @@ final class AppModel: ObservableObject {
         return formatter
     }()
 
-    /// 单个会话超过 600 条就丢最老的，避免长时间使用后内存一直涨。
-    /// 必须按 turn 边界裁：直接 suffix(600) 会把「本轮过程 · N 步」这种
+    /// 单会话保留的条目上限。
+    ///
+    /// 原来给到 600 —— 那意味着 LazyVStack 要维护 600 个条目的布局上下文，
+    /// 每次发消息、每次流式刷新都在这个规模上重算，主线程被压住，
+    /// 输入法事件排不上队，「打开软件时第一个字母不进拼音」和「发送瞬间卡死」都是它。
+    /// 降到 220 后渲染负担约为原来的 1/3，滚动起点也更快。
+    private static let maxEntriesPerSession = 220
+
+    /// 超过上限就丢最老的，避免长时间使用后内存一直涨。
+    /// 必须按 turn 边界裁：直接 suffix 会把「本轮过程 · N 步」这种
     /// 折叠块从中间切开，界面上会露出一半。
     private func trimIfNeeded(_ sessionId: String) {
-        guard let list = entries[sessionId], list.count > 600 else { return }
+        let cap = Self.maxEntriesPerSession
+        guard let list = entries[sessionId], list.count > cap else { return }
         var keepFrom = 0
         var counted = 0
         for entry in list.reversed() {
             counted += 1
-            if counted >= 600 {
+            if counted >= cap {
                 keepFrom = entry.turn
                 break
             }
@@ -914,7 +923,8 @@ final class AppModel: ObservableObject {
 
     /// 把某个会话的历史事件拉回来重建成聊天记录。
     /// 之前只显示「连上之后收到的事件」，所以重开 App 后旧对话是空的。
-    func loadHistory(_ sessionId: String, limit: Int = 600) async {
+    /// limit 从服务端取多少帧；实际留在内存里的条数还要过 220 的修剪。
+    func loadHistory(_ sessionId: String, limit: Int = 400) async {
         guard let client, !sessionId.isEmpty else { return }
         historyLoading = true
         defer { historyLoading = false }
