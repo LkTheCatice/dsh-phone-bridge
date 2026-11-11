@@ -1,5 +1,18 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
+
+/// 包一层 UIActivityViewController：ShareLink 只能由用户点按钮触发，
+/// 而这里的分享是「下载完成后自动弹出」，只能走程序化呈现。
+struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
 
 struct FilesView: View {
     @EnvironmentObject private var model: AppModel
@@ -8,6 +21,7 @@ struct FilesView: View {
     @State private var loading = false
     @State private var importing = false
     @State private var message: String?
+    @State private var shareItems: [Any] = []
 
     var body: some View {
         NavigationStack {
@@ -72,6 +86,13 @@ struct FilesView: View {
             .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
                 handleImport(result)
             }
+            .sheet(isPresented: Binding(
+                get: { !shareItems.isEmpty },
+                set: { if !$0 { shareItems = [] } }
+            )) {
+                ActivityView(items: shareItems)
+                    .presentationDetents([.medium, .large])
+            }
             .overlay(alignment: .bottom) {
                 if let message {
                     Text(message)
@@ -106,7 +127,9 @@ struct FilesView: View {
             let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let target = dir.appendingPathComponent(row.name)
             try data.write(to: target, options: .atomic)
-            message = "已保存 \(row.name)（\(data.count) 字节）到 App 文档目录"
+            message = "已保存 \(row.name)（\(data.count) 字节）"
+            // 直接弹系统分享：可以存到「文件」/ 相册 / AirDrop / 发给别人
+            shareItems = [target]
         } catch {
             message = "下载失败：\(error.localizedDescription)"
         }
