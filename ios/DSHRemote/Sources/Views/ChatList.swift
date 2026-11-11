@@ -88,11 +88,21 @@ struct ChatList: UIViewRepresentable {
         }
 
         /// 增量应用：Diffable 会自己算差异，只更新真正变化的 cell
+        ///
+        /// ⚠️ 必须去重：`Dictionary(uniqueKeysWithValues:)` 遇到重复 key 会直接
+        /// fatal error，而启动时「历史回填」与「实时帧」会写进同一个
+        /// `sid#turn5` 这样的 id（实测启动闪退一次）。快照同样不允许重复 item。
         func apply(_ entries: [ChatEntry]) {
-            lookup = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+            var seen = Set<String>()
+            var unique: [ChatEntry] = []
+            unique.reserveCapacity(entries.count)
+            for entry in entries where seen.insert(entry.id).inserted {
+                unique.append(entry)
+            }
+            lookup = Dictionary(unique.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             snapshot.appendSections(["main"])
-            snapshot.appendItems(entries.map(\.id), toSection: "main")
+            snapshot.appendItems(unique.map(\.id), toSection: "main")
             dataSource.apply(snapshot, animatingDifferences: false)
         }
 
@@ -103,9 +113,14 @@ struct ChatList: UIViewRepresentable {
         }
 
         func scrollToBottom(animated: Bool) {
-            guard let cv = collectionView, !parent.entries.isEmpty else { return }
-            let last = parent.entries.count - 1
-            cv.scrollToItem(at: IndexPath(item: last, section: 0), at: .bottom, animated: animated)
+            guard let cv = collectionView else { return }
+            let items = dataSource.snapshot().itemIdentifiers.count
+            guard items > 0 else { return }
+            let target = IndexPath(item: items - 1, section: 0)
+            // 防御：布局尚未完成时 scrollToItem 会抛异常
+            guard cv.numberOfSections > 0,
+                  cv.numberOfItems(inSection: 0) > target.item else { return }
+            cv.scrollToItem(at: target, at: .bottom, animated: animated)
         }
 
         // MARK: UIScrollViewDelegate（通过 collectionView.delegate 转发）

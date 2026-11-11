@@ -671,7 +671,13 @@ final class AppModel: ObservableObject {
         } else {
             item.timeLabel = Self.clockFormatter.string(from: item.at)
         }
-        entries[sessionId, default: []].append(item)
+        // 同 id 就替换：历史回填与实时帧会给出同一个 id（如 sid#turn5），
+        // 重复插入会让列表侧的去重/快照处理变复杂，也会在界面上显示两条「开始第 N 轮」。
+        if let idx = entries[sessionId]?.firstIndex(where: { $0.id == item.id }) {
+            entries[sessionId]?[idx] = item
+        } else {
+            entries[sessionId, default: []].append(item)
+        }
         trimIfNeeded(sessionId)
     }
 
