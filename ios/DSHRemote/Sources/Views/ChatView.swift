@@ -29,6 +29,8 @@ struct ChatView: View {
     /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
     /// 电脑端发消息不再带动手机滚动
     @State private var lastPhoneSendAt: Date?
+    /// 流式跟随的节流时间戳
+    @State private var lastFollowAt = Date.distantPast
 
     private static let bottomAnchor = "__chat_bottom__"
     private static let scrollSpace = "__chat_scroll__"
@@ -112,9 +114,14 @@ struct ChatView: View {
                         jump.hasNewBelow = true
                     }
                 }
-                // 流式文本增长时，只在已经贴底的情况下跟随（看实时输出）
+                // 流式文本增长时，只在已经贴底的情况下跟随（看实时输出）。
+                // 加 80ms 节流：UIKit 跟随要 layoutIfNeeded，每帧跑会拖慢滚动。
                 .onChange(of: entries.last?.text) { _ in
-                    if jump.atBottom { scrollToEnd(proxy) }
+                    guard jump.atBottom else { return }
+                    let now = Date()
+                    guard now.timeIntervalSince(lastFollowAt) > 0.08 else { return }
+                    lastFollowAt = now
+                    scrollToEnd(proxy)
                 }
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
                 // 滞后阈值：进入用 +40pt，离开必须滑出 220pt 才算离开 ——
@@ -124,7 +131,7 @@ struct ChatView: View {
                     if maxY <= viewport + 40 {
                         if !jump.atBottom { jump.atBottom = true }
                         if jump.hasNewBelow { jump.hasNewBelow = false }
-                    } else if maxY > viewport + 220 {
+                    } else if maxY > viewport + 280 {
                         if jump.atBottom { jump.atBottom = false }
                     }
                 }
@@ -304,12 +311,20 @@ struct ChatView: View {
         .padding(.top, 80)
     }
 
-    /// 自动跟随等场景用：带动画，平滑滚到底
+    /// 自动跟随用：贴到底，不带动画。
+    ///
+    /// 之前用 `proxy.scrollTo(last.id, anchor: .bottom)`，流式输出时最后一条还在长高，
+    /// 用旧高度定位总会差几像素 —— 底部判定失败，之后就再也不跟随、按钮还乱冒。
+    /// 改成走 UIKit：先 layoutIfNeeded 让 contentSize 追上，再按真实底部定位。
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        guard let last = entries.last else { return }
         jump.atBottom = true
         jump.hasNewBelow = false
-        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+        if let scroll = uiScrollView {
+            scroll.scrollToBottomInstant()
+            return
+        }
+        // 拿不到 UIScrollView 时退回内容末尾的哨兵（比 last.id 稳）
+        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
     }
 
     /// 「跳到最下」按钮专用：先终止正在进行的滚动，再瞬间到位。

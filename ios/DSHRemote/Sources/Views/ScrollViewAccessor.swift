@@ -46,7 +46,23 @@ extension UIView {
 }
 
 extension UIScrollView {
-    /// 先强制掐断惯性，再滚到底。
+    /// 当前内容底部的合法 contentOffset
+    var bottomOffsetY: CGFloat {
+        let visibleHeight = bounds.height - adjustedContentInset.top - adjustedContentInset.bottom
+        return max(0, contentSize.height - visibleHeight + adjustedContentInset.bottom)
+    }
+
+    /// 立刻贴到底（自动跟随用）。
+    ///
+    /// 必须先 `layoutIfNeeded()`：流式输出时最后一条的高度刚变，
+    /// contentSize 还没重算，直接读会拿到旧值 —— 于是「跟随了但差一点没到底」，
+    /// 底部判定失败，之后就再也不跟随了。
+    func scrollToBottomInstant() {
+        layoutIfNeeded()
+        setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
+    }
+
+    /// 先强制掐断惯性，再动画滚到底（按钮用）。
     ///
     /// 关键点：`setContentOffset(_:animated:)` 在减速动画进行时**不一定生效**，
     /// 必须先用一次 `animated: false` 的原地定位把 decelerating 状态打断；
@@ -55,17 +71,17 @@ extension UIScrollView {
     func stopThenScrollToBottom() {
         // ① 原地定位：终止减速动画
         setContentOffset(contentOffset, animated: false)
-        // ② 算真正的底部
-        let visibleHeight = bounds.height - adjustedContentInset.top - adjustedContentInset.bottom
-        let maxOffset = max(0, contentSize.height - visibleHeight + adjustedContentInset.bottom)
-        guard maxOffset > 0 else { return }
+        // ② 等布局稳定后再算底部
+        layoutIfNeeded()
+        let target = bottomOffsetY
+        guard target > 0 else { return }
         // ③ 动画滚过去
         UIView.animate(
             withDuration: 0.28,
             delay: 0,
             options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
         ) {
-            self.contentOffset = CGPoint(x: self.contentOffset.x, y: maxOffset)
+            self.contentOffset = CGPoint(x: self.contentOffset.x, y: target)
         }
     }
 }
