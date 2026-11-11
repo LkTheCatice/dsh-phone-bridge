@@ -20,30 +20,27 @@ struct SettingsView: View {
                     Button("重新连接") { Task { await model.connect() } }
                 }
 
-                // 点发送后主线程再也不回 runloop，还剩三条候选环无法从日志区分，
-                // 所以放三个开关在真机上做二分：一台机器、一次安装就能定位。
+                // 主因（布局回调自激）已按真机日志修掉，这两个开关留着当逃生阀：
+                // 万一某台机器上还抖，可以关掉它们把范围缩小。
                 Section {
                     Toggle("禁用文本选择", isOn: $model.expNoTextSelection)
                     Toggle("禁用自动跟随滚动", isOn: $model.expNoAutoFollow)
-                    Toggle("禁用底部判定回调", isOn: $model.expNoBottomProbe)
                     HStack {
                         Button("全部开启") {
                             model.expNoTextSelection = true
                             model.expNoAutoFollow = true
-                            model.expNoBottomProbe = true
                         }
                         Spacer()
                         Button("全部关闭") {
                             model.expNoTextSelection = false
                             model.expNoAutoFollow = false
-                            model.expNoBottomProbe = false
                         }
                     }
                     .font(.caption)
                 } header: {
-                    Text("诊断实验（点发送卡死）")
+                    Text("诊断实验")
                 } footer: {
-                    Text("① 文本选择：气泡里的文字选择由 UITextInteraction 实现，在 LazyVStack 里反复重排时可能拖住主线程。② 自动跟随：每次内容变化都 scrollTo。③ 底部判定：在布局回调里写状态，会引起重新布局。\n排查顺序：先「全部开启」发一条 —— 不卡了就逐个关回去，卡住的那个就是元凶。改完开关回聊天页生效。")
+                    Text("① 文本选择：气泡里的文字选择由 UITextInteraction 实现，在 LazyVStack 里反复重排时有代价。② 自动跟随：每次内容变化都 scrollTo。\n默认都关闭（= 正常行为）。改完开关回聊天页生效。")
                         .font(.caption2)
                 }
 

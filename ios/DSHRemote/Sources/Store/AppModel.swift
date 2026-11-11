@@ -123,21 +123,17 @@ final class AppModel: ObservableObject {
 
     // MARK: - 诊断实验开关（设置页可切，重启保留）
     //
-    // 用途：真机上「点发送后主线程再也不回 runloop」已经实测确认
-    // （日志停在 tap=send，之后连 Timer 都不跑），但还剩三条候选环无法从日志区分。
-    // 这三个开关让一台机器、一次安装就能把三条环分别关掉做二分：
+    // 真机实测已经把主因钉在「布局回调自激」上（onPreferenceChange 达 200~300 次/秒、
+    // body 却几乎不重算），那套 preference 判定已整段删除。剩下这两个开关用来
+    // 排查残余抖动，也可以当作万一复发时的逃生阀：
     //   ① 文本选择：每个气泡都挂了 .textSelection(.enabled)，
     //      它在 iOS 上是 UITextInteraction，在 LazyVStack 里反复插拔代价很高
     //   ② 自动跟随：每个 streamTick 都 proxy.scrollTo(bottomAnchor)
-    //   ③ 底部判定：onPreferenceChange 里写 atBottom，而写状态会引起重新布局
     @Published var expNoTextSelection = UserDefaults.standard.bool(forKey: "dsh.exp.noTextSelection") {
         didSet { UserDefaults.standard.set(expNoTextSelection, forKey: "dsh.exp.noTextSelection") }
     }
     @Published var expNoAutoFollow = UserDefaults.standard.bool(forKey: "dsh.exp.noAutoFollow") {
         didSet { UserDefaults.standard.set(expNoAutoFollow, forKey: "dsh.exp.noAutoFollow") }
-    }
-    @Published var expNoBottomProbe = UserDefaults.standard.bool(forKey: "dsh.exp.noBottomProbe") {
-        didSet { UserDefaults.standard.set(expNoBottomProbe, forKey: "dsh.exp.noBottomProbe") }
     }
 
     private var client: BridgeClient?
@@ -767,13 +763,12 @@ final class AppModel: ObservableObject {
 
     /// 每个回调各记一次。只累加整数、不发通知，不会引起任何重算。
     func recordBodyEval() { watchdogStats.bodies += 1; watchdogStats.lastTag = "body" }
-    func recordPrefEvent() { watchdogStats.prefs += 1; watchdogStats.lastTag = "pref" }
     func recordFollowEvent() { watchdogStats.follows += 1; watchdogStats.lastTag = "follow" }
     func recordSubmitEvent() { watchdogStats.submits += 1; watchdogStats.lastTag = "submit" }
 
     /// 看门狗。两路输出：
     ///
-    /// - `act b= p= f= s= last=`：**每一拍**（0.25 秒）只要有任何回调在动就立刻上报。
+    /// - `act b= f= s= last=`：**每一拍**（0.25 秒）只要有任何回调在动就立刻上报。
     ///   这是「遗言」：主线程彻底锁死时，这条链先断，日志最后几行就是锁死前
     ///   正在疯跑的那个回调。上一版两秒才报一次，死锁之后什么都留不下来。
     /// - `wd over=N max=Xms`：每 2 秒一行，量的是**超出正常周期的部分**
@@ -792,17 +787,15 @@ final class AppModel: ObservableObject {
             }
             // ① 遗言：这一拍有没有回调在动、最后动的是谁
             let b = watchdogStats.bodies
-            let p = watchdogStats.prefs
             let f = watchdogStats.follows
             let s = watchdogStats.submits
             let tag = watchdogStats.lastTag
             watchdogStats.bodies = 0
-            watchdogStats.prefs = 0
             watchdogStats.follows = 0
             watchdogStats.submits = 0
-            if b + p + f + s > 0 {
+            if b + f + s > 0 {
                 Task { @MainActor in
-                    self?.pingDiagnostic("act b=\(b) p=\(p) f=\(f) s=\(s) last=\(tag)")
+                    self?.pingDiagnostic("act b=\(b) f=\(f) s=\(s) last=\(tag)")
                 }
             }
             // ② 每 2 秒的卡顿汇总
@@ -1233,7 +1226,6 @@ private final class WatchdogStats {
     var worstOver = 0
     // 活动计数：谁在疯跑，就看这几个数在哪个回调里涨
     var bodies = 0
-    var prefs = 0
     var follows = 0
     var submits = 0
     /// 最近一次活动来自哪个回调

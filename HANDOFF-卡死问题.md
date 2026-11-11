@@ -378,3 +378,87 @@ Get-Content $log -Tail 600 | ForEach-Object { try { $_ | ConvertFrom-Json } catc
 3. 若 `body` 很高（> 30/2s）→ 失效风暴仍在：下一步把 `composer` 拆成独立 View，让输入框不再随列表重算（方向 C 的第一步，只动结构不动逻辑）。
 4. 若一条 `wd` 都不来 + 界面冻住 → 真死锁，回到「主线程队列被灌满」的假设，重点查 `DispatchQueue.main.async` 的自我重排。
 
+---
+
+## 十三、⭐ 真凶抓到并修掉（2026-11-12 凌晨，commit 待补）
+
+### 13.1 决定性证据
+
+日志（`ee0c01e` 那版，每拍 0.25 秒上报回调活动）：
+
+```
+23:58:21.335  act b=2 p=75 f=0 last=pref     ← p ≈ 300 次/秒
+23:58:30.007  act b=0 p=72 f=0 last=pref     ← p ≈ 288 次/秒
+23:58:33.550  wd over>120ms:4 max:2824ms     ← 卡死 2.8 秒
+```
+
+`p` = `onPreferenceChange` 触发次数，`b` = `ChatView.body` 求值次数。
+
+**p 冲到 200~300 次/秒，b 几乎为 0** —— 布局回调在自己喂自己，而 body 一次都没重算。
+所以不是「写状态引起重算」那一类环（那类 b 会跟着涨），而是 **preference 机制本身自激**。
+
+用户侧症状完全对得上：**打字时卡死、光标还在闪、App 内触控全失**。
+
+### 13.2 机制
+
+原实现在列表末尾放了一个哨兵，用 GeometryReader 上报它在命名坐标系里的位置：
+
+```swift
+Color.clear.frame(height: 1).id(bottomAnchor)
+    .background(
+        GeometryReader { geo in
+            Color.clear.preference(key: BottomYKey.self,
+                                   value: geo.frame(in: .named(scrollSpace)).maxY)
+        }
+    )
+// 配合 .coordinateSpace(name: scrollSpace) 与 .onPreferenceChange(BottomYKey.self) { ... }
+```
+
+`GeometryReader` 为了算出「相对命名坐标系的坐标」必须在布局阶段反向请求布局，
+而命名坐标系又依赖布局 —— 自己喂自己。输入框是 `TextField(axis: .vertical)`，
+打字时高度一变、键盘一动就把它点着，于是每帧跑好几轮，主线程再也出不来。
+
+> 注意：光标还在闪并不能证明主线程活着 —— 插入符闪烁由 Core Animation 维持。
+
+### 13.3 修法
+
+删掉 `BottomYKey` / `.coordinateSpace` / `.onPreferenceChange` 整条链，
+「是否在底部」改由**手指手势**推断（零布局读取）：
+
+```swift
+.simultaneousGesture(
+    DragGesture(minimumDistance: 12).onChanged { value in
+        if value.translation.height > 12 {          // 往回看历史
+            if jump.atBottom { jump.atBottom = false }
+        } else if value.translation.height < -40 {  // 明显在往新消息方向滚
+            if !jump.atBottom { jump.atBottom = true }
+            if jump.hasNewBelow { jump.hasNewBelow = false }
+        }
+    }
+)
+```
+
+配套：`jumpToBottom()` 里恢复 `atBottom = true`（否则点了按钮按钮还在），
+`GeometryReader { outer in ... }` 改成 `_`（只为撑满高度，不再取视口尺寸）。
+
+### 13.4 怎么确认修好了
+
+复现同样的操作（**打字**、发消息、滚动），看日志：
+
+| 观察点 | 修之前 | 修之后应当是 |
+|---|---|---|
+| `wd over>120ms` | `max:2824ms`、`1578ms`、`878ms` | 不再出现（或只偶尔一两百 ms） |
+| `act b=` | 0~6 次/拍 | 空闲接近 0，流式时约等于帧率 |
+| `act` 里的 `p` 字段 | 200~300 次/秒 | **该字段已删**（对应的机制不存在了） |
+| `render=` | 113ms | < 100ms |
+
+### 13.5 学到的（补进坑表）
+
+| 坑 | 教训 |
+|---|---|
+| 在布局阶段读 `geo.frame(in: .named(...))` 再喂 preference | 命名坐标系本身依赖布局 → 自激。底部判定改用**手势**或 iOS 17+ 的 `scrollPosition` |
+| 看门狗用 `gap > 阈值` 判卡顿 | `gap` 恒等于 Timer 周期，直接比绝对值必然误判，要比 `gap - 周期` |
+| 主线程忙循环时的「光标还在闪」 | 光标闪烁是 CA 层的事，**不能**据此判断主线程活着 |
+| 两秒汇总式的看门狗 | 死锁后什么都留不下来；必须有每拍（0.25s）就发的「遗言」 |
+
+

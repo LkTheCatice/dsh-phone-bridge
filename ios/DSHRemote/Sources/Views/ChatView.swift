@@ -41,7 +41,6 @@ struct ChatView: View {
     @State private var editorContinuation: CheckedContinuation<UIImage?, Never>?
 
     private static let bottomAnchor = "__chat_bottom__"
-    private static let scrollSpace = "__chat_scroll__"
 
     /// 当前会话的条目。
     /// 读 model.currentEntries（@Published）而不是每次现查字典 ——
@@ -64,7 +63,9 @@ struct ChatView: View {
         // 「树太大每帧重算」还是「某一次阻塞操作」，就靠这个数。
         let _ = model.recordBodyEval()
         NavigationStack {
-            GeometryReader { outer in
+            // 这里保留 GeometryReader 只为撑满可用高度（之前还兼职算视口高度给
+            // preference 判定用，那套已经删了，别再把布局读数塞回来）
+            GeometryReader { _ in
                 ScrollViewReader { proxy in
                 // 回退说明：试过把 composer 做成 ScrollView 的兄弟视图（VStack 并排），
                 // 确实能脱离 UIScrollView 的手势树，但在 GeometryReader 里 VStack 会塌缩，
@@ -86,25 +87,21 @@ struct ChatView: View {
                                 .equatable()
                                 .id(entry.id)
                         }
-                        // 底部标记：用 GeometryReader 上报它在滚动坐标系里的位置。
-                        // 之前用 onAppear/onDisappear 判断，但 LazyVStack 会预渲染这一格，
-                        // onAppear 一触发就把 hasNewBelow 清掉 —— 按钮闪一下就没，点不到。
+                        // 底部锚点：只给 scrollTo 用，**不再挂 GeometryReader 上报位置**。
+                        //
+                        // 之前这里用 GeometryReader + preference 算「离底部还有多远」，
+                        // 它在布局阶段为算相对坐标又反过来请求布局，于是自激：
+                        // 真机日志实测 onPreferenceChange 冲到 200~300 次/秒、body 却几乎不重算，
+                        // 主线程被吃满 2.8 秒 —— 表现为「光标还在闪、触控全死」。
+                        // 现在位置判定改由手指手势推断（见 ScrollView 上的 simultaneousGesture），
+                        // 全程不读布局。
                         Color.clear
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
-                            .background(
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: BottomYKey.self,
-                                        value: geo.frame(in: .named(Self.scrollSpace)).maxY
-                                    )
-                                }
-                            )
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
                 }
-                .coordinateSpace(name: Self.scrollSpace)
                 .scrollDismissesKeyboard(.interactively)
                 // 隐藏系统滚动指示条：它的长度取决于 contentSize，
                 // 而这里 contentSize 一直在动（LazyVStack 排版、流式输出、附件条高度），
@@ -157,25 +154,32 @@ struct ChatView: View {
                         }
                     }
                 }
-                // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
-                // 滞后阈值：进入用 +40pt，离开必须滑出 280pt 才算离开 ——
-                // 这样刚往上蹭一点不会立刻冒出按钮（避免遮挡），状态也不会逐帧翻转。
-                .onPreferenceChange(BottomYKey.self) { maxY in
-                    model.recordPrefEvent()
-                    // 诊断开关：只计数、不做底部判定写入。
-                    // 这条回调是在布局阶段跑的，在里面写状态会引起重新布局 ——
-                    // 关掉它就能判断卡死是不是「布局 → 写状态 → 再布局」这条环。
-                    guard !model.expNoBottomProbe else { return }
-                    let viewport = outer.size.height
-                    // 只做判定，不碰 UIKit —— 一旦在这里 setContentOffset，
-                    // 就会重新触发布局回调，又变成自己喂自己的环。
-                    if maxY <= viewport + 90 {
-                        if !jump.atBottom { jump.atBottom = true }
-                        if jump.hasNewBelow { jump.hasNewBelow = false }
-                    } else if maxY > viewport + 280 {
-                        if jump.atBottom { jump.atBottom = false }
-                    }
-                }
+                // **是否在底部**：改由手指手势推断，不再读布局。
+                //
+                // 为什么换掉原来的 preference 方案（实测量出来的）：
+                // 旧实现在列表末尾放 Color.clear + GeometryReader 上报
+                // `geo.frame(in: .named(scrollSpace)).maxY`，
+                // 而 GeometryReader 为了算这个相对坐标要在布局阶段反向请求布局，
+                // 于是自己喂自己 —— 真机日志里 onPreferenceChange 达 200~300 次/秒，
+                // body 却几乎不重算，主线程被吃掉 2.8 秒，
+                // 症状就是「光标还在闪、触控全死」。输入框变高（TextField axis: .vertical）
+                // 或键盘一动就会把它点着，所以「打字时卡死」。
+                //
+                // 手势方案的判据：往下拖（手指向下、内容下移）= 在往回看历史 → 停止跟随；
+                // 往上拖得够多 = 想看新消息 → 恢复跟随。全程零布局读取，不可能成环。
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { value in
+                            if value.translation.height > 12 {
+                                // 往回看历史
+                                if jump.atBottom { jump.atBottom = false }
+                            } else if value.translation.height < -40 {
+                                // 明显在往新消息方向滚
+                                if !jump.atBottom { jump.atBottom = true }
+                                if jump.hasNewBelow { jump.hasNewBelow = false }
+                            }
+                        }
+                )
 
                 // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
                 // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
@@ -375,6 +379,8 @@ struct ChatView: View {
     /// 再用 withAnimation 收尾。全程只用 SwiftUI，不碰 UIKit。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         model.recordFollowEvent()
+        // 点了按钮就恢复跟随，否则按钮会一直挂在屏幕上
+        if !jump.atBottom { jump.atBottom = true }
         if jump.hasNewBelow { jump.hasNewBelow = false }
         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
         withAnimation(.easeOut(duration: 0.22)) {
@@ -690,17 +696,6 @@ struct ChatView: View {
                 uploading = false
             }
         }
-    }
-}
-
-/// 把列表底部标记在滚动坐标系里的位置往上报，用来判断「是否真的滚到底」。
-///
-/// 之前用 onAppear/onDisappear 判断，但 LazyVStack 会预渲染末尾那一格，
-/// onAppear 一触发就把「新消息」标记清掉 —— 按钮闪一下就没，根本点不到。
-struct BottomYKey: PreferenceKey {
-    static var defaultValue: CGFloat = .greatestFiniteMagnitude
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
     }
 }
 
