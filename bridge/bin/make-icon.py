@@ -97,6 +97,35 @@ def load_logo(target_w):
     return logo.resize((target_w, max(1, int(lh * scale))), Image.LANCZOS)
 
 
+def make_badge(size=320, radius=76):
+    """角标：白色圆角方块 + 黑色 DSH 鲸鱼 + 一层柔和投影。
+
+    单独给底色是因为纯黑鲸鱼直接压在浅蓝上太小、边界也糊；
+    有了圆角白底它才像一个明确的「出品方角标」。
+    """
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+
+    # 投影
+    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle(
+        (14, 20, size - 14, size - 8), radius=radius, fill=(52, 84, 128, 90)
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(10))
+    tile.alpha_composite(shadow)
+
+    # 白底
+    ImageDraw.Draw(tile).rounded_rectangle(
+        (8, 8, size - 8, size - 8), radius=radius, fill=(255, 255, 255, 255)
+    )
+
+    # 鲸鱼：占角标 62%，居中略偏上（视觉重心）
+    fish = load_logo(int(size * 0.62))
+    fx = (size - fish.size[0]) // 2
+    fy = (size - fish.size[1]) // 2 - int(size * 0.02)
+    tile.alpha_composite(fish, (fx, fy))
+    return tile
+
+
 def main():
     img = Image.open(SRC).convert("RGBA")
     print(f"原图: {img.size[0]}x{img.size[1]}")
@@ -125,9 +154,10 @@ def main():
     by = (CANVAS - content.size[1]) // 2
     canvas.alpha_composite(content, (bx, by))
 
-    badge = load_logo(150)
-    canvas.alpha_composite(badge, (CANVAS - badge.size[0] - 150, CANVAS - badge.size[1] - 150))
-    print(f"DSH 徽章: {badge.size[0]}x{badge.size[1]}")
+    # 角标放右下：留 130px 边距，右下角距 iOS 圆角圆心 (1688,1688) 约 325px < 360，不会被裁
+    badge = make_badge(320)
+    canvas.alpha_composite(badge, (CANVAS - badge.size[0] - 130, CANVAS - badge.size[1] - 130))
+    print(f"角标: {badge.size[0]}x{badge.size[1]}")
 
     final = canvas.resize((1024, 1024), Image.LANCZOS).convert("RGB")
     os.makedirs(OUT_DIR, exist_ok=True)
