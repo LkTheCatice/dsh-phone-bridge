@@ -45,10 +45,12 @@ struct ChatView: View {
         NavigationStack {
             GeometryReader { outer in
                 ScrollViewReader { proxy in
-                // 按钮放在 ScrollView **外面**（ZStack 平级）：
-                // 挂在 ScrollView 的 overlay 上时，触摸由 ScrollView 优先处理，
-                // 惯性滚动中 tap 会被当成「停止滚动」吞掉，跳到底自然没反应。
-                ZStack(alignment: .bottomTrailing) {
+                // composer 与 ScrollView 用 VStack 并排（不是 safeAreaInset）。
+                // safeAreaInset 的内容在 UIKit 层级上仍属于 UIScrollView，
+                // 而 UIScrollView 手势优先级高于子视图 —— 惯性滚动时触摸先被它截走，
+                // 子视图按钮收不到事件。这就是前面几版修改都没生效的原因。
+                // 换成兄弟视图后，按钮完全脱离滚动视图的手势树。
+                VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if entries.isEmpty { emptyState }
@@ -94,7 +96,7 @@ struct ChatView: View {
                 .onChange(of: entries.last?.text) { _ in
                     if atBottom { scrollToEnd(proxy) }
                 }
-                }   // ZStack（现在只剩 ScrollView）
+                }   // ScrollView
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
                 // 带滞后阈值：进入用 +40pt、离开必须超过 +140pt 才算离开。
                 // 否则滚动到临界区时 atBottom 会逐帧翻转，按钮的 allowsHitTesting
@@ -108,18 +110,15 @@ struct ChatView: View {
                         if atBottom { atBottom = false }
                     }
                 }
-                // 放在 ScrollViewReader 内部才能拿到 proxy；
-                // composer 由 safeAreaInset 提供，不随滚动移动，按钮挂它的 overlay
-                // 就完全脱离了 ScrollView 的手势竞争。
-                // 视觉上靠 offset 浮到输入栏上方，不和输入框连成一体。
-                .safeAreaInset(edge: .bottom) {
-                    composer
-                        .overlay(alignment: .topTrailing) {
-                            jumpButtons(proxy)
-                                .padding(.trailing, 14)
-                                .offset(y: -54)
-                        }
-                }
+
+                // 输入栏：ScrollView 的兄弟视图，不在滚动视图的手势树里
+                composer
+                    .overlay(alignment: .topTrailing) {
+                        jumpButtons(proxy)
+                            .padding(.trailing, 14)
+                            .offset(y: -54)
+                    }
+                }   // VStack
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
