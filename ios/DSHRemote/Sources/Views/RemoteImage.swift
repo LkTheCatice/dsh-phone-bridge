@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -74,7 +75,13 @@ final class ImageCache {
         if failed.contains(path) { return nil }
         do {
             let data = try await model.download(path: path)
-            guard let image = UIImage(data: data) else {
+            // 不能在主线程直接 UIImage(data:) —— 那是懒解码，真正解码发生在渲染时，
+            // 一张 2835×6144 的图要 70MB，界面会直接卡住。
+            // 这里在后台用 CGImageSource 只解码出一个够显示的缩略图。
+            let image = await Task.detached(priority: .userInitiated) {
+                Self.decodeThumbnail(data, maxPixel: 1600)
+            }.value
+            guard let image else {
                 failed.insert(path)
                 return nil
             }
@@ -91,6 +98,22 @@ final class ImageCache {
             failed.insert(path)
             return nil
         }
+    }
+
+    /// 后台解码出缩略图（非隔离方法，随便哪个线程调）
+    nonisolated static func decodeThumbnail(_ data: Data, maxPixel: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return UIImage(data: data)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        if let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+            return UIImage(cgImage: thumbnail)
+        }
+        return UIImage(data: data)
     }
 }
 

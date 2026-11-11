@@ -446,8 +446,11 @@ struct ChatView: View {
         for (index, item) in items.enumerated() {
             do {
                 guard let raw = try await item.loadTransferable(type: Data.self) else { continue }
-                // 相册原图常有十几 MB，上传前先压到 2048 / q0.82，否则手机端会卡死
-                let data = ImagePrep.compress(raw)
+                // 压缩必须离开主线程：1700 万像素的图光解码就是几十 MB，
+                // 在主线程跑会把触控堵死（上传完就卡住就是这个原因）
+                let data = await Task.detached(priority: .userInitiated) {
+                    ImagePrep.compress(raw)
+                }.value
                 let stamp = Int(Date().timeIntervalSince1970)
                 let name = "image-\(stamp)-\(index).jpg"
                 let remote = try await model.uploadAttachment(data, filename: name)
