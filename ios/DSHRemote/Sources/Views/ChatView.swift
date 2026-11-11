@@ -177,7 +177,7 @@ struct ChatView: View {
                         }
                     }
 
-                    if maxY <= viewport + 40 {
+                    if maxY <= viewport + 90 {
                         if !jump.atBottom { jump.atBottom = true }
                         if jump.hasNewBelow { jump.hasNewBelow = false }
                     } else if maxY > viewport + 280 {
