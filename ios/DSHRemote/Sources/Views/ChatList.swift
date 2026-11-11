@@ -19,6 +19,8 @@ struct ChatList: UIViewRepresentable {
     let scrollRequest: Int
     /// 点击某条消息（用于展开/收起富文本）
     let onTapEntry: (String) -> Void
+    /// 点击「📎 附件」提示行（打开媒体面板）
+    let onTapAttachments: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -80,7 +82,13 @@ struct ChatList: UIViewRepresentable {
             dataSource = UICollectionViewDiffableDataSource<String, String>(collectionView: view) { [weak self] cv, indexPath, id in
                 let cell = cv.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
                 if let entry = self?.lookup[id] {
-                    cell.configure(entry, streaming: self?.parent.isStreaming ?? false)
+                    cell.configure(
+                        entry,
+                        streaming: self?.parent.isStreaming ?? false,
+                        onTapAttachments: { [weak self] in
+                            self?.parent.onTapAttachments(id)
+                        }
+                    )
                 }
                 return cell
             }
@@ -160,6 +168,9 @@ final class MessageCell: UICollectionViewCell {
     static let reuseID = "MessageCell"
 
     private let textView = UITextView()
+    /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
+    private let attachmentLabel = UILabel()
+    private var onTapAttachments: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -170,13 +181,24 @@ final class MessageCell: UICollectionViewCell {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(textView)
+        attachmentLabel.font = .systemFont(ofSize: 12)
+        attachmentLabel.textColor = .secondaryLabel
+        attachmentLabel.numberOfLines = 1
+        attachmentLabel.isUserInteractionEnabled = true
+        attachmentLabel.addGestureRecognizer(
+            UITapGestureRecognizer(target: self, action: #selector(handleTapAttachments))
+        )
+
+        let stack = UIStackView(arrangedSubviews: [textView, attachmentLabel])
+        stack.axis = .vertical
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
-            textView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
-            textView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
         ])
     }
 
@@ -185,10 +207,32 @@ final class MessageCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         textView.attributedText = nil
+        attachmentLabel.text = nil
+        attachmentLabel.isHidden = true
+        onTapAttachments = nil
     }
 
-    func configure(_ entry: ChatEntry, streaming: Bool) {
+    @objc private func handleTapAttachments() {
+        onTapAttachments?()
+    }
+
+    func configure(_ entry: ChatEntry, streaming: Bool, onTapAttachments: (() -> Void)?) {
         textView.attributedText = MessageRender.attributed(entry)
+        self.onTapAttachments = onTapAttachments
+
+        // 附件提示：只在真的有媒体时占位（用 MediaRefScan，纯 Foundation，已单测）
+        let refs = MediaRefCache.refs(for: entry.text)
+        if refs.isEmpty {
+            attachmentLabel.isHidden = true
+            attachmentLabel.text = nil
+        } else {
+            var parts: [String] = []
+            if !refs.images.isEmpty { parts.append("\(refs.images.count) 张图片") }
+            if !refs.videos.isEmpty { parts.append("\(refs.videos.count) 个视频") }
+            if !refs.audios.isEmpty { parts.append("\(refs.audios.count) 段音频") }
+            attachmentLabel.text = "📎 " + parts.joined(separator: " · ") + "，点按查看"
+            attachmentLabel.isHidden = false
+        }
     }
 
     override func preferredLayoutAttributesFitting(

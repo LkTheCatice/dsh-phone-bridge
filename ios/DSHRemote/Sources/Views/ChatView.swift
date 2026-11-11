@@ -62,6 +62,8 @@ struct ChatView: View {
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
     @State private var visibleLimit = 10
 
+    /// 正在查看附件的条目（附件面板 sheet）
+    @State private var attachmentEntry: ChatEntry?
     /// 每次 +1 就请求列表滚到底（由 ChatList 消费）
     @State private var scrollRequest = 0
 
@@ -116,6 +118,9 @@ struct ChatView: View {
                     scrollRequest: scrollRequest,
                     onTapEntry: { id in
                         expandedEntryId = (expandedEntryId == id) ? nil : id
+                    },
+                    onTapAttachments: { id in
+                        attachmentEntry = visibleEntries.first { $0.id == id }
                     }
                 )
                 .onChange(of: model.streamTick) { _ in
@@ -310,6 +315,9 @@ struct ChatView: View {
         .environment(\.toolDetailPresenter, detailPresenter)
         .sheet(item: $detailPresenter.entry) { item in
             ToolDetailSheet(entry: item)
+        }
+        .sheet(item: $attachmentEntry) { item in
+            AttachmentSheet(entry: item)
         }
     }
 
