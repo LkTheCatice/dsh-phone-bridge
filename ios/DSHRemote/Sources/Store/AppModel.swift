@@ -31,6 +31,10 @@ final class AppModel: ObservableObject {
     /// 「明明在这个对话，却被别的对话的更新拉到底部」。
     /// 现在 ChatView 只观察这个属性，别的会话怎么变都不影响它。
     @Published private(set) var currentEntries: [ChatEntry] = []
+    /// 历史重建完成的计数。界面靠它决定「该滚到底了」——
+    /// 回填时底部哨兵还没渲染，proxy.scrollTo 找不到目标，
+    /// 所以必须等渲染完再滚，否则冷启动会停在最早的消息上。
+    @Published private(set) var historyVersion = 0
 
     private func syncCurrentEntries() {
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
@@ -851,6 +855,8 @@ final class AppModel: ObservableObject {
             }
             endBatch()
             historyNote = raw["note"] as? String
+            // 通知界面：历史重建完成，可以滚到底了
+            historyVersion &+= 1
         } catch {
             endBatch()
             lastError = "读取历史失败：\(error.localizedDescription)"

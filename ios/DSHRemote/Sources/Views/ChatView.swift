@@ -124,6 +124,16 @@ struct ChatView: View {
                         jump.hasNewBelow = true
                     }
                 }
+                // 历史重建完成后滚到底：冷启动/切换会话都该停在最新一条，
+                // 而不是最早那条。延一帧是因为底部哨兵刚渲染出来，
+                // 立刻 scrollTo 会找不到目标。
+                .onChange(of: model.historyVersion) { _ in
+                    jump.atBottom = true
+                    jump.hasNewBelow = false
+                    DispatchQueue.main.async {
+                        scrollToEnd(proxy)
+                    }
+                }
                 // 流式文本增长时，只在已经贴底的情况下跟随（看实时输出）。
                 // 加 80ms 节流：UIKit 跟随要 layoutIfNeeded，每帧跑会拖慢滚动。
                 .onChange(of: entries.last?.text) { _ in
