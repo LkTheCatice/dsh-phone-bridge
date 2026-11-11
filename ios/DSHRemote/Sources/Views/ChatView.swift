@@ -182,32 +182,14 @@ struct ChatView: View {
                         }
                     }
                 }
-                // **是否在底部**：改由手指手势推断，不再读布局。
+                // **是否在底部**：iOS 18 起用官方 onScrollGeometryChange。
                 //
-                // 为什么换掉原来的 preference 方案（实测量出来的）：
-                // 旧实现在列表末尾放 Color.clear + GeometryReader 上报
-                // `geo.frame(in: .named(scrollSpace)).maxY`，
-                // 而 GeometryReader 为了算这个相对坐标要在布局阶段反向请求布局，
-                // 于是自己喂自己 —— 真机日志里 onPreferenceChange 达 200~300 次/秒，
-                // body 却几乎不重算，主线程被吃掉 2.8 秒，
-                // 症状就是「光标还在闪、触控全死」。输入框变高（TextField axis: .vertical）
-                // 或键盘一动就会把它点着，所以「打字时卡死」。
-                //
-                // 手势方案的判据：往下拖（手指向下、内容下移）= 在往回看历史 → 停止跟随；
-                // 往上拖得够多 = 想看新消息 → 恢复跟随。全程零布局读取，不可能成环。
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 12)
-                        .onChanged { value in
-                            if value.translation.height > 12 {
-                                // 往回看历史
-                                if jump.atBottom { jump.atBottom = false }
-                            } else if value.translation.height < -40 {
-                                // 明显在往新消息方向滚
-                                if !jump.atBottom { jump.atBottom = true }
-                                if jump.hasNewBelow { jump.hasNewBelow = false }
-                            }
-                        }
-                )
+                // 之前用 simultaneousGesture + DragGesture.onChanged 自己推断：
+                // 它挂在 ScrollView 上会和滚动的手势识别打架，而 onChanged 是**每帧回调**、
+                // 里面还写 @Published → 每帧一次全树重算。真机表现为「上划先卡顿后卡死」
+                // （STUCK 21189ms mark=body，4 分钟内 996 条）。
+                // onScrollGeometryChange 的 action 只在**布尔值翻转**时回调，且不介入手势。
+                .modifier(BottomDetectModifier(jump: jump))
 
                 // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
                 // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
@@ -756,6 +738,40 @@ struct BottomAnchorModifier: ViewModifier {
             content.defaultScrollAnchor(.bottom)
         } else {
             content
+        }
+    }
+}
+
+/// 「是否在底部」的判定。
+///
+/// iOS 18+：onScrollGeometryChange —— 系统给几何，只在翻转为 true/false 时回调一次，
+/// 不介入滚动手势。iOS 16/17 退化到 DragGesture.onEnded（抬手才判断一次，
+/// 绝不在 onChanged 里写状态）。
+struct BottomDetectModifier: ViewModifier {
+    @ObservedObject var jump: JumpButtonState
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geometry in
+                let distance = geometry.contentSize.height
+                    - (geometry.contentOffset.y + geometry.containerSize.height)
+                return distance < 40
+            } action: { _, atBottom in
+                if jump.atBottom != atBottom { jump.atBottom = atBottom }
+                if atBottom, jump.hasNewBelow { jump.hasNewBelow = false }
+            }
+        } else {
+            content.simultaneousGesture(
+                DragGesture(minimumDistance: 12).onEnded { value in
+                    if value.translation.height > 40 {
+                        if jump.atBottom { jump.atBottom = false }
+                    } else if value.translation.height < -40 {
+                        if !jump.atBottom { jump.atBottom = true }
+                        if jump.hasNewBelow { jump.hasNewBelow = false }
+                    }
+                }
+            )
         }
     }
 }
