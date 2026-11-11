@@ -358,33 +358,37 @@ struct ChatView: View {
         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
     }
 
-    /// 「跳到最下」按钮专用：先终止正在进行的滚动，再瞬间到位。
+    /// 「跳到最下」按钮：先停惯性、冻结内容、算准高度、跳转、解冻。
     ///
-    /// 注意这里**不再强制** `jump.atBottom = true`：
-    /// 那样一按按钮立刻消失，如果因为内容还在长而没真正到底，它又马上冒出来，来回闪。
-    /// 按钮的去留完全交给真实滚动位置（onPreferenceChange 里的滞回判定），
-    /// 于是只要还在阈值之上就一直显示，滚到足够近才自然隐去。
+    /// 按用户思路重写的关键一步是「冻结」：
+    /// 之前失败的全部原因都是「算高度」和「真正跳」之间内容还在追加，
+    /// target 一算出来就过期。冻结之后 contentSize 不变，跳转才准；
+    /// 解冻时积压的帧一次性应用，自动跟随顺势接上。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
-        guard let last = entries.last else { return }
         jump.hasNewBelow = false
 
         guard let scroll = uiScrollView else {
-            // 拿不到 UIScrollView 是另一种失败，埋点区分开
-            model.pingDiagnostic("no-scrollview")
             proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             return
         }
-        // 把点击瞬间的真实状态发回去：能不能滚、滚到哪里，一目了然
-        let diag = [
-            "off=\(Int(scroll.contentOffset.y))",
-            "cs=\(Int(scroll.contentSize.height))",
-            "bh=\(Int(scroll.bounds.height))",
-            "ins=\(Int(scroll.adjustedContentInset.top))/\(Int(scroll.adjustedContentInset.bottom))",
-            "dec=\(scroll.isDecelerating ? 1 : 0)",
-            "target=\(Int(scroll.bottomOffsetY))",
-        ].joined(separator: "&")
-        model.pingDiagnostic("tap:" + diag)
-        scroll.stopThenScrollToBottom()
+
+        // ① 冻结内容显示（数据照收，只是先不渲染进列表）
+        model.freezeContent()
+
+        // ② 先掐断惯性，让位置静止下来
+        scroll.stopDeceleration()
+
+        // ③ 等一帧：让 SwiftUI 把冻结前最后一次更新提交完，高度才是最终值
+        DispatchQueue.main.async {
+            scroll.layoutIfNeeded()
+            // ④ 现在 contentSize 稳定了，滚到底
+            scroll.scrollToBottomAnimated()
+
+            // ⑤ 稍后解冻：积压的内容一次性追上来，跟随会把它补到底
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                model.unfreezeContent()
+            }
+        }
     }
 
     /// 上传进度文案：单张只说「正在上传」，多张带上 2/5

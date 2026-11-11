@@ -68,39 +68,26 @@ extension UIScrollView {
         setContentOffset(CGPoint(x: contentOffset.x, y: bottomOffsetY), animated: false)
     }
 
-    /// 先强制掐断惯性，再滚到底（按钮用）。
+    /// 只掐断惯性、让位置静止，不改位置。
     ///
-    /// 定位方式用 `scrollRectToVisible`，而不是手算 contentOffset：
-    /// 给它「内容最末尾的一个 1pt 矩形」，系统自己算该滚到哪 ——
-    /// contentInset、safeArea、边界夹取都由它处理，不会像手算那样越界或留缝。
-    ///
-    /// 前置的三步是为了让它在惯性中也能生效：
-    /// ① isScrollEnabled 关再开 —— 系统级打断减速模拟
-    /// ② 原地 setContentOffset + 清 layer 动画 —— 清掉残留滚动状态
-    /// ③ layoutIfNeeded —— 让 contentSize 追上最新内容
-    ///
-    /// 最后补一次单次校正：内容可能还在长（工具行追加、流式输出），
-    /// 落位后下一帧再量一次真实的底部，差超过 1pt 就修正。
-    /// 只跑一次且用户开始滑动就放弃 —— 多帧反复校准会和自动跟随互相触发，之前因此卡死过。
-    func stopThenScrollToBottom() {
+    /// `isScrollEnabled` 关再开是系统级打断减速模拟的办法，
+    /// 光靠 `setContentOffset(animated: false)` 在减速阶段不生效。
+    func stopDeceleration() {
         let wasEnabled = isScrollEnabled
         isScrollEnabled = false
         isScrollEnabled = wasEnabled
         setContentOffset(contentOffset, animated: false)
         layer.removeAllAnimations()
-        layoutIfNeeded()
+    }
 
+    /// 平滑滚到内容末尾。
+    ///
+    /// 用 `scrollRectToVisible` 而不是手算 contentOffset：
+    /// 给系统一个「末尾 1pt 的矩形」，contentInset / safeArea / 边界夹取都由它处理，
+    /// 不会像手算那样越界或留缝。
+    func scrollToBottomAnimated() {
+        layoutIfNeeded()
         let tail = CGRect(x: 0, y: max(0, contentSize.height - 1), width: 1, height: 1)
         scrollRectToVisible(tail, animated: true)
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard !self.isDragging, !self.isDecelerating, !self.isTracking else { return }
-            self.layoutIfNeeded()
-            let exact = self.bottomOffsetY
-            if abs(self.contentOffset.y - exact) > 1 {
-                self.setContentOffset(CGPoint(x: self.contentOffset.x, y: exact), animated: false)
-            }
-        }
     }
 }

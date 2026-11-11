@@ -173,7 +173,38 @@ final class AppModel: ObservableObject {
 
     // MARK: - 帧处理
 
+    /// 跳转期间冻结内容更新。
+    ///
+    /// 这是「跳不到底」的根因：算高度和真正跳转之间内容还在追加，
+    /// 算出来的目标位置立刻过期，算法再准也追不上。
+    /// 冻结后 contentSize 稳定，跳转才准；解冻时把积压的帧一次性应用，
+    /// 自动跟随会顺势把这段时间的新内容补上。
+    private(set) var isContentFrozen = false
+    private var frozenFrames: [(frame: [String: Any], isHistory: Bool)] = []
+
+    func freezeContent() {
+        isContentFrozen = true
+    }
+
+    func unfreezeContent() {
+        guard isContentFrozen else { return }
+        isContentFrozen = false
+        let pending = frozenFrames
+        frozenFrames.removeAll()
+        guard !pending.isEmpty else { return }
+        beginBatch()
+        for item in pending {
+            apply(seq: 0, frame: item.frame, isHistory: item.isHistory)
+        }
+        endBatch()
+    }
+
     private func apply(seq: Int, frame: [String: Any], isHistory: Bool = false) {
+        // 冻结期只入队，不动 entries —— contentSize 才能保持不变
+        if isContentFrozen {
+            frozenFrames.append((frame: frame, isHistory: isHistory))
+            return
+        }
         if seq > lastSeq {
             lastSeq = seq
             // 每 20 帧落一次盘：冷启动时就能从上次的位置续传，
