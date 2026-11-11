@@ -149,17 +149,20 @@ final class AppModel: ObservableObject {
 
     // MARK: - 诊断实验开关（设置页可切，重启保留）
     //
-    // 真机实测已经把主因钉在「布局回调自激」上（onPreferenceChange 达 200~300 次/秒、
-    // body 却几乎不重算），那套 preference 判定已整段删除。剩下这两个开关用来
-    // 排查残余抖动，也可以当作万一复发时的逃生阀：
-    //   ① 文本选择：每个气泡都挂了 .textSelection(.enabled)，
-    //      它在 iOS 上是 UITextInteraction，在 LazyVStack 里反复插拔代价很高
-    //   ② 自动跟随：每个 streamTick 都 proxy.scrollTo(bottomAnchor)
-    @Published var expNoTextSelection = UserDefaults.standard.bool(forKey: "dsh.exp.noTextSelection") {
-        didSet { UserDefaults.standard.set(expNoTextSelection, forKey: "dsh.exp.noTextSelection") }
-    }
+    // 主因已经按真机日志修掉（preference 自激、超长排版、AttributedString 每帧重算）。
+    // 剩下两个开关当作逃生阀，也可以在机器上验证残余抖动：
+    //   ① 自动跟随：每个 streamTick 都 proxy.scrollTo(bottomAnchor)
+    //   ② 文本选择：默认关（见下）
     @Published var expNoAutoFollow = UserDefaults.standard.bool(forKey: "dsh.exp.noAutoFollow") {
         didSet { UserDefaults.standard.set(expNoAutoFollow, forKey: "dsh.exp.noAutoFollow") }
+    }
+    /// 是否开启气泡文本选择。**默认关闭**。
+    ///
+    /// `.textSelection(.enabled)` 在 iOS 上给每段文字装一个 UITextInteraction，
+    /// 十几条消息 × 每段一个，全都在 LazyVStack 里随重排反复建立/拆除 ——
+    /// 这是布局阶段最贵的一块。真机实测关掉后主线程明显轻。需要复制长按文字时再开。
+    @Published var expTextSelection = UserDefaults.standard.bool(forKey: "dsh.exp.textSelection") {
+        didSet { UserDefaults.standard.set(expTextSelection, forKey: "dsh.exp.textSelection") }
     }
 
     private var client: BridgeClient?

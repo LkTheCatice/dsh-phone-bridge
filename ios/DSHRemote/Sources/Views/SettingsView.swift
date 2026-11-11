@@ -23,16 +23,16 @@ struct SettingsView: View {
                 // 主因（布局回调自激）已按真机日志修掉，这两个开关留着当逃生阀：
                 // 万一某台机器上还抖，可以关掉它们把范围缩小。
                 Section {
-                    Toggle("禁用文本选择", isOn: $model.expNoTextSelection)
+                    Toggle("启用文本选择（关掉更省）", isOn: $model.expTextSelection)
                     Toggle("禁用自动跟随滚动", isOn: $model.expNoAutoFollow)
                     HStack {
                         Button("全部开启") {
-                            model.expNoTextSelection = true
+                            model.expTextSelection = false
                             model.expNoAutoFollow = true
                         }
                         Spacer()
                         Button("全部关闭") {
-                            model.expNoTextSelection = false
+                            model.expTextSelection = true
                             model.expNoAutoFollow = false
                         }
                     }

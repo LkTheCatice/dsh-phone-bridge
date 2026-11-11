@@ -154,14 +154,15 @@ struct MarkdownText: View {
     }
 
     /// 行内格式交给 AttributedString（它只认行内才是对的用法）
+    ///
+    /// ⚠️ 必须走缓存。`AttributedString(markdown:)` 每次调用都要重新做一遍
+    /// 行内语法扫描，而 body 在流式输出时每 60ms 就重算一次 ——
+    /// 15 条消息 × 每段一次 × 每秒十几次，主线程永远追不上，
+    /// 表现就是「整个 App 卡住几十秒」（真机 STUCK 63 秒，mark=body）。
     private func inline(_ text: String) -> Text {
-        // 长段落跳过行内解析：AttributedString(markdown:) 的开销随长度线性增长，
-        // 而工具输出那种整段日志根本没有行内格式可解 —— 硬解析只会把主线程按住。
-        if text.count > 4_000 { return Text(text) }
-        if let attributed = try? AttributedString(
-            markdown: text,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        ) {
+        // 长段落跳过行内解析：开销随长度线性涨，工具输出那种整段日志也没有行内格式可解
+        if text.count > 1_000 { return Text(text) }
+        if let attributed = MarkdownCache.inline(text) {
             return Text(attributed)
         }
         return Text(text)
@@ -242,6 +243,51 @@ enum MarkdownCache {
             order.removeFirst()
             storage.removeValue(forKey: oldest)
         }
+    }
+
+    // MARK: - 行内 AttributedString 缓存
+    //
+    // 这是这一轮卡死的直接原因：`inline()` 每次都现算 `AttributedString(markdown:)`，
+    // 而 body 在流式输出时每 60ms 重算一次 —— 一次重算要几秒（十几条消息 × 每段一次），
+    // 于是队列越堆越长，主线程再也回不到空闲（真机 mark=body，STUCK 63 秒）。
+    // 文本内容不变时结果必然不变，按原文缓存即可。
+
+    private static var inlineStorage: [String: AttributedString] = [:]
+    private static var inlineMiss: Set<String> = []
+    private static var inlineOrder: [String] = []
+    private static let inlineCapacity = 400
+
+    static func inline(_ text: String) -> AttributedString? {
+        lock.lock()
+        if let hit = inlineStorage[text] {
+            lock.unlock()
+            return hit
+        }
+        if inlineMiss.contains(text) {
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
+
+        let parsed = try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )
+
+        lock.lock()
+        defer { lock.unlock() }
+        if let parsed {
+            inlineStorage[text] = parsed
+            inlineOrder.append(text)
+            while inlineOrder.count > inlineCapacity, let oldest = inlineOrder.first {
+                inlineOrder.removeFirst()
+                inlineStorage.removeValue(forKey: oldest)
+            }
+        } else {
+            // 解析失败也记住，别每次重算一遍注定失败的解析
+            inlineMiss.insert(text)
+        }
+        return parsed
     }
 }
 
