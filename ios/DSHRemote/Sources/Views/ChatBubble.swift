@@ -1,4 +1,4 @@
-
+import SwiftUI
 struct ChatBubble: View {
     let entry: ChatEntry
     @State private var expanded = false
