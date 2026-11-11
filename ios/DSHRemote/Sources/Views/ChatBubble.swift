@@ -185,19 +185,27 @@ struct ChatBubble: View {
     }
 
     private static func pickSummary(_ value: Any, depth: Int = 0) -> String? {
-        guard depth < 4 else { return nil }
-        if let s = value as? String {
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            return t.isEmpty ? nil : t
+        guard depth < 3 else { return nil }
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : clamped(trimmed)
         }
         if let dict = value as? [String: Any] {
-            let preferred = ["command", "path", "file_path", "filePath", "target", "pattern",
-                             "query", "prompt", "description", "title", "name", "text"]
+            // 1) description —— DSH 给每个工具调用写的人类可读说明，
+            //    电脑端显示的就是这句。必须排第一，否则会掉到原始命令上。
+            if let d = dict["description"] as? String {
+                let t = d.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { return clamped(t) }
+            }
+            // 2) 文件类：显示「目录末段/文件名:行号」，不要一长串绝对路径，更不要 offset 数字
+            if let p = (dict["path"] ?? dict["file_path"] ?? dict["filePath"]) as? String, !p.isEmpty {
+                return shortPath(p, offset: (dict["offset"] as? NSNumber)?.intValue)
+            }
+            // 3) 其余按语义挑（白名单）。这里刻意不再「遍历所有 key」——
+            //    那样会抓到工具结果里的文字，之前在手机上显示成 "The file D:\..." 就是这么来的。
+            let preferred = ["command", "query", "pattern", "prompt", "url", "target", "title", "name"]
             for key in preferred {
                 if let v = dict[key], let s = pickSummary(v, depth: depth + 1) { return s }
-            }
-            for (_, v) in dict {
-                if let s = pickSummary(v, depth: depth + 1) { return s }
             }
             return nil
         }
@@ -207,5 +215,21 @@ struct ChatBubble: View {
             }
         }
         return nil
+    }
+
+    /// `D:\a\b\ChatView.swift` + offset 39 → `b/ChatView.swift:39`
+    private static func shortPath(_ path: String, offset: Int?) -> String {
+        let parts = path.split(whereSeparator: { $0 == "/" || $0 == "\\" })
+        let tail = parts.suffix(2).joined(separator: "/")
+        let base = tail.isEmpty ? path : tail
+        if let offset, offset > 0 { return "\(base):\(offset)" }
+        return base
+    }
+
+    /// 命令可能很长：只留第一行，超长截断，避免整行被省略号吃掉关键信息
+    private static func clamped(_ text: String) -> String {
+        let firstLine = text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? text
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        return trimmed.count > 64 ? String(trimmed.prefix(64)) + "…" : trimmed
     }
 }
