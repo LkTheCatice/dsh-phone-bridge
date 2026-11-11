@@ -9,6 +9,7 @@ struct ChatView: View {
     @FocusState private var focused: Bool
 
     @State private var photoItem: PhotosPickerItem?
+    @State private var showPhotos = false
     @State private var showFiles = false
     @State private var uploading = false
     @State private var renaming = false
@@ -150,8 +151,10 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 // 附件入口跟 QQ 一样放在输入框左边
                 Menu {
-                    PhotosPicker(selection: $photoItem, matching: .images) {
-                        Label("照片", systemImage: "photo")
+                    // PhotosPicker 直接塞进 Menu 里不会触发选择器，必须用
+                    // photosPicker(isPresented:) 修饰符，这里只放一个开关按钮
+                    Button { showPhotos = true } label: {
+                        Label("图片", systemImage: "photo")
                     }
                     Button { showFiles = true } label: {
                         Label("文件", systemImage: "folder")
@@ -184,6 +187,7 @@ struct ChatView: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
             handleFile(result)
         }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { item in
             guard let item else { return }
             Task { await loadPhoto(item) }

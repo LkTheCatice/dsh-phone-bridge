@@ -125,29 +125,48 @@ struct ChatBubble: View {
         .padding(.leading, 2)
     }
 
-    /// 从工具参数里挑一行最能说明问题的摘要
+    /// 从工具参数里挑一行最能说明问题的摘要。
+    ///
+    /// 参数不一定是扁平对象：有的工具是 `{"content":[{"type":"text","text":"…"}]}`，
+    /// 有的直接是顶层数组。所以递归挑字段，绝不把整段 JSON 怼到界面上。
     private var summary: String? {
         guard let detail = entry.detail, !detail.isEmpty else { return nil }
         var candidate: String?
         if let data = detail.data(using: .utf8),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for key in ["command", "path", "file_path", "filePath", "target", "pattern", "query", "prompt", "text", "description", "name"] {
-                if let value = obj[key] as? String, !value.isEmpty {
-                    candidate = value
-                    break
-                }
-            }
-            if candidate == nil {
-                for (_, value) in obj {
-                    if let s = value as? String, !s.isEmpty { candidate = s; break }
-                }
-            }
-        } else {
+           let parsed = try? JSONSerialization.jsonObject(with: data, options: []) {
+            candidate = Self.pickSummary(parsed)
+        }
+        if candidate == nil {
             candidate = detail
         }
         guard var text = candidate else { return nil }
-        text = text.replacingOccurrences(of: "\n", with: " ")
-        text = text.trimmingCharacters(in: .whitespaces)
+        text = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, !text.hasPrefix("{"), !text.hasPrefix("[") else { return nil }
         return text.count > 72 ? String(text.prefix(72)) + "…" : text
+    }
+
+    private static func pickSummary(_ value: Any, depth: Int = 0) -> String? {
+        guard depth < 4 else { return nil }
+        if let s = value as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        if let dict = value as? [String: Any] {
+            let preferred = ["command", "path", "file_path", "filePath", "target", "pattern",
+                             "query", "prompt", "description", "title", "name", "text"]
+            for key in preferred {
+                if let v = dict[key], let s = pickSummary(v, depth: depth + 1) { return s }
+            }
+            for (_, v) in dict {
+                if let s = pickSummary(v, depth: depth + 1) { return s }
+            }
+            return nil
+        }
+        if let arr = value as? [Any] {
+            for item in arr {
+                if let s = pickSummary(item, depth: depth + 1) { return s }
+            }
+        }
+        return nil
     }
 }

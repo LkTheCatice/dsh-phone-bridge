@@ -175,9 +175,16 @@ export function normalizeEvent(session, event) {
       });
       break;
 
-    case "user/message":
-      frames.push({ ...base, type: "user.message", turn, text: clip(collectText(data).text, TEXT_LIMIT) });
+    case "user/message": {
+      const text = collectText(data).text;
+      // DSH 的 time-context 会在每轮用户消息前注入时间/时区上下文，那是给模型看的，
+      // 不该出现在手机的聊天记录里（否则满屏 "Time sampled while preparing turn N…"）
+      const injected = /^(Time sampled while preparing|Browser time zone for this request|Elapsed since)/im.test(text);
+      if (!injected) {
+        frames.push({ ...base, type: "user.message", turn, text: clip(text, TEXT_LIMIT) });
+      }
       break;
+    }
 
     default:
       frames.push({ ...base, type: "event", dshType: type, raw: clip(data, RAW_LIMIT) });

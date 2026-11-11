@@ -220,6 +220,11 @@ final class AppModel: ObservableObject {
 
         case "user.message":
             let text = (frame["text"] as? String) ?? ""
+            // 双保险：服务端已过滤 DSH 注入的时间上下文，历史帧再挡一次
+            let injected = text.hasPrefix("Time sampled while preparing")
+                || text.hasPrefix("Browser time zone for this request")
+                || text.hasPrefix("Elapsed since")
+            guard !injected else { return }
             append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Date()))
 
         default:
