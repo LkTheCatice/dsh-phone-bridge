@@ -6,13 +6,27 @@ struct ChatBubble: View {
     var body: some View {
         switch entry.kind {
         case .user:
-            HStack {
-                Spacer(minLength: 40)
-                Text(entry.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
+            // 用户消息也要解析媒体路径：自己发出去的图/视频/音频
+            // 之前只渲染纯文本，于是上传完只看到一行「[附件] E:/...mp4」
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack {
+                    Spacer(minLength: 40)
+                    Text(entry.text)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
+                }
+                ForEach(ImageRef.paths(in: entry.text), id: \.self) { path in
+                    RemoteImage(path: path)
+                }
+                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .video), id: \.self) { path in
+                    RemoteVideo(path: path)
+                }
+                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .audio), id: \.self) { path in
+                    RemoteAudio(path: path)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
 
         case .assistant:
             assistantBlock
