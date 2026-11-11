@@ -1230,6 +1230,47 @@ function applyBridge(ctx, config) {
     }
 
     // 可用模型列表（附当前会话的选择）
+    // 账户余额：走 DSH 自带的 accountController，不碰 API key
+    if (method === "GET" && pathname === "/v1/balance") {
+      const account = ctx.get?.("accountController") || ctx.accountController;
+      if (!account || typeof account.getBalance !== "function") {
+        return sendJson(res, 200, { ok: false, status: "unavailable", wallets: [], bonuses: [] }, ctxEnc);
+      }
+      try {
+        const result = await account.getBalance();
+        // 返回形如 null | { status:"ready", value:[{currency,balance}], bonusWallets:[...] } | { status:"failed" }
+        if (!result || result.status !== "ready") {
+          return sendJson(res, 200, {
+            ok: false,
+            status: result?.status || "unavailable",
+            wallets: [],
+            bonuses: [],
+          }, ctxEnc);
+        }
+        const normalize = (list) =>
+          (Array.isArray(list) ? list : [])
+            .map((item) => ({
+              currency: String(item?.currency || ""),
+              balance: String(item?.balance ?? ""),
+            }))
+            .filter((item) => item.currency);
+        return sendJson(res, 200, {
+          ok: true,
+          status: "ready",
+          wallets: normalize(result.value),
+          bonuses: normalize(result.bonusWallets),
+        }, ctxEnc);
+      } catch (error) {
+        logLine({ step: "balance", error: String(error?.message || error).slice(0, 200) });
+        return sendJson(res, 200, {
+          ok: false,
+          status: "failed",
+          wallets: [],
+          bonuses: [],
+        }, ctxEnc);
+      }
+    }
+
     if (method === "GET" && pathname === "/v1/models") {
       const catalog = await modelCatalog();
       const sessionId = url.searchParams.get("sessionId") || "";

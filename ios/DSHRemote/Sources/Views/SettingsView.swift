@@ -31,6 +31,38 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    if model.wallets.isEmpty {
+                        HStack(spacing: 8) {
+                            if model.walletsStatus == "loading" {
+                                ProgressView().controlSize(.mini)
+                                Text("读取中…").font(.caption).foregroundStyle(.secondary)
+                            } else if model.walletsStatus == "unavailable" || model.walletsStatus == "idle" {
+                                Text("这台电脑没登录 DeepSeek 账号").font(.caption).foregroundStyle(.secondary)
+                            } else if model.walletsStatus == "failed" {
+                                Text("读取失败，稍后再试").font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                Text("没有可显示的余额").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        ForEach(model.wallets) { wallet in
+                            LabeledContent(
+                                wallet.isBonus ? "赠送额度（\(wallet.currency)）" : "余额（\(wallet.currency)）"
+                            ) {
+                                Text(wallet.balance)
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                    }
+                    Button("刷新余额") { Task { await model.loadBalance() } }
+                } header: {
+                    Text("账户余额")
+                } footer: {
+                    Text("由电脑端向 DeepSeek 查询，手机上不保存任何 API 凭据。")
+                        .font(.caption2)
+                }
+
                 Section("允许的文件根目录") {
                     if model.roots.isEmpty {
                         Text("尚未获取").font(.caption).foregroundStyle(.secondary)
@@ -61,6 +93,11 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("设置")
+            .task {
+                // 进设置页拉一次，不做轮询
+                if model.walletsStatus == "idle" { await model.loadBalance() }
+            }
+            .refreshable { await model.loadBalance() }
             .confirmationDialog("确定要删除本地配对信息吗？", isPresented: $confirmingForget, titleVisibility: .visible) {
                 Button("删除", role: .destructive) { model.forgetPairing() }
                 Button("取消", role: .cancel) {}

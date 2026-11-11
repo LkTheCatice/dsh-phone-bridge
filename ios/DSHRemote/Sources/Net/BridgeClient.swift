@@ -230,6 +230,10 @@ final class BridgeClient {
         try await getJSON("/v1/comfy")
     }
 
+    func balance() async throws -> [String: Any] {
+        try await getJSON("/v1/balance")
+    }
+
     func models(sessionId: String?) async throws -> [String: Any] {
         var query: [(String, String)] = []
         if let sessionId, !sessionId.isEmpty { query.append(("sessionId", sessionId)) }

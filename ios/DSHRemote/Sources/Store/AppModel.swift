@@ -101,8 +101,7 @@ final class AppModel: ObservableObject {
         await connect()
     }
 
-    func connect() async {
-        guard let config = pairing else { return }
+    func connect() async {        guard let config = pairing else { return }
         disconnect()
         phase = .connecting
         let client = BridgeClient(config: config)
@@ -127,6 +126,12 @@ final class AppModel: ObservableObject {
         client = nil
         phase = .disconnected
         reconnectAttempt = 0
+    }
+
+    /// 断线横幅上的「重连」：清掉退避计数再连一次
+    func reconnect() async {
+        disconnect()
+        await connect()
     }
 
     func forgetPairing() {
@@ -823,6 +828,41 @@ final class AppModel: ObservableObject {
         guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/v1/health?d=\(encoded)") else { return }
         Task.detached(priority: .background) {
             _ = try? await URLSession.shared.data(from: url)
+        }
+    }
+
+    /// 账户余额（设置页显示）
+    struct Wallet: Identifiable, Equatable {
+        let currency: String
+        let balance: String
+        var id: String { currency }
+        var isBonus: Bool = false
+    }
+
+    @Published private(set) var wallets: [Wallet] = []
+    @Published private(set) var walletsStatus: String = "idle"
+
+    func loadBalance() async {
+        guard let client else { return }
+        walletsStatus = "loading"
+        do {
+            let raw = try await client.balance()
+            let status = (raw["status"] as? String) ?? "unknown"
+            walletsStatus = status
+            func parse(_ key: String, bonus: Bool) -> [Wallet] {
+                (raw[key] as? [[String: Any]] ?? []).compactMap { item in
+                    guard let currency = item["currency"] as? String, !currency.isEmpty else { return nil }
+                    return Wallet(
+                        currency: currency,
+                        balance: (item["balance"] as? String) ?? "-",
+                        isBonus: bonus
+                    )
+                }
+            }
+            wallets = parse("wallets", bonus: false) + parse("bonuses", bonus: true)
+        } catch {
+            walletsStatus = "failed"
+            wallets = []
         }
     }
 

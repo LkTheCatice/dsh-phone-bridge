@@ -1,6 +1,30 @@
 import SwiftUI
 import UIKit
 
+/// 首次引导里的单步：序号圆圈 + 标题 + 说明
+private struct OnboardingStep: View {
+    let index: Int
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(index)")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(Color.accentColor, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 struct PairingView: View {
     @EnvironmentObject private var model: AppModel
     @State private var text = ""
@@ -14,10 +38,32 @@ struct PairingView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // 首次使用引导：这个页面本身就是「还没配对」的状态，
+                // 所以三步说明直接常驻在最上面，配对成功后整个页面就不见了。
                 Section {
-                    Text("在电脑上运行 `node bridge/bin/pairing.mjs`，把打印出来的 `dshnb://pair?...` 整串粘贴到这里。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 12) {
+                        OnboardingStep(
+                            index: 1,
+                            title: "电脑上生成配对串",
+                            detail: "在电脑打开终端，运行 node bridge/bin/pairing.mjs"
+                        )
+                        OnboardingStep(
+                            index: 2,
+                            title: "粘到下面",
+                            detail: "复制打印出的 dshnb://pair?... 整串，点「从剪贴板粘贴」"
+                        )
+                        OnboardingStep(
+                            index: 3,
+                            title: "电脑上批准这台手机",
+                            detail: "首次连接会出现在 DSH 的「设置 → 手机设备」，点允许即可"
+                        )
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("三步开始使用")
+                } footer: {
+                    Text("全程端到端加密，配对串只在你和这台电脑之间使用。")
+                        .font(.caption2)
                 }
 
                 if !manual {
