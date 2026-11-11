@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView {
@@ -14,8 +15,9 @@ struct MainView: View {
         }
         .overlay(alignment: .top) {
             VStack(spacing: 6) {
-                // 断线提示：只有异常时才出现，正常不占位
-                if model.phase != .connected {
+                // 断线提示：只有异常时才出现，正常不占位。
+                // 回前台的头几秒跳过 —— 那时连接还没恢复，弹「未连接」是误报。
+                if model.phase != .connected && !model.suppressDisconnect {
                     DisconnectBanner()
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -29,6 +31,13 @@ struct MainView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
         .animation(.easeInOut(duration: 0.2), value: model.phase)
+        .animation(.easeInOut(duration: 0.2), value: model.suppressDisconnect)
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            // 切回前台：先给 3 秒宽限，同时自动重连
+            model.beginReconnectGrace(seconds: 3)
+            Task { await model.reconnect() }
+        }
         .task {
             if !model.isConnected { await model.connect() }
             // ComfyUI 状态每 8 秒刷一次（聊天页顶部的状态点）
