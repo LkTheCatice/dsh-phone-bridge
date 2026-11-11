@@ -161,53 +161,24 @@ enum MarkdownNS {
 
     // MARK: - 行内（**粗体** / *斜体* / `代码`）
 
-    private static let patterns: [(NSRegularExpression, String)] = {
-        var list: [(NSRegularExpression, String)] = []
-        if let bold = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*") { list.append((bold, "bold")) }
-        if let code = try? NSRegularExpression(pattern: "`([^`]+)`") { list.append((code, "code")) }
-        if let italic = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)") { list.append((italic, "italic")) }
-        return list
-    }()
-
     private static func inline(_ text: String, base: UIFont) -> NSAttributedString {
-        // 超长段落不做行内解析（正则成本随长度涨，且这么长基本没有行内格式）
-        guard text.count <= MarkdownCache.inlineMaxChars else {
-            return NSAttributedString(string: text, attributes: [.font: base, .foregroundColor: UIColor.label])
-        }
-
-        let result = NSMutableAttributedString(
-            string: text,
+        let cleaned = stripInlineMarks(text)
+        return NSAttributedString(
+            string: cleaned,
             attributes: [.font: base, .foregroundColor: UIColor.label]
         )
+    }
 
-        for (regex, kind) in patterns {
-            // ⚠️ 必须基于**当前**字符串重算 range：
-            // 上一轮替换已经改变了长度（去掉了 ** 和反引号），
-            // 沿用旧 NSRange 会越界 —— 这就是「点开就闪退」的原因。
-            let current = result.string as NSString
-            let full = NSRange(location: 0, length: current.length)
-            let matches = regex.matches(in: current as String, range: full)
-            for match in matches.reversed() {
-                let inner = match.range(at: 1)
-                guard inner.location != NSNotFound, NSMaxRange(inner) <= current.length else { continue }
-                let content = current.substring(with: inner)
-                let replacement = NSMutableAttributedString(string: content)
-                switch kind {
-                case "bold":
-                    replacement.addAttribute(.font, value: UIFont.systemFont(ofSize: base.pointSize, weight: .semibold), range: NSRange(location: 0, length: replacement.length))
-                case "code":
-                    replacement.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: base.pointSize - 1, weight: .regular), range: NSRange(location: 0, length: replacement.length))
-                    replacement.addAttribute(.backgroundColor, value: UIColor.secondarySystemFill, range: NSRange(location: 0, length: replacement.length))
-                case "italic":
-                    replacement.addAttribute(.font, value: UIFont.italicSystemFont(ofSize: base.pointSize), range: NSRange(location: 0, length: replacement.length))
-                default:
-                    break
-                }
-                replacement.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: replacement.length))
-                result.replaceCharacters(in: match.range, with: replacement)
-            }
+    /// 去掉行内标记符号（不建属性，纯字符串处理，零越界风险）
+    private static func stripInlineMarks(_ text: String) -> String {
+        var s = text
+        s = s.replacingOccurrences(of: "**", with: "")
+        s = s.replacingOccurrences(of: "`", with: "")
+        // 单个星号只在成对出现时才去掉，避免吃掉乘号之类的正常文本
+        if s.filter({ $0 == "*" }).count % 2 == 0 {
+            s = s.replacingOccurrences(of: "*", with: "")
         }
-        return result
+        return s
     }
 
     private static func clampCode(_ code: String) -> String {
