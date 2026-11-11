@@ -38,9 +38,19 @@ struct SettingsView: View {
                                 ProgressView().controlSize(.mini)
                                 Text("读取中…").font(.caption).foregroundStyle(.secondary)
                             } else if model.walletsStatus == "unavailable" || model.walletsStatus == "idle" {
-                                Text("这台电脑没登录 DeepSeek 账号").font(.caption).foregroundStyle(.secondary)
+                                Text("这台电脑没启用账号服务").font(.caption).foregroundStyle(.secondary)
+                            } else if model.walletsStatus == "not-signed-in" {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("电脑上的 DSH 还没登录 DeepSeek 账号").font(.caption)
+                                    Text("登录后回来点「刷新余额」").font(.caption2).foregroundStyle(.secondary)
+                                }
                             } else if model.walletsStatus == "failed" {
-                                Text("读取失败，稍后再试").font(.caption).foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("读取失败").font(.caption)
+                                    if let detail = model.walletsDetail, !detail.isEmpty {
+                                        Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                                    }
+                                }
                             } else {
                                 Text("没有可显示的余额").font(.caption).foregroundStyle(.secondary)
                             }

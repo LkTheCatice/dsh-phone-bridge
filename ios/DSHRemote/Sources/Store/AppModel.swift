@@ -31,6 +31,12 @@ final class AppModel: ObservableObject {
     /// 「明明在这个对话，却被别的对话的更新拉到底部」。
     /// 现在 ChatView 只观察这个属性，别的会话怎么变都不影响它。
     @Published private(set) var currentEntries: [ChatEntry] = []
+    /// 当前会话内容的变化计数。
+    ///
+    /// 自动跟随靠它触发，而不是监听 `entries.last?.text`：
+    /// 最后一条若是 thinking 或工具行，文本不变但高度在长，
+    /// 只看 text 就会漏掉，位置掉队后 atBottom 判为 false，跟随彻底停摆。
+    @Published private(set) var streamTick = 0
     /// 历史重建完成的计数。界面靠它决定「该滚到底了」——
     /// 回填时底部哨兵还没渲染，proxy.scrollTo 找不到目标，
     /// 所以必须等渲染完再滚，否则冷启动会停在最早的消息上。
@@ -38,10 +44,14 @@ final class AppModel: ObservableObject {
 
     private func syncCurrentEntries() {
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
-        if next.count != currentEntries.count || next.last?.id != currentEntries.last?.id
-            || next.last?.text != currentEntries.last?.text {
-            currentEntries = next
-        }
+        let changed = next.count != currentEntries.count
+            || next.last?.id != currentEntries.last?.id
+            || next.last?.text != currentEntries.last?.text
+            || next.last?.summary != currentEntries.last?.summary
+            || next.last?.running != currentEntries.last?.running
+        guard changed else { return }
+        currentEntries = next
+        streamTick &+= 1
     }
     /// 聊天条目。
     ///
@@ -904,6 +914,8 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var wallets: [Wallet] = []
     @Published private(set) var walletsStatus: String = "idle"
+    /// 服务端给的失败原因（显示在设置页，便于判断是没登录还是网络问题）
+    @Published private(set) var walletsDetail: String?
 
     func loadBalance() async {
         guard let client else { return }
@@ -912,6 +924,7 @@ final class AppModel: ObservableObject {
             let raw = try await client.balance()
             let status = (raw["status"] as? String) ?? "unknown"
             walletsStatus = status
+            walletsDetail = raw["detail"] as? String
             func parse(_ key: String, bonus: Bool) -> [Wallet] {
                 (raw[key] as? [[String: Any]] ?? []).compactMap { item in
                     guard let currency = item["currency"] as? String, !currency.isEmpty else { return nil }
@@ -925,6 +938,7 @@ final class AppModel: ObservableObject {
             wallets = parse("wallets", bonus: false) + parse("bonuses", bonus: true)
         } catch {
             walletsStatus = "failed"
+            walletsDetail = error.localizedDescription
             wallets = []
         }
     }

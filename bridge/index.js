@@ -14,9 +14,16 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { zstdDecompressSync } from "node:zlib";
 import { randomUUID, createHash } from "node:crypto";
 import { URL } from "node:url";
+
+const execFileAsync = promisify(execFile);
+const fsp = fs.promises;
+/** Pillow 所在解释器：这台机器上 ComfyUI 自带 */
+const PYTHON_FALLBACK = "E:\\AI\\ComfyUI\\python_embeded\\python.exe";
 
 import {
   clearClients,
@@ -471,6 +478,75 @@ function applyBridge(ctx, config) {
   const framesLogCache = new Map(); // sessionId -> { frames, mtimeMs }
   const FRAMES_CACHE_LIMIT = 6;
   const MAX_LOG_BYTES = 24 * 1024 * 1024;
+
+  // MARK: 图片预览压缩
+  const PREVIEW_MAX_PIXEL = 2048;
+  const PREVIEW_QUALITY = 86;
+  const PREVIEW_MIN_BYTES = 800 * 1024;
+  const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"]);
+  const previewCacheDir = path.join(stateDir(), "preview-cache");
+
+  /**
+   * 生成图片预览：电脑侧压好再传，手机只为「看一眼确认」。
+   *
+   * 用 Pillow 而不是 ffmpeg/ImageMagick —— 这台机器上那两个都没装，
+   * 但 ComfyUI 的 python_embeded 自带 Pillow。
+   * 结果按 path+mtime 缓存，同一张图只压一次。
+   * 小于 800KB 的图不压（原样更清楚）；视频/音频不处理。
+   */
+  async function imagePreview(target) {
+    const ext = path.extname(String(target)).toLowerCase();
+    if (!IMAGE_EXT.has(ext)) return null;
+
+    let real;
+    try {
+      real = await safeFs.resolveAllowed(target);
+    } catch {
+      return null;
+    }
+    let stat;
+    try {
+      stat = await fsp.stat(real);
+    } catch {
+      return null;
+    }
+    if (stat.size < PREVIEW_MIN_BYTES) return null;
+
+    const key = createHash("sha1")
+      .update(`${real}|${stat.mtimeMs}|${PREVIEW_MAX_PIXEL}|${PREVIEW_QUALITY}`)
+      .digest("hex");
+    const cachedPath = path.join(previewCacheDir, `${key}.jpg`);
+    try {
+      return { buffer: await fsp.readFile(cachedPath) };
+    } catch {
+      /* 无缓存，生成 */
+    }
+
+    const python = cfg.pythonPath || PYTHON_FALLBACK;
+    const script = [
+      "import sys",
+      "from PIL import Image",
+      "src, dst, maxpx, q = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])",
+      "im = Image.open(src)",
+      "im.thumbnail((maxpx, maxpx), Image.LANCZOS)",
+      "im.convert('RGB').save(dst, 'JPEG', quality=q, optimize=True)",
+    ].join("\n");
+
+    try {
+      await fsp.mkdir(previewCacheDir, { recursive: true });
+      await execFileAsync(
+        python,
+        ["-c", script, real, cachedPath, String(PREVIEW_MAX_PIXEL), String(PREVIEW_QUALITY)],
+        { timeout: 25000, windowsHide: true },
+      );
+      const buffer = await fsp.readFile(cachedPath);
+      logLine({ step: "preview", srcBytes: stat.size, outBytes: buffer.length });
+      return { buffer };
+    } catch (error) {
+      logLine({ step: "preview/failed", error: String(error?.message || error).slice(0, 160) });
+      return null;
+    }
+  }
 
   /** 冷会话的历史：直接用磁盘日志重建（和标题走同一套 zstd 读取） */
   function framesFromLog(sessionId) {
@@ -1261,10 +1337,16 @@ function applyBridge(ctx, config) {
           bonuses: normalize(result.bonusWallets),
         }, ctxEnc);
       } catch (error) {
-        logLine({ step: "balance", error: String(error?.message || error).slice(0, 200) });
+        const message = String(error?.message || error);
+        logLine({ step: "balance", error: message.slice(0, 200) });
+        // getBalance 内部会读账号客户端的状态；它没初始化时就是这类
+        // "Cannot read properties of undefined (reading 'version')"，
+        // 通常意味着电脑上的 DSH 还没登录 DeepSeek 账号。
+        const signedOut = /version|undefined|null/i.test(message);
         return sendJson(res, 200, {
           ok: false,
-          status: "failed",
+          status: signedOut ? "not-signed-in" : "failed",
+          detail: message.slice(0, 160),
           wallets: [],
           bonuses: [],
         }, ctxEnc);
@@ -1468,6 +1550,22 @@ function applyBridge(ctx, config) {
       const target = url.searchParams.get("path") || "";
       const offset = Number(url.searchParams.get("offset")) || 0;
       const limit = Number(url.searchParams.get("limit")) || MAX_FILE_CHUNK;
+
+      // preview=1：图片先在电脑侧压成预览再传。
+      // ComfyUI 出的 PNG 动辄十几 MB，手机只为「看一眼确认」，
+      // 原样传既慢又占内存；高清原件始终在电脑上。
+      if (url.searchParams.get("preview") === "1" && offset === 0) {
+        const preview = await imagePreview(target);
+        if (preview) {
+          return sendBinary(res, 200, preview.buffer, ctxEnc, {
+            "x-file-size": String(preview.buffer.length),
+            "x-chunk-offset": "0",
+            "x-chunk-eof": "1",
+            "x-preview": "1",
+          });
+        }
+      }
+
       const file = await safeFs.read(target, { offset, limit });
       return sendBinary(res, 200, file.buffer, ctxEnc, {
         "x-file-size": String(file.size),

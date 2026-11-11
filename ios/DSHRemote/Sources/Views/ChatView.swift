@@ -115,13 +115,17 @@ struct ChatView: View {
                 // 而这里 contentSize 一直在动（LazyVStack 排版、流式输出、附件条高度），
                 // 指示条会跟着抖。位置感交给右下角那个「↓」按钮代替。
                 .scrollIndicators(.hidden)
-                // 新条目出现时：
-                // - 手机刚发过消息（3 秒内）→ 滚到底，保证能看到自己那条
-                // - 否则（电脑端发的、别的来源）→ 不抢滚动位置，只挂「新消息」提示
-                .onChange(of: entries.count) { _ in
-                    // 贴在底部就跟——不管消息来自手机还是电脑；
-                    // 已经往上翻了就不动它，只挂提示
+                // 内容一有变化就判断要不要跟随。
+                // 用 streamTick 而不是 entries.count / last?.text：
+                // 前者漏掉「流式文字在同一行里增长」，后者漏掉
+                // 「最后一条是 thinking 或工具行、文本不变但高度在长」。
+                .onChange(of: model.streamTick) { _ in
                     if jump.atBottom {
+                        // 节流 150ms：scrollToEnd 里有 layoutIfNeeded，
+                        // 太密会把主线程压在布局上（之前 80ms 无节流时卡死过）
+                        let now = Date()
+                        guard now.timeIntervalSince(lastFollowAt) > 0.15 else { return }
+                        lastFollowAt = now
                         scrollToEnd(proxy)
                     } else {
                         jump.hasNewBelow = true
@@ -136,17 +140,6 @@ struct ChatView: View {
                     DispatchQueue.main.async {
                         scrollToEnd(proxy)
                     }
-                }
-                // 流式文本增长时，只在已经贴底的情况下跟随（看实时输出）。
-                // 加 80ms 节流：UIKit 跟随要 layoutIfNeeded，每帧跑会拖慢滚动。
-                .onChange(of: entries.last?.text) { _ in
-                    guard jump.atBottom else { return }
-                    let now = Date()
-                    // 节流 150ms：配合 scrollToEnd 里的 layoutIfNeeded，
-                    // 再快就会把主线程压在布局上（之前 80ms 且无节流时卡死过）
-                    guard now.timeIntervalSince(lastFollowAt) > 0.15 else { return }
-                    lastFollowAt = now
-                    scrollToEnd(proxy)
                 }
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
                 // 滞后阈值：进入用 +40pt，离开必须滑出 280pt 才算离开 ——
