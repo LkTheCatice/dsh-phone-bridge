@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var historyVersion = 0
 
     private func syncCurrentEntries() {
+        pendingSync = false
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
         // 整数组比较：只比 count / last 会漏掉「中间某条在变」的情况，
         // 那正是跟随失效的原因之一。ChatEntry 实现了 ==，逐项比较很快。
@@ -50,6 +51,21 @@ final class AppModel: ObservableObject {
         currentEntries = next
         streamTick &+= 1
     }
+
+    /// 标记「当前会话内容可能变了」。
+    ///
+    /// 不立即同步：流式输出每秒二三十个 delta，每次都做一遍 O(n) 数组比较
+    /// （元素里有多个 String 字段）会把主线程压死 —— 这是这一轮卡死的第二个原因。
+    /// 攒到 60ms 再一次性比对，视觉上完全无感，开销降到原来的 1/5。
+    private func markCurrentDirty() {
+        guard !pendingSync else { return }
+        pendingSync = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+            guard let self, self.pendingSync else { return }
+            self.syncCurrentEntries()
+        }
+    }
+    private var pendingSync = false
     /// 聊天条目。
     ///
     /// 刻意不用 `@Published`：回填历史时会有几百次写入，每次 @Published 都会发一次
@@ -62,8 +78,8 @@ final class AppModel: ObservableObject {
             entriesStorage = newValue
             if !isBatchingEntries {
                 objectWillChange.send()
-                // 只关心「当前会话」的内容有没有变；别的会话写入不惊动当前界面
-                syncCurrentEntries()
+                // 攒 60ms 再比对当前会话，别让每个流式 delta 都跑一遍全量比较
+                markCurrentDirty()
             }
         }
     }

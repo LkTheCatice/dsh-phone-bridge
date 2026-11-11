@@ -35,12 +35,20 @@ enum ImageRef {
         allAbsolutePaths(in: text).filter { kind(of: $0) == wanted }
     }
 
+    // 正则必须缓存成 static：每次调用都 NSRegularExpression(pattern:) 会重新编译，
+    // 而 ChatBubble 每次 body 重建都会调这些函数 —— 一屏几十条消息乘上流式的
+    // 每秒十几次刷新，就是主线程被正则编译拖死的直接原因。
+    private static let mdRegex = try? NSRegularExpression(pattern: mdPattern, options: [.caseInsensitive])
+    private static let bareRegex = try? NSRegularExpression(pattern: barePattern, options: [.caseInsensitive])
+    private static let mediaRegex = try? NSRegularExpression(
+        pattern: #"((?:[A-Za-z]:[\\/]|/)[^\s"'<>|\[\]]*?\.[A-Za-z0-9]{2,5})"#,
+        options: [.caseInsensitive]
+    )
+
     /// 扫出文本里所有「绝对路径 + 已知媒体扩展名」的字符串
     private static func allAbsolutePaths(in text: String) -> [String] {
-        guard !text.isEmpty else { return [] }
+        guard !text.isEmpty, let regex = mediaRegex else { return [] }
         let extensions = imageExtensions.union(videoExtensions).union(audioExtensions)
-        let pattern = #"((?:[A-Za-z]:[\\/]|/)[^\s"'<>|\[\]]*?\.[A-Za-z0-9]{2,5})"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
         var found: [String] = []
         var seen = Set<String>()
@@ -76,8 +84,7 @@ enum ImageRef {
             found.append(value)
         }
 
-        for pattern in [mdPattern, barePattern] {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+        for regex in [Self.mdRegex, Self.bareRegex].compactMap({ $0 }) {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             for match in regex.matches(in: text, range: range) {
                 let captureIndex = match.numberOfRanges > 1 ? 1 : 0
@@ -90,11 +97,48 @@ enum ImageRef {
 
     /// 生成给人看的文本：把 Markdown 图片语法换成短名字，避免一屏乱码
     static func cleaned(_ text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: mdPattern, options: [.caseInsensitive]) else {
-            return text
-        }
+        guard let regex = Self.mdRegex else { return text }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "🖼 $1")
+    }
+}
+
+/// 一条消息里出现的媒体路径（图片 / 视频 / 音频）
+struct MediaRefs {
+    let images: [String]
+    let videos: [String]
+    let audios: [String]
+
+    var isEmpty: Bool { images.isEmpty && videos.isEmpty && audios.isEmpty }
+    static let empty = MediaRefs(images: [], videos: [], audios: [])
+}
+
+/// 媒体路径扫描结果缓存。
+///
+/// ChatBubble 每次 body 重建都会问「这段文本里有哪些图片/视频/音频」，
+/// 而条目一多，body 每秒重建十几次 —— 不做缓存的话就是
+/// 「每条消息 × 3 次全文正则扫描 × 每秒十几次」，主线程直接卡死。
+/// 这里按文本缓存，同一条消息只在第一次渲染时扫一遍。
+enum MediaRefCache {
+    private static var storage: [String: MediaRefs] = [:]
+    private static var order: [String] = []
+    private static let capacity = 120
+
+    static func refs(for text: String) -> MediaRefs {
+        guard !text.isEmpty else { return .empty }
+        if let hit = storage[text] { return hit }
+        let computed = MediaRefs(
+            images: ImageRef.paths(in: text),
+            videos: ImageRef.mediaPaths(in: text, kind: .video),
+            audios: ImageRef.mediaPaths(in: text, kind: .audio)
+        )
+        storage[text] = computed
+        order.append(text)
+        while order.count > capacity, let oldest = order.first {
+            order.removeFirst()
+            storage.removeValue(forKey: oldest)
+        }
+        return computed
     }
 }
 

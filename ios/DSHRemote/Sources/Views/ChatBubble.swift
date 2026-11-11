@@ -8,6 +8,7 @@ struct ChatBubble: View {
         case .user:
             // 用户消息也要解析媒体路径：自己发出去的图/视频/音频
             // 之前只渲染纯文本，于是上传完只看到一行「[附件] E:/...mp4」
+            let userMedia = MediaRefCache.refs(for: entry.text)
             VStack(alignment: .trailing, spacing: 6) {
                 HStack {
                     Spacer(minLength: 40)
@@ -16,13 +17,13 @@ struct ChatBubble: View {
                         .padding(.vertical, 8)
                         .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
                 }
-                ForEach(ImageRef.paths(in: entry.text), id: \.self) { path in
+                ForEach(userMedia.images, id: \.self) { path in
                     RemoteImage(path: path)
                 }
-                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .video), id: \.self) { path in
+                ForEach(userMedia.videos, id: \.self) { path in
                     RemoteVideo(path: path)
                 }
-                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .audio), id: \.self) { path in
+                ForEach(userMedia.audios, id: \.self) { path in
                     RemoteAudio(path: path)
                 }
             }
@@ -84,17 +85,18 @@ struct ChatBubble: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
+                let media = MediaRefCache.refs(for: entry.text)
                 MarkdownText(raw: ImageRef.cleaned(entry.text))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
-                ForEach(ImageRef.paths(in: entry.text), id: \.self) { path in
+                ForEach(media.images, id: \.self) { path in
                     RemoteImage(path: path)
                 }
                 // 视频 / 音频：同样从正文里挑出来，各自渲染播放器
-                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .video), id: \.self) { path in
+                ForEach(media.videos, id: \.self) { path in
                     RemoteVideo(path: path)
                 }
-                ForEach(ImageRef.mediaPaths(in: entry.text, kind: .audio), id: \.self) { path in
+                ForEach(media.audios, id: \.self) { path in
                     RemoteAudio(path: path)
                 }
             }
@@ -194,8 +196,7 @@ struct ChatBubble: View {
 
                 // 工具读过的图：DSH 运行时看的图片只出现在参数里，
                 // 不渲染的话手机上完全看不到这一轮到底看了什么。
-                ForEach(ToolSummary.imagePaths(from: detail), id: \.self) { path in
-                    RemoteImage(path: path)
+                ForEach(ToolSummary.imagePaths(from: detail), id: \.self) { path in                    RemoteImage(path: path)
                 }
             }
         }
