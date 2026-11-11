@@ -316,11 +316,24 @@ final class AppModel: ObservableObject {
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
         let turn = (frame["turn"] as? NSNumber)?.intValue ?? 0
 
+        // 运行状态：只看帧类型，不碰内容 —— 未选中的会话也能在列表里显示「在跑」
+        switch type {
+        case "turn.start", "assistant.delta", "assistant.thinking", "tool.call":
+            sessionList.markRunning(sid, true)
+        case "turn.end":
+            sessionList.markRunning(sid, false)
+        default:
+            break
+        }
+
         // 没被选中的会话**不落条目**（用户要求：先不加载，点开时再拉历史）。
         // 之前是所有会话的对话都堆在内存里、每个 delta 都可能触发 append 与裁剪，
         // 切会话时两份对话还同时在 body 里被扫描。副作用只有一个：把未读标上。
         if !isHistory, !sid.isEmpty, sid != "pending", sid != selectedSessionId {
-            if type == "turn.end" { unreadSessions.insert(sid) }
+            if type == "turn.end", !isHistory {
+                unreadSessions.insert(sid)
+                Task { await refreshSessions(force: true) }
+            }
             return
         }
 

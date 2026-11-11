@@ -157,7 +157,7 @@ struct SessionListSheet: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            if session.running {
+            if session.running || sessionList.running.contains(session.id) {
                 ProgressView().controlSize(.mini)
             } else if model.unreadSessions.contains(session.id) {
                 Circle().fill(Color.accentColor).frame(width: 7, height: 7)
@@ -175,7 +175,7 @@ struct SessionListSheet: View {
 
     private func subtitle(_ session: SessionRow) -> String {
         var parts: [String] = []
-        if session.running {
+        if session.running || sessionList.running.contains(session.id) {
             parts.append("正在处理")
         } else if model.unreadSessions.contains(session.id) {
             parts.append("已完成")

@@ -14,4 +14,21 @@ import Combine
 final class SessionListStore: ObservableObject {
     @Published var rows: [SessionRow] = []
     @Published var archived: [SessionRow] = []
+
+    /// 正在跑的会话 id 集合。
+    ///
+    /// 为什么另立一份：未选中的会话已经不加载任何条目了（省内存），
+    /// 但列表界面仍然要显示「谁在跑」—— 这个状态不需要对话内容，
+    /// 从事件帧类型就能维护（turn.start/delta/tool.call = 跑，turn.end = 停）。
+    /// 只在状态真正翻转时写入，避免每个 delta 都通知列表重算。
+    @Published private(set) var running: Set<String> = []
+
+    func markRunning(_ id: String, _ on: Bool) {
+        guard !id.isEmpty else { return }
+        if on {
+            if !running.contains(id) { running.insert(id) }
+        } else {
+            if running.contains(id) { running.remove(id) }
+        }
+    }
 }
