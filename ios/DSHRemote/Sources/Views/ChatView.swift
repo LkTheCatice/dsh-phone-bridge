@@ -108,18 +108,18 @@ struct ChatView: View {
                         if atBottom { atBottom = false }
                     }
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                // 按钮挂在 composer 的 overlay 上：composer 由 safeAreaInset 提供，
-                // 本身不随滚动移动，所以按钮的手势完全不参与 ScrollView 的竞争 ——
-                // 惯性滚动中也能一次点中。
-                // 视觉上靠 offset 浮到输入栏上方，不跟输入框连成一体。
-                composer
-                    .overlay(alignment: .topTrailing) {
-                        jumpButtons(proxy)
-                            .padding(.trailing, 14)
-                            .offset(y: -54)
-                    }
+                // 放在 ScrollViewReader 内部才能拿到 proxy；
+                // composer 由 safeAreaInset 提供，不随滚动移动，按钮挂它的 overlay
+                // 就完全脱离了 ScrollView 的手势竞争。
+                // 视觉上靠 offset 浮到输入栏上方，不和输入框连成一体。
+                .safeAreaInset(edge: .bottom) {
+                    composer
+                        .overlay(alignment: .topTrailing) {
+                            jumpButtons(proxy)
+                                .padding(.trailing, 14)
+                                .offset(y: -54)
+                        }
+                }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
