@@ -15,7 +15,31 @@ final class AppModel: ObservableObject {
     @Published private(set) var serverInfo: String = ""
     @Published private(set) var sessions: [SessionRow] = []
     @Published var selectedSessionId: String?
-    @Published private(set) var entries: [String: [ChatEntry]] = [:]
+    /// 聊天条目。
+    ///
+    /// 刻意不用 `@Published`：回填历史时会有几百次写入，每次 @Published 都会发一次
+    /// objectWillChange，等于让整个 ChatView 重建几百遍 —— 切会话时「触控发钝」就是这个。
+    /// 改成手动发通知：批量期间闭嘴，结束时一次性刷新。
+    private var entriesStorage: [String: [ChatEntry]] = [:]
+    var entries: [String: [ChatEntry]] {
+        get { entriesStorage }
+        set {
+            entriesStorage = newValue
+            if !isBatchingEntries { objectWillChange.send() }
+        }
+    }
+    /// 批量写入中：期间不对外发变更通知
+    private var isBatchingEntries = false
+
+    func beginBatch() {
+        isBatchingEntries = true
+    }
+
+    func endBatch() {
+        guard isBatchingEntries else { return }
+        isBatchingEntries = false
+        objectWillChange.send()
+    }
     @Published private(set) var pendingApprovals: [ApprovalRow] = []
     @Published private(set) var roots: [String] = []
     @Published private(set) var lastSeq: Int = UserDefaults.standard.integer(forKey: "dsh.lastSeq")
@@ -697,14 +721,18 @@ final class AppModel: ObservableObject {
         do {
             let raw = try await client.transcript(sessionId: sessionId, limit: limit)
             guard let frames = raw["frames"] as? [[String: Any]] else { return }
-            // 重建：先清空，再按顺序喂给 apply
-            // seq 传 0 不推进实时游标；isHistory=true 避免每个 turn.end 都去刷会话列表
+            // 整段批量写，期间不发变更通知：几百帧就是几百次写入，
+            // 逐次通知会让 ChatView 重建几百遍，切会话时手感发钝就是这个原因。
+            beginBatch()
             entries[sessionId] = []
             for frame in frames {
+                // seq 传 0 不推进实时游标；isHistory=true 避免每个 turn.end 都去刷会话列表
                 apply(seq: 0, frame: frame, isHistory: true)
             }
+            endBatch()
             historyNote = raw["note"] as? String
         } catch {
+            endBatch()
             lastError = "读取历史失败：\(error.localizedDescription)"
         }
     }
