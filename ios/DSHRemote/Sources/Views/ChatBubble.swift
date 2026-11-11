@@ -44,6 +44,8 @@ extension View {
 struct ChatBubble: View, Equatable {
     let entry: ChatEntry
     @State private var expanded = false
+    /// 工具详情弹窗（详情不再内联渲染，见 toolRow 里的注释）
+    @State private var detailSheet: ChatEntry?
 
     static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
         lhs.entry == rhs.entry
@@ -93,7 +95,7 @@ struct ChatBubble: View, Equatable {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
                     // 思考过程很容易上万字符：只排前面一段，别让一次思考把主线程按住
-                    Text(entry.text.count > 1_500 ? String(entry.text.prefix(1_500)) + "\n…（思考内容过长，已截断）" : entry.text)
+                    Text(entry.text.count > 500 ? String(entry.text.prefix(500)) + "\n…（思考内容过长，已截断）" : entry.text)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .selectableText()
@@ -282,42 +284,83 @@ struct ChatBubble: View, Equatable {
                 Spacer(minLength: 0)
 
                 if entry.detail != nil {
-                    Button(expanded ? "收起" : "详情") { expanded.toggle() }
+                    Button("详情") { detailSheet = entry }
                         .font(.system(size: 11))
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
                 }
             }
 
-            if expanded, let detail = entry.detail {
-                // 工具参数/结果动辄几万字符（整段文件内容、命令输出），
-                // 只排前面一段：这里是主线程，排版成本随字数线性涨。
-                let shown = detail.count > 4_000
-                    ? String(detail.prefix(4_000)) + "\n…（其余 \(detail.count - 4_000) 字已省略）"
-                    : detail
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(shown)
-                        .font(.system(size: 11, design: .monospaced))
-                        .selectableText()
-                        .padding(8)
-                }
-                .frame(maxHeight: 220)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-
-                // 工具读过的图：DSH 运行时看的图片只出现在参数里，
-                // 不渲染的话手机上完全看不到这一轮到底看了什么。
-                // 只在前面一段里找（正则扫全文在主线程，几万字符会明显卡）
-                ForEach(ToolSummary.imagePaths(from: String(detail.prefix(20_000))), id: \.self) { path in
-                    RemoteImage(path: path)
-                }
-            }
+            // 工具详情**不再内联进列表**。
+            //
+            // 之前是点开后在气泡里渲染 Text(detail)：工具参数动辄几万字符，
+            // 一旦展开过，之后每次布局都要重新排版这段 —— 真机实测
+            // 「点跳到底」卡死 19 秒（STUCK 19620ms mark=b:tool）。
+            // 现在改成弹出 sheet：列表布局里永远不出现长文本。
         }
         .padding(.leading, 2)
+        .sheet(item: $detailSheet) { item in
+            ToolDetailSheet(entry: item)
+        }
     }
 
     /// 工具行摘要：已经在 AppModel 收到帧时算好（见 ToolSummary），这里直接读，
     /// 不在 View 里解析 JSON —— 否则几百条气泡每帧重建都重解一遍，滚动就卡。
     private var summary: String? {
         entry.summary
+    }
+}
+
+
+/// 工具详情弹窗。
+///
+/// 详情（工具参数 / 结果预览）动辄几万字符 —— 在主列表里渲染它，
+/// 每次布局都要重新排版，是「点跳到底卡 19 秒」的直接原因。
+/// 单独放在 sheet 里：只有用户点开时排版一次，且不参与主列表布局。
+/// 仍然按 8000 字截断，避免一次点开就排几十万字符。
+struct ToolDetailSheet: View {
+    let entry: ChatEntry
+    @Environment(\.dismiss) private var dismiss
+
+    private static let limit = 8_000
+
+    private var shown: String {
+        guard let detail = entry.detail else { return "" }
+        if detail.count <= Self.limit { return detail }
+        return String(detail.prefix(Self.limit)) + "\n…（其余 \(detail.count - Self.limit) 字已省略）"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(entry.text)
+                        .font(.system(size: 13, weight: .medium))
+                    if let summary = entry.summary, !summary.isEmpty {
+                        Text(summary)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(shown)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .selectableText()
+
+                    // 工具读过的图：只在前 20000 字里找（正则扫全文在主线程很贵）
+                    let images = ToolSummary.imagePaths(from: String((entry.detail ?? "").prefix(20_000)))
+                    ForEach(images, id: \.self) { path in
+                        RemoteImage(path: path)
+                    }
+                }
+                .padding(14)
+            }
+            .navigationTitle("工具详情")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
     }
 }

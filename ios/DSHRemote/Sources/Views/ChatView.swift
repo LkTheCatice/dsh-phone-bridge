@@ -49,6 +49,17 @@ struct ChatView: View {
     /// 这样别的会话收到消息不会让这里重建、也不会误触发 onChange 的滚动。
     private var entries: [ChatEntry] { model.currentEntries }
 
+    /// 一次最多渲染多少条。
+    ///
+    /// 这是硬兜底：布局成本随「条目数 × 每条文本量」增长，而 LazyVStack 在
+    /// 首屏/跳转时会把可见范围整体测量一遍（真机实测 20 条就能卡 19 秒）。
+    /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
+    @State private var visibleLimit = 40
+
+    private var visibleEntries: [ChatEntry] {
+        entries.count <= visibleLimit ? entries : Array(entries.suffix(visibleLimit))
+    }
+
     /// 标题直接用 AppModel 里的标量：不要再读 model.sessions，
     /// 否则每次会话列表刷新（每条消息结束都刷）都会让整棵聊天树重算。
     private var title: String { model.currentSessionTitle }
@@ -70,7 +81,19 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if entries.isEmpty { emptyState }
-                        ForEach(entries) { entry in
+                        if entries.count > visibleLimit {
+                            Button {
+                                visibleLimit += 40
+                            } label: {
+                                Text("更早的 \(entries.count - visibleLimit) 条已折叠 · 点击加载")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.accentColor)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        ForEach(visibleEntries) { entry in
                             // 和上一条隔了 5 分钟以上才打时间戳（由 AppModel 填 timeLabel）
                             if let label = entry.timeLabel {
                                 Text(label)
