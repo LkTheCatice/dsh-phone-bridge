@@ -23,6 +23,9 @@ final class JumpButtonState: ObservableObject {
     var clamping = false
     /// 自动跟随的节流时间戳
     var lastFollowAt = Date.distantPast
+    /// SwiftUI ScrollView 背后的 UIScrollView（探针交付后一直用它滚动）。
+    /// 不设 @Published：赋值不该引起任何重绘，否则又会牵回 updateUIView。
+    weak var scrollView: UIScrollView?
 
     /// 是否该显示按钮（用于外层占位高度判断）
     var needsLayer: Bool {

@@ -28,8 +28,8 @@ struct ChatView: View {
     /// 跳到底按钮的状态单独持有：滚动时每帧都会更新它，
     /// 放在 @State 里会让整个 ChatView（含 ScrollView）跟着重建
     @StateObject private var jump = JumpButtonState()
-    /// 背后的 UIScrollView 引用，用于「先掐断惯性再滚到底」
-    @State private var uiScrollView: UIScrollView?
+    // 探针交付的 UIScrollView 存在 jump.scrollView（引用类型普通属性）里。
+    // 用 @State 存它的话，赋值 → 重算 → updateUIView → 可能再赋值，又是一条环。
     /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
     /// 电脑端发消息不再带动手机滚动
     @State private var lastPhoneSendAt: Date?
@@ -73,8 +73,8 @@ struct ChatView: View {
                         // enclosingScrollView() 找不到 UIScrollView（实测一直 no-scrollview）。
                         // 0×0 放在最前面，不影响末尾排版。
                         ScrollViewAccessor { scroll in
-                            if let scroll, scroll !== uiScrollView {
-                                uiScrollView = scroll
+                            if let scroll, jump.scrollView !== scroll {
+                                jump.scrollView = scroll
                             }
                         }
                         .frame(width: 0, height: 0)
@@ -167,7 +167,7 @@ struct ChatView: View {
                     // 切换会话重建），而 contentOffset 仍停在旧位置 —— 于是「进到下面」。
                     // 防重入锁存在 jump 里（引用类型普通属性）：
                     // setContentOffset 会再次触发这个回调，用 @State 存锁会自己喂自己。
-                    if let scroll = uiScrollView,
+                    if let scroll = jump.scrollView,
                        !jump.clamping,
                        !scroll.isDragging,
                        !scroll.isDecelerating,
@@ -378,7 +378,7 @@ struct ChatView: View {
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         jump.atBottom = true
         jump.hasNewBelow = false
-        if let scroll = uiScrollView {
+        if let scroll = jump.scrollView {
             // 绝对不要在这里 layoutIfNeeded。
             // LazyVStack 的懒加载会被强制布局打破 —— 几百条历史一次性布局要几百毫秒，
             // 「发出消息的一瞬间卡死」就是这条路径：append → sync → onChange → 这里。
@@ -401,7 +401,7 @@ struct ChatView: View {
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         jump.hasNewBelow = false
 
-        guard let scroll = uiScrollView else {
+        guard let scroll = jump.scrollView else {
             proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             return
         }
