@@ -91,7 +91,14 @@ final class AppModel: ObservableObject {
     private func markCurrentDirty() {
         guard !pendingSync else { return }
         pendingSync = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+        // 35ms → 350ms：流式刷新率从 16 次/秒 降到 ~3 次/秒。
+        //
+        // 为什么必须降：每一次刷新都会让 ChatView 重算 body 并让 LazyVStack
+        // 重新测量可见条目（10 条气泡 × 每条 5~10 个 Text ≈ 50~100 个文本节点，
+        // 一次测量 250~1000ms）。16 次/秒的请求 × 1 秒的成本 = 永远追不上，
+        // 主线程饱和 → 表现为「发送后第一次点击就卡死」（STUCK 31648ms mark=body）。
+        // 代价：文字成段出现（约 0.35 秒一批），不再逐字蹦。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self, self.pendingSync else { return }
             self.syncCurrentEntries()
         }
