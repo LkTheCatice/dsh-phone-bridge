@@ -19,7 +19,7 @@ struct ImageEditorSheet: View {
     let onCancel: () -> Void
 
     @State private var drawing = PKDrawing()
-    @State private var tool: PKTool = PKInk(.pen, color: .systemRed)
+    @State private var tool: PKTool = PKInkingTool(.pen, color: .systemRed, width: 4)
     @State private var strokeWidth: CGFloat = 4
     @State private var colorIndex = 0
 
@@ -100,10 +100,7 @@ struct ImageEditorSheet: View {
     }
 
     private func rebuildTool() {
-        tool = PKInk(.pen, color: Self.palette[colorIndex])
-        if let pen = tool as? PKInkingTool {
-            tool = PKInkingTool(pen.inkType, color: Self.palette[colorIndex], width: strokeWidth)
-        }
+        tool = PKInkingTool(.pen, color: Self.palette[colorIndex], width: strokeWidth)
     }
 
     /// 图片按容器等比缩放后的尺寸
@@ -121,18 +118,12 @@ struct ImageEditorSheet: View {
     /// 把笔迹压平进原图
     private func flatten() -> UIImage {
         guard !drawing.strokes.isEmpty else { return image }
-        // 画布坐标 → 原图坐标的比例
-        let canvasSize = drawing.bounds.isEmpty
-            ? image.size
-            : CGSize(width: image.size.width, height: image.size.height)
         let scale = image.scale
         let renderer = UIGraphicsImageRenderer(size: image.size, scale: scale)
         return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: image.size))
-            let strokeImage = drawing.image(
-                from: CGRect(origin: .zero, size: canvasSize),
-                scale: scale
-            )
+            // drawing.image(from:) 不接受 scale，压平后按原图尺寸重绘
+            let strokeImage = drawing.image(from: CGRect(origin: .zero, size: image.size))
             strokeImage.draw(in: CGRect(origin: .zero, size: image.size))
         }
     }
@@ -154,7 +145,12 @@ private struct CanvasView: UIViewRepresentable {
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        if canvas.tool != tool { canvas.tool = tool }
+        // PKTool 不是 Equatable，改用「工具签名」判断是否需要重设
+        let signature = "\(type(of: tool))-\(strokeWidth)-\(colorIndex)"
+        if context.coordinator.lastToolSignature != signature {
+            context.coordinator.lastToolSignature = signature
+            canvas.tool = tool
+        }
         if canvas.drawing != drawing { canvas.drawing = drawing }
     }
 
@@ -162,6 +158,7 @@ private struct CanvasView: UIViewRepresentable {
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         private let parent: CanvasView
+        var lastToolSignature = ""
         init(_ parent: CanvasView) { self.parent = parent }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {

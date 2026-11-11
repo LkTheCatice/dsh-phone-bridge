@@ -170,6 +170,12 @@ struct ChatBubble: View {
                 }
                 .frame(maxHeight: 220)
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+
+                // 工具读过的图：DSH 运行时看的图片只出现在参数里，
+                // 不渲染的话手机上完全看不到这一轮到底看了什么。
+                ForEach(ToolSummary.imagePaths(from: detail), id: \.self) { path in
+                    RemoteImage(path: path)
+                }
             }
         }
         .padding(.leading, 2)

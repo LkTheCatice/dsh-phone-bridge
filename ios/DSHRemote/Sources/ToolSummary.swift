@@ -37,6 +37,47 @@ enum ToolSummary {
         return nil
     }
 
+    /// 从工具参数里找出所有图片路径（用于在工具行展开时显示缩略图）。
+    ///
+    /// DSH 运行时读取的图片（read_image 等）路径只出现在 args 里，
+    /// 手机端不渲染就完全看不到 —— 而这些图往往正是「这一轮到底看了什么」的关键。
+    private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"]
+
+    static func imagePaths(from raw: String?) -> [String] {
+        guard let raw, !raw.isEmpty else { return [] }
+        var value: Any = raw
+        for _ in 0..<3 {
+            guard let text = value as? String,
+                  let data = text.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: data, options: [])
+            else { break }
+            value = parsed
+        }
+        var found: [String] = []
+        collectPaths(value, into: &found, depth: 0)
+        var seen = Set<String>()
+        return found.filter { seen.insert($0).inserted }
+    }
+
+    private static func collectPaths(_ value: Any, into found: inout [String], depth: Int) {
+        guard depth < 4 else { return }
+        if let text = value as? String {
+            let ext = (text as NSString).pathExtension.lowercased()
+            // 只看绝对路径 + 图片扩展名，别把普通文案误判成路径
+            if imageExtensions.contains(ext), text.contains("/") || text.contains("\\") {
+                found.append(text)
+            }
+            return
+        }
+        if let dict = value as? [String: Any] {
+            for (_, v) in dict { collectPaths(v, into: &found, depth: depth + 1) }
+            return
+        }
+        if let arr = value as? [Any] {
+            for item in arr { collectPaths(item, into: &found, depth: depth + 1) }
+        }
+    }
+
     private static func pick(_ value: Any, depth: Int = 0) -> String? {
         guard depth < 3 else { return nil }
         if let text = value as? String {
