@@ -407,8 +407,8 @@ struct ChatView: View {
             // 还没到位：再滚一次，50ms 后复查（动画进行中也走这里）
             let tail = CGRect(x: 0, y: max(0, scroll.contentSize.height - 1), width: 1, height: 1)
             scroll.scrollRectToVisible(tail, animated: false)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.confirmBottomThenUnfreeze(scroll, attempt: attempt + 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                confirmBottomThenUnfreeze(scroll, attempt: attempt + 1)
             }
             return
         }
