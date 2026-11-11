@@ -196,7 +196,9 @@ struct ChatView: View {
                         Button("刷新状态") { model.startComfyPolling() }
                     } label: {
                         HStack(spacing: 4) {
-                            Circle().fill(comfyColor).frame(width: 7, height: 7)
+                            Circle()
+                                .fill(comfyColor)
+                                .frame(width: 7, height: 7)
                             Text(comfyShort)
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
@@ -204,10 +206,18 @@ struct ChatView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    // 连接状态用 wifi 图标，和右边 ComfyUI 的圆点区分开
-                    Image(systemName: connectionIcon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(statusColor)
+                    // 连接状态：正常时只留 wifi 图标（不占地方），
+                    // 不正常时才补上文字 —— 免得和左边 ComfyUI 的「画图离线」看混
+                    HStack(spacing: 3) {
+                        Image(systemName: connectionIcon)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(statusColor)
+                        if model.phase != .connected {
+                            Text(connectionShort)
+                                .font(.system(size: 10))
+                                .foregroundStyle(statusColor)
+                        }
+                    }
                 }
             }
             .alert("重命名对话", isPresented: $renaming) {
@@ -248,12 +258,25 @@ struct ChatView: View {
         return model.comfy.generating ? .orange : .green
     }
 
+    /// ComfyUI 状态文案。
+    /// 必须带「画图」前缀：光写「离线」会和旁边的连接状态混在一起，
+    /// 让人以为整个 App 掉线了（其实只是画图服务没开）。
     private var comfyShort: String {
-        if !model.comfy.online { return "离线" }
+        if !model.comfy.online { return "画图离线" }
         if model.comfy.generating {
-            return model.comfy.pending > 0 ? "生图+\(model.comfy.pending)" : "生图"
+            return model.comfy.pending > 0 ? "画图中 \(model.comfy.pending)" : "画图中"
         }
-        return "空闲"
+        return "画图空闲"
+    }
+
+    /// 连接状态文案，和 ComfyUI 分开放
+    private var connectionShort: String {
+        switch model.phase {
+        case .connected: return "已连接"
+        case .connecting: return "连接中"
+        case .failed: return "连接失败"
+        case .disconnected: return "未连接"
+        }
     }
 
     private var emptyState: some View {
