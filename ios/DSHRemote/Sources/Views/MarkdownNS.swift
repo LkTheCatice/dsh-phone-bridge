@@ -161,12 +161,34 @@ enum MarkdownNS {
 
     // MARK: - 行内（**粗体** / *斜体* / `代码`）
 
+    /// 行内格式：用 `InlineParser` 的**分段结果**拼接属性。
+    ///
+    /// 全程只有 `append`，没有任何 `replaceCharacters(in:with:)` ——
+    /// NSRange 只用于「已知长度」的切片，不会因为前一次替换而失效。
+    /// 这就是「点开就闪退」那个越界问题的结构性解法（实现在 Core 层，已被 selftest 覆盖）。
     private static func inline(_ text: String, base: UIFont) -> NSAttributedString {
-        let cleaned = MarkdownInline.strip(text)
-        return NSAttributedString(
-            string: cleaned,
-            attributes: [.font: base, .foregroundColor: UIColor.label]
-        )
+        let out = NSMutableAttributedString()
+        for segment in InlineParser.segments(text) {
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: base,
+                .foregroundColor: UIColor.label,
+            ]
+            switch segment.style {
+            case .plain:
+                break
+            case .bold:
+                attributes[.font] = UIFont.systemFont(ofSize: base.pointSize, weight: .semibold)
+            case .italic:
+                attributes[.font] = UIFont.italicSystemFont(ofSize: base.pointSize)
+            case .code:
+                attributes[.font] = UIFont.monospacedSystemFont(
+                    ofSize: max(10, base.pointSize - 1), weight: .regular
+                )
+                attributes[.backgroundColor] = UIColor.secondarySystemFill
+            }
+            out.append(NSAttributedString(string: segment.text, attributes: attributes))
+        }
+        return out
     }
 
     private static func clampCode(_ code: String) -> String {

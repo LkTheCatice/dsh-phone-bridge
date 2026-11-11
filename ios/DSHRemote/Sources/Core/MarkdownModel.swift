@@ -191,23 +191,126 @@ enum MarkdownParser {
     }
 }
 
-// MARK: - 行内标记清理（纯字符串处理，无 UIKit 依赖 → 可单测）
+// MARK: - 行内富化：扫描式分段（零 NSRange 操作）
 
-enum MarkdownInline {
-    /// 去掉行内标记符号（** / ` / 成对的 *），不做任何富化。
-    ///
-    /// 为什么只做"去标记"而不是"加属性"：
-    /// 加属性需要多轮 `NSRange` 替换，而每轮替换都会改变字符串长度，
-    /// 一旦沿用旧 range 就越界崩溃（真机实测「点开就闪退」）。
-    /// 在没法本地跑 iOS 的情况下，先保证零越界；富化等块级稳定后再单独加。
-    static func strip(_ text: String) -> String {
-        var s = text
-        s = s.replacingOccurrences(of: "**", with: "")
-        s = s.replacingOccurrences(of: "`", with: "")
-        // 单星号只在成对出现时才去掉，避免吃掉乘号之类的正常文本
-        if s.filter({ $0 == "*" }).count % 2 == 0 {
-            s = s.replacingOccurrences(of: "*", with: "")
+enum InlineStyle: Equatable {
+    case plain
+    case bold
+    case italic
+    case code
+}
+
+struct InlineSegment: Equatable {
+    let text: String
+    let style: InlineStyle
+}
+
+/// 行内标记 → 分段列表。
+///
+/// **为什么是「分段」而不是「原地替换」**：
+/// 之前用 `NSMutableAttributedString.replaceCharacters(in:with:)` 做多轮替换，
+/// 每轮都改变字符串长度，一旦沿用旧 `NSRange` 就越界崩溃（真机实测「点开就闪退」）。
+/// 扫描式解析只读原字符串、只产出分段，长度计算永不失效 —— 从结构上消除越界。
+///
+/// 规则（刻意保守，宁可少解析也不要错）：
+/// - `**x**` → bold；`` `x` `` → code；`*x*` → italic（不跨行）
+/// - 未闭合、空内容、`****`、跨行的单个 `*` 一律按纯文本原样保留
+/// - 不处理嵌套（`**a *b* c**` 里的 `*b*` 保持字面）
+enum InlineParser {
+
+    static func segments(_ text: String) -> [InlineSegment] {
+        let chars = Array(text)
+        var out: [InlineSegment] = []
+        var buffer = ""
+        var i = 0
+        let n = chars.count
+
+        func flush() {
+            if !buffer.isEmpty {
+                out.append(InlineSegment(text: buffer, style: .plain))
+                buffer = ""
+            }
         }
-        return s
+
+        while i < n {
+            let c = chars[i]
+
+            // ** 粗体 **
+            if c == "*", i + 1 < n, chars[i + 1] == "*" {
+                if let close = findClosing(chars, from: i + 2, marker: "*", doubled: true) {
+                    let inner = String(chars[(i + 2)..<close])
+                    if !inner.isEmpty {
+                        flush()
+                        out.append(InlineSegment(text: inner, style: .bold))
+                        i = close + 2
+                        continue
+                    }
+                }
+                buffer.append("*")
+                buffer.append("*")
+                i += 2
+                continue
+            }
+
+            // ` 行内代码 `
+            if c == "`" {
+                if let close = findClosing(chars, from: i + 1, marker: "`", doubled: false) {
+                    let inner = String(chars[(i + 1)..<close])
+                    if !inner.isEmpty {
+                        flush()
+                        out.append(InlineSegment(text: inner, style: .code))
+                        i = close + 1
+                        continue
+                    }
+                }
+                buffer.append("`")
+                i += 1
+                continue
+            }
+
+            // * 斜体 *（不跨行、不与其他 * 相邻）
+            if c == "*" {
+                let prevIsStar = i > 0 && chars[i - 1] == "*"
+                let nextIsStar = i + 1 < n && chars[i + 1] == "*"
+                if !prevIsStar, !nextIsStar,
+                   let close = findClosing(chars, from: i + 1, marker: "*", doubled: false) {
+                    let inner = String(chars[(i + 1)..<close])
+                    if !inner.isEmpty, !inner.contains("\n") {
+                        flush()
+                        out.append(InlineSegment(text: inner, style: .italic))
+                        i = close + 1
+                        continue
+                    }
+                }
+                buffer.append("*")
+                i += 1
+                continue
+            }
+
+            buffer.append(c)
+            i += 1
+        }
+        flush()
+        return out
+    }
+
+    /// 找配对的结束标记；遇到换行或找不到就返回 nil（保持字面）
+    private static func findClosing(
+        _ chars: [Character], from start: Int, marker: Character, doubled: Bool
+    ) -> Int? {
+        var j = start
+        while j < chars.count {
+            if chars[j] == "\n" { return nil }   // 行内标记不跨行
+            if chars[j] == marker {
+                if doubled {
+                    if j + 1 < chars.count, chars[j + 1] == marker { return j }
+                } else {
+                    // 单个标记：前一个字符不能是同一标记（避免吃掉 ** 的一半）
+                    if j == 0 || chars[j - 1] != marker { return j }
+                }
+            }
+            j += 1
+        }
+        return nil
     }
 }

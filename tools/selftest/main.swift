@@ -170,28 +170,54 @@ let lookup = Dictionary(unique.map { ($0.id, $0) }, uniquingKeysWith: { _, last 
 check(lookup.count == 2, "查找表应有 2 项")
 print("  重复 \(duplicated.count) 条 → 去重 \(unique.count) 条")
 
-// MARK: - 5. 行内标记清理（当前实际代码路径）
+// MARK: - 6. 行内富化（扫描式分段，替代 NSRange 替换）
 
-section("MarkdownInline.strip（当前 app 里跑的就是它）")
+section("InlineParser.segments")
 
-let stripCases: [(String, String, String)] = [
-    // 输入, 期望输出, 说明
-    ("**粗体**", "粗体", "成对粗体"),
-    ("`代码`", "代码", "行内代码"),
-    ("*斜体*", "斜体", "成对斜体"),
-    ("**a** `b` *c*", "a b c", "三种混排"),
-    ("3 * 4 = 12", "3 * 4 = 12", "单个乘号不该被吃掉"),
-    ("**未闭合", "未闭合", "未闭合的 ** 也被去掉（展示更干净）"),
-    ("正常文本", "正常文本", "无标记原样返回"),
-    ("", "", "空串"),
-    ("😀**表情**", "😀表情", "表情 + 标记"),
-    (String(repeating: "**x** ", count: 50), String(repeating: "x ", count: 50), "50 组粗体"),
+/// 分段拼接后必须与原文去掉标记后一致 —— 这条断言能抓「吞字」类 bug
+func joined(_ segs: [InlineSegment]) -> String { segs.map(\.text).joined() }
+
+let inlineCases: [(String, String)] = [
+    ("**粗体**", "粗体"),
+    ("`代码`", "代码"),
+    ("*斜体*", "斜体"),
+    ("**a** `b` *c*", "a b c"),
+    ("前**粗**后", "前粗后"),
+    ("3 * 4 = 12", "3 * 4 = 12"),            // 孤立星号保持字面
+    ("**未闭合", "**未闭合"),                 // 未闭合保持字面
+    ("`未闭合", "`未闭合"),
+    ("****", "****"),                        // 空内容不配对
+    ("**跨\n行**", "**跨\n行**"),            // 行内标记不跨行
+    ("😀**表情**", "😀表情"),
+    ("", ""),
+    ("正常文本", "正常文本"),
+    ("**a**普通文字", "a普通文字"),
+    ("`a`\n\n`b`", "a\n\nb"),               // 两段代码各自闭合
 ]
-for (input, expect, note) in stripCases {
-    let out = MarkdownInline.strip(input)
-    check(out == expect, "\(note)：期望「\(expect.prefix(20))」，实际「\(out.prefix(20))」")
+
+for (input, expect) in inlineCases {
+    let segs = InlineParser.segments(input)
+    let got = joined(segs)
+    check(got == expect, "分段拼接不符：输入「\(input)」期望「\(expect)」实际「\(got)」")
+    // 分段不得为空文本（否则 iOS 侧会 append 空串）
+    check(segs.allSatisfy { !$0.text.isEmpty }, "出现空分段：输入「\(input)」")
 }
-print("  \(stripCases.count) 条用例")
+
+// 样式判定
+func styles(_ s: String) -> [InlineStyle] { InlineParser.segments(s).map(\.style) }
+check(styles("**b**") == [.bold], "粗体样式识别失败")
+check(styles("`c`") == [.code], "代码样式识别失败")
+check(styles("*i*") == [.italic], "斜体样式识别失败")
+check(styles("**b**`c`") == [.bold, .code], "相邻样式识别失败")
+check(styles("普通") == [.plain], "纯文本样式识别失败")
+
+// 压力：长文本 + 大量标记，检查不崩且长度守恒
+var stress = ""
+for i in 0..<300 { stress += (i % 3 == 0) ? "**粗** " : ((i % 3 == 1) ? "`码` " : "*斜* ") }
+let stressSegs = InlineParser.segments(stress)
+check(!stressSegs.isEmpty, "压力用例解析为空")
+check(stressSegs.count >= 300, "压力用例分段数异常少：\(stressSegs.count)")
+print("  \(inlineCases.count) 条用例 + 样式/压力断言")
 
 // MARK: - 汇总
 
