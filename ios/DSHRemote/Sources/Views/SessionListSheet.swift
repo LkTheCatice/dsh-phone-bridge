@@ -34,6 +34,8 @@ struct SessionListSheet: View {
                     } label: {
                         Label("新建对话", systemImage: "square.and.pencil")
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
                 }
 
                 Section {
@@ -45,6 +47,8 @@ struct SessionListSheet: View {
                         } label: {
                             row(session)
                         }
+                        // 不加 .plain 的话 Button 会给整行套默认 tint，标题全变蓝
+                        .buttonStyle(.plain)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 Task { await model.archive(session.id, archived: true) }
