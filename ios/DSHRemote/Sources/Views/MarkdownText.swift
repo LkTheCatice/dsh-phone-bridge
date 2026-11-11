@@ -53,7 +53,7 @@ struct MarkdownText: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(code)
                         .font(.system(size: 12, design: .monospaced))
-                        .textSelection(.enabled)
+                        .selectableText()
                 }
             }
             .padding(9)

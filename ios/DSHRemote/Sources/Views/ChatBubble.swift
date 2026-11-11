@@ -1,4 +1,41 @@
 import SwiftUI
+
+// MARK: - 文本选择开关（诊断用）
+
+/// 关掉所有 `.textSelection(.enabled)`。
+///
+/// 为什么做成开关：气泡里每段文字都挂了文本选择，而它在 iOS 上是由
+/// UITextInteraction 撑起来的 —— 放进 LazyVStack、随着流式输出反复重排时，
+/// 是有可能把主线程拖住甚至转不出来的。真机上用设置页的开关二分，比继续猜快。
+private struct NoTextSelectionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var noTextSelection: Bool {
+        get { self[NoTextSelectionKey.self] }
+        set { self[NoTextSelectionKey.self] = newValue }
+    }
+}
+
+private struct MaybeSelectableText: ViewModifier {
+    @Environment(\.noTextSelection) private var disabled
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if disabled {
+            content
+        } else {
+            content.textSelection(.enabled)
+        }
+    }
+}
+
+extension View {
+    /// 等价于 `.textSelection(.enabled)`，但受设置页的「禁用文本选择」控制
+    func selectableText() -> some View { modifier(MaybeSelectableText()) }
+}
+
 /// 一条聊天条目。
 ///
 /// 显式实现 Equatable 并在调用处用 `.equatable()`：
@@ -55,7 +92,7 @@ struct ChatBubble: View, Equatable {
                     Text(entry.text)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .selectableText()
                 }
             }
             .padding(.leading, 2)
@@ -91,13 +128,13 @@ struct ChatBubble: View, Equatable {
                 // 流式期间只渲染纯文本：跳过 Markdown 解析、跳过正则扫图、跳过字符串清洗。
                 // 否则每来一个 delta 都要对全文跑一遍正则 + 解析，输入和滚动都会卡。
                 Text(entry.text)
-                    .textSelection(.enabled)
+                    .selectableText()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 let media = MediaRefCache.refs(for: entry.text)
                 MarkdownText(raw: ImageRef.cleaned(entry.text))
                     .foregroundStyle(.primary)
-                    .textSelection(.enabled)
+                    .selectableText()
                 ForEach(media.images, id: \.self) { path in
                     RemoteImage(path: path)
                 }
@@ -197,7 +234,7 @@ struct ChatBubble: View, Equatable {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(detail)
                         .font(.system(size: 11, design: .monospaced))
-                        .textSelection(.enabled)
+                        .selectableText()
                         .padding(8)
                 }
                 .frame(maxHeight: 220)

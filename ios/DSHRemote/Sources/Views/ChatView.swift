@@ -121,6 +121,11 @@ struct ChatView: View {
                         let now = Date()
                         guard now.timeIntervalSince(jump.lastFollowAt) > 0.15 else { return }
                         jump.lastFollowAt = now
+                        // 诊断开关：关掉自动跟随滚动，用来验证「滚动 ↔ 布局回调」这条环
+                        guard !model.expNoAutoFollow else {
+                            model.traceFollow("follow-off n=\(entries.count)")
+                            return
+                        }
                         let t0 = CFAbsoluteTimeGetCurrent()
                         scrollToEnd(proxy)
                         model.traceFollow("follow=\(Int((CFAbsoluteTimeGetCurrent() - t0) * 1000))ms n=\(entries.count)")
@@ -157,6 +162,10 @@ struct ChatView: View {
                 // 这样刚往上蹭一点不会立刻冒出按钮（避免遮挡），状态也不会逐帧翻转。
                 .onPreferenceChange(BottomYKey.self) { maxY in
                     model.recordPrefEvent()
+                    // 诊断开关：只计数、不做底部判定写入。
+                    // 这条回调是在布局阶段跑的，在里面写状态会引起重新布局 ——
+                    // 关掉它就能判断卡死是不是「布局 → 写状态 → 再布局」这条环。
+                    guard !model.expNoBottomProbe else { return }
                     let viewport = outer.size.height
                     // 只做判定，不碰 UIKit —— 一旦在这里 setContentOffset，
                     // 就会重新触发布局回调，又变成自己喂自己的环。
@@ -305,6 +314,9 @@ struct ChatView: View {
             }
             }   // 关闭 GeometryReader
         }
+        // 诊断开关：关掉所有气泡的文本选择（iOS 上由 UITextInteraction 实现，
+        // 在 LazyVStack 里反复重排时是有代价的）
+        .environment(\.noTextSelection, model.expNoTextSelection)
     }
 
     private var comfyColor: Color {

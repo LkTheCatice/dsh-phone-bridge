@@ -121,6 +121,25 @@ final class AppModel: ObservableObject {
     /// 轻量提示（3 秒自动消失），比 alert 不打断操作
     @Published var toast: String?
 
+    // MARK: - 诊断实验开关（设置页可切，重启保留）
+    //
+    // 用途：真机上「点发送后主线程再也不回 runloop」已经实测确认
+    // （日志停在 tap=send，之后连 Timer 都不跑），但还剩三条候选环无法从日志区分。
+    // 这三个开关让一台机器、一次安装就能把三条环分别关掉做二分：
+    //   ① 文本选择：每个气泡都挂了 .textSelection(.enabled)，
+    //      它在 iOS 上是 UITextInteraction，在 LazyVStack 里反复插拔代价很高
+    //   ② 自动跟随：每个 streamTick 都 proxy.scrollTo(bottomAnchor)
+    //   ③ 底部判定：onPreferenceChange 里写 atBottom，而写状态会引起重新布局
+    @Published var expNoTextSelection = UserDefaults.standard.bool(forKey: "dsh.exp.noTextSelection") {
+        didSet { UserDefaults.standard.set(expNoTextSelection, forKey: "dsh.exp.noTextSelection") }
+    }
+    @Published var expNoAutoFollow = UserDefaults.standard.bool(forKey: "dsh.exp.noAutoFollow") {
+        didSet { UserDefaults.standard.set(expNoAutoFollow, forKey: "dsh.exp.noAutoFollow") }
+    }
+    @Published var expNoBottomProbe = UserDefaults.standard.bool(forKey: "dsh.exp.noBottomProbe") {
+        didSet { UserDefaults.standard.set(expNoBottomProbe, forKey: "dsh.exp.noBottomProbe") }
+    }
+
     private var client: BridgeClient?
     private var streamTask: Task<Void, Never>?
     private var reconnectAttempt = 0
