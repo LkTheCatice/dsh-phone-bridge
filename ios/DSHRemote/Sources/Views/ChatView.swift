@@ -94,52 +94,7 @@ struct ChatView: View {
                 .onChange(of: entries.last?.text) { _ in
                     if atBottom { scrollToEnd(proxy) }
                 }
-                // 两个按钮始终存在，只用 opacity / allowsHitTesting 控制可见性；
-                // 它们和 ScrollView 在同一个 ZStack 里，不参与滚动视图的手势竞争。
-                // 有新内容但你在上面看旧记录 → 只提示，不抢滚动位置
-                Button {
-                    hasNewBelow = false
-                    atBottom = true
-                    scrollToEnd(proxy)
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("新消息")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.accentColor, in: Capsule())
-                    .foregroundStyle(.white)
-                    .shadow(radius: 2, y: 1)
-                    // 可点区域整体外扩，拇指更容易命中
-                    .contentShape(Capsule().inset(by: -8))
-                }
-                .buttonStyle(.plain)
-                .opacity(hasNewBelow ? 1 : 0)
-                .allowsHitTesting(hasNewBelow)
-                .padding(.trailing, 14)
-                .padding(.bottom, 10)
-
-                // 单纯往上翻（没新内容）时给个回底箭头
-                Button {
-                    atBottom = true
-                    scrollToEnd(proxy)
-                } label: {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 30))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(Color.accentColor, Color(.systemBackground))
-                        .shadow(radius: 2, y: 1)
-                        .contentShape(Circle().inset(by: -10))
-                }
-                .buttonStyle(.plain)
-                .opacity(!hasNewBelow && !atBottom && entries.count > 3 ? 1 : 0)
-                .allowsHitTesting(!hasNewBelow && !atBottom && entries.count > 3)
-                .padding(.trailing, 14)
-                .padding(.bottom, 10)
-                }   // ZStack
+                }   // ZStack（现在只剩 ScrollView）
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
                 // 带滞后阈值：进入用 +40pt、离开必须超过 +140pt 才算离开。
                 // 否则滚动到临界区时 atBottom 会逐帧翻转，按钮的 allowsHitTesting
@@ -154,7 +109,18 @@ struct ChatView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) { composer }
+            .safeAreaInset(edge: .bottom) {
+                // 按钮挂在 composer 的 overlay 上：composer 由 safeAreaInset 提供，
+                // 本身不随滚动移动，所以按钮的手势完全不参与 ScrollView 的竞争 ——
+                // 惯性滚动中也能一次点中。
+                // 视觉上靠 offset 浮到输入栏上方，不跟输入框连成一体。
+                composer
+                    .overlay(alignment: .topTrailing) {
+                        jumpButtons(proxy)
+                            .padding(.trailing, 14)
+                            .offset(y: -54)
+                    }
+            }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             // 键盘弹起时藏掉底部 Tab Bar：否则它被键盘盖住，三个按钮点不到
@@ -312,7 +278,55 @@ struct ChatView: View {
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
         atBottom = true
+        hasNewBelow = false
         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+    }
+
+    /// 浮动在输入栏上方的两个按钮。
+    /// 结构恒定（只用 opacity/allowsHitTesting 控制），并且挂在 composer 的 overlay 上 ——
+    /// 不参与 ScrollView 的手势竞争，惯性滚动中也能一次点中。
+    @ViewBuilder
+    private func jumpButtons(_ proxy: ScrollViewProxy) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            // 有新内容但你在上面看旧记录 → 只提示，不抢滚动位置
+            Button {
+                hasNewBelow = false
+                atBottom = true
+                scrollToEnd(proxy)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("新消息")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color.accentColor, in: Capsule())
+                .foregroundStyle(.white)
+                .shadow(radius: 2, y: 1)
+                .contentShape(Capsule().inset(by: -10))
+            }
+            .buttonStyle(.plain)
+            .opacity(hasNewBelow ? 1 : 0)
+            .allowsHitTesting(hasNewBelow)
+
+            // 单纯往上翻（没新内容）时给个回底箭头
+            Button {
+                atBottom = true
+                scrollToEnd(proxy)
+            } label: {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 30))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.accentColor, Color(.systemBackground))
+                    .shadow(radius: 2, y: 1)
+                    .contentShape(Circle().inset(by: -12))
+            }
+            .buttonStyle(.plain)
+            .opacity(!hasNewBelow && !atBottom && entries.count > 3 ? 1 : 0)
+            .allowsHitTesting(!hasNewBelow && !atBottom && entries.count > 3)
+        }
     }
 
     /// 上传进度文案：单张只说「正在上传」，多张带上 2/5
