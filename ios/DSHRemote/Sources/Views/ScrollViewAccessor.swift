@@ -17,19 +17,37 @@ struct ScrollViewAccessor: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // 视图层级不是一次就绪的：刚进树时 superview 可能还没接上，
-        // 所以分几个时间点重试，直到真的找到 UIScrollView。
-        resolve(uiView)
-        for delay in [0.15, 0.5, 1.2] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                resolve(uiView)
+        // 关键：只解析一次。
+        //
+        // 之前这里写着「每次 updateUIView 就排 3 个延迟重试」，
+        // 而 updateUIView 在每次 body 重算时都会跑 —— 于是：
+        //   body 重算 → 排 3 个 → resolve 触发 @State → body 再重算 → 又排 3 个 …
+        // 主线程队列被无限灌满，触控彻底失效。这就是那个「卡死」。
+        guard !context.coordinator.scheduled else { return }
+        context.coordinator.scheduled = true
+
+        resolve(uiView, coordinator: context.coordinator)
+        for delay in [0.1, 0.35, 0.9] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak uiView] in
+                guard let uiView, !context.coordinator.resolved else { return }
+                resolve(uiView, coordinator: context.coordinator)
             }
         }
     }
 
-    private func resolve(_ uiView: UIView) {
+    private func resolve(_ uiView: UIView, coordinator: Coordinator) {
         guard let scroll = uiView.enclosingScrollView() else { return }
+        coordinator.resolved = true
         DispatchQueue.main.async { onResolve(scroll) }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        /// updateUIView 已经排过重试任务，不再重复排
+        var scheduled = false
+        /// 已经成功拿到 UIScrollView
+        var resolved = false
     }
 }
 
