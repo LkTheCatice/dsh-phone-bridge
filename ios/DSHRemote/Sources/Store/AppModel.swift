@@ -11,8 +11,7 @@ final class AppModel: ObservableObject {
     }
 
     @Published private(set) var phase: Phase = .disconnected
-    @Published private(set) var pairing: PairingConfig?
-    @Published private(set) var serverInfo: String = ""
+    @Published private(set) var pairing: PairingConfig?    @Published private(set) var serverInfo: String = ""
     @Published private(set) var sessions: [SessionRow] = []
     /// 已归档的会话（列表里单独一段，可取消归档）
     @Published private(set) var archivedSessions: [SessionRow] = []
@@ -777,6 +776,21 @@ final class AppModel: ObservableObject {
             }
         }
         entries[sessionId] = []
+    }
+
+    /// 临时诊断：给服务端日志打一个标记，用来确认「按钮点击到底有没有被接收」。
+    ///
+    /// 走 /v1/health（免认证、开销极小），不经过 E2EE 握手。
+    /// 如果日志里出现这条请求 → 点击到达了，问题在 scrollTo；
+    /// 没有 → 点击没到达，还是 hit testing 的事。
+    /// 定位完就删。
+    func pingDiagnostic(_ tag: String) {
+        guard let pairing else { return }
+        let urlString = "http://\(pairing.host):\(pairing.port)/v1/health?tag=\(tag)"
+        guard let url = URL(string: urlString) else { return }
+        Task.detached(priority: .background) {
+            _ = try? await URLSession.shared.data(from: url)
+        }
     }
 
     func entriesForSelection() -> [ChatEntry] {

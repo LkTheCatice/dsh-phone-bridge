@@ -307,6 +307,8 @@ struct ChatView: View {
     /// 如果只有第二步，惯性还在跑的时候叠加动画，画面会先被惯性拖一截再弹回去。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         guard let last = entries.last else { return }
+        // 临时诊断：服务端日志里如果出现 /v1/health?tag=tap，说明点击确实被接收了
+        model.pingDiagnostic("tap")
         jump.atBottom = true
         jump.hasNewBelow = false
         // 第一步：瞬时钉到底 —— 同时终止当前滚动（含惯性）
