@@ -96,7 +96,6 @@ struct ChatView: View {
                 .onChange(of: entries.last?.text) { _ in
                     if atBottom { scrollToEnd(proxy) }
                 }
-                }   // ScrollView
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
                 // 带滞后阈值：进入用 +40pt、离开必须超过 +140pt 才算离开。
                 // 否则滚动到临界区时 atBottom 会逐帧翻转，按钮的 allowsHitTesting
