@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ChatView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     /// 上传进度（已完成张数, 总张数），nil 表示没在上传
     @State private var uploadProgress: (done: Int, total: Int)?
@@ -139,6 +140,18 @@ struct ChatView: View {
                     jump.hasNewBelow = false
                     DispatchQueue.main.async {
                         scrollToEnd(proxy)
+                    }
+                }
+                // 从后台切回来：视图重建会重新算 contentOffset，
+                // 位置常常往上错一截。原本贴在底部就重新贴回去。
+                .onChange(of: scenePhase) { phase in
+                    guard phase == .active else { return }
+                    guard jump.atBottom else { return }
+                    // 延两拍：第一拍等视图重建提交，第二拍等 LazyVStack 布局
+                    DispatchQueue.main.async {
+                        DispatchQueue.main.async {
+                            scrollToEnd(proxy)
+                        }
                     }
                 }
                 // 底部标记的 maxY 与视口高度比较，才是真实「有没有滚到底」。
