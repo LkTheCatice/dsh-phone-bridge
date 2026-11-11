@@ -583,7 +583,7 @@ final class AppModel: ObservableObject {
     /// 每次发消息、每次流式刷新都在这个规模上重算，主线程被压住，
     /// 输入法事件排不上队，「打开软件时第一个字母不进拼音」和「发送瞬间卡死」都是它。
     /// 降到 220 后渲染负担约为原来的 1/3，滚动起点也更快。
-    private static let maxEntriesPerSession = 220
+    private static let maxEntriesPerSession = 80
 
     /// 满 cap 之后不要每条都裁：裁一次是 O(n) 的全量 filter，而流式输出时
     /// 每个 delta 都会走一遍 append —— 等于每帧一次 220 元素的复制。
@@ -1142,7 +1142,8 @@ final class AppModel: ObservableObject {
     static var appVersion: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        return "\(short).\(build)"
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(short).\(build) os=\(os.majorVersion).\(os.minorVersion)"
     }
 
     func pingDiagnostic(_ tag: String) {
