@@ -392,20 +392,34 @@ struct ChatView: View {
             scroll.layoutIfNeeded()
             // ④ 现在 contentSize 稳定了，滚到底
             scroll.scrollToBottomAnimated()
+            // ⑤ 确认真的到位之后才解冻 ——
+            //    固定等 0.35 秒在长内容下不够：还没滚到底就解冻，
+            //    积压的帧一涌进来高度暴增，位置又越界。
+            confirmBottomThenUnfreeze(scroll)
+        }
+    }
 
-            // ⑤ 稍后解冻：积压的内容一次性追上来，跟随会把它补到底
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                model.unfreezeContent()
-                // 解冻后内容结构可能又变了：如果积压里带 turn.end，
-                // foldSteps 会把一整轮过程折成一行 —— 高度骤减，offset 就超出去了。
-                // 这里再夹一次边界，保证不会停在「下面」。
-                DispatchQueue.main.async {
-                    scroll.layoutIfNeeded()
-                    let limit = scroll.bottomOffsetY
-                    if scroll.contentOffset.y > limit + 1 {
-                        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: limit), animated: false)
-                    }
-                }
+    /// 反复确认「已经贴到底」再解冻；最多重试 10 次（约 0.5 秒）
+    private func confirmBottomThenUnfreeze(_ scroll: UIScrollView, attempt: Int = 0) {
+        let limit = scroll.bottomOffsetY
+        let reached = scroll.contentOffset.y >= limit - 1
+        guard reached || attempt >= 10 else {
+            // 还没到位：再滚一次，50ms 后复查（动画进行中也走这里）
+            let tail = CGRect(x: 0, y: max(0, scroll.contentSize.height - 1), width: 1, height: 1)
+            scroll.scrollRectToVisible(tail, animated: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.confirmBottomThenUnfreeze(scroll, attempt: attempt + 1)
+            }
+            return
+        }
+
+        model.unfreezeContent()
+        // 解冻后内容才真正补进来，可能触发折叠使高度骤减 → 再夹一次
+        DispatchQueue.main.async {
+            scroll.layoutIfNeeded()
+            let newLimit = scroll.bottomOffsetY
+            if scroll.contentOffset.y > newLimit {
+                scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: newLimit), animated: false)
             }
         }
     }
