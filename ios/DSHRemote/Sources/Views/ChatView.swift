@@ -57,6 +57,17 @@ struct ChatView: View {
                 VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
+                        // 探针必须放在 ScrollView 的**内容里**：
+                        // 挂 .background 时不在 ScrollView 的子视图链上，
+                        // enclosingScrollView() 找不到 UIScrollView（实测一直 no-scrollview）。
+                        // 0×0 放在最前面，不影响末尾排版。
+                        ScrollViewAccessor { scroll in
+                            if let scroll, scroll !== uiScrollView {
+                                uiScrollView = scroll
+                            }
+                        }
+                        .frame(width: 0, height: 0)
+
                         if entries.isEmpty { emptyState }
                         ForEach(entries) { entry in
                             // 和上一条隔了 5 分钟以上才打时间戳（由 AppModel 填 timeLabel）
@@ -93,15 +104,6 @@ struct ChatView: View {
                 // 而这里 contentSize 一直在动（LazyVStack 排版、流式输出、附件条高度），
                 // 指示条会跟着抖。位置感交给右下角那个「↓」按钮代替。
                 .scrollIndicators(.hidden)
-                // 探针放在 background 而不是内容里 —— 放在 LazyVStack 里会参与内容排版
-                .background(
-                    ScrollViewAccessor { scroll in
-                        if let scroll, scroll !== uiScrollView {
-                            uiScrollView = scroll
-                        }
-                    }
-                    .frame(width: 0, height: 0)
-                )
                 // 新条目出现时：
                 // - 手机刚发过消息（3 秒内）→ 滚到底，保证能看到自己那条
                 // - 否则（电脑端发的、别的来源）→ 不抢滚动位置，只挂「新消息」提示
