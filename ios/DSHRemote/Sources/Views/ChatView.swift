@@ -28,11 +28,11 @@ struct ChatView: View {
     /// 跳到底按钮的状态单独持有：滚动时每帧都会更新它，
     /// 放在 @State 里会让整个 ChatView（含 ScrollView）跟着重建
     @StateObject private var jump = JumpButtonState()
-    // 探针交付的 UIScrollView 存在 jump.scrollView（引用类型普通属性）里。
-    // 用 @State 存它的话，赋值 → 重算 → updateUIView → 可能再赋值，又是一条环。
-    /// 手机自己发消息的时间戳：只有它近期内产生的条目才允许自动跳到底，
-    /// 电脑端发消息不再带动手机滚动
-    @State private var lastPhoneSendAt: Date?
+    // 滚动全部交给 SwiftUI 原生 proxy.scrollTo，不再持有背后的 UIScrollView。
+    // （探针那套「读 layout → setContentOffset → 再触发布局」已经整段删掉，
+    // 它本身就是一条自激环，见 HANDOFF 里的循环 1。）
+    // 注：这里原来还有个 lastPhoneSendAt（@State，只有写没有读）。
+    // 每次发送都白触发一次 ChatView 全量重算，且判断逻辑早已不在，一并删掉。
     // 注意：节流时间戳和 clamp 防重入锁都放在 jump（JumpButtonState）里，
     // 不能用 @State —— 它们会在 body 重算触发的回调里被改，
     // 用 @State 就是「改状态 → 重算 → 回调 → 再改」的无限循环。
@@ -59,6 +59,10 @@ struct ChatView: View {
     }
 
     var body: some View {
+        // 打点：body 求值频率。只累加整数、不发通知，不会反过来触发重算。
+        // 看门狗每 2 秒把它和卡顿次数一起报出来 —— 判断「卡」到底是
+        // 「树太大每帧重算」还是「某一次阻塞操作」，就靠这个数。
+        let _ = model.recordBodyEval()
         NavigationStack {
             GeometryReader { outer in
                 ScrollViewReader { proxy in
@@ -68,17 +72,6 @@ struct ChatView: View {
                 VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        // 探针必须放在 ScrollView 的**内容里**：
-                        // 挂 .background 时不在 ScrollView 的子视图链上，
-                        // enclosingScrollView() 找不到 UIScrollView（实测一直 no-scrollview）。
-                        // 0×0 放在最前面，不影响末尾排版。
-                        ScrollViewAccessor { scroll in
-                            if let scroll, jump.scrollView !== scroll {
-                                jump.scrollView = scroll
-                            }
-                        }
-                        .frame(width: 0, height: 0)
-
                         if entries.isEmpty { emptyState }
                         ForEach(entries) { entry in
                             // 和上一条隔了 5 分钟以上才打时间戳（由 AppModel 填 timeLabel）
@@ -132,15 +125,17 @@ struct ChatView: View {
                         scrollToEnd(proxy)
                         model.traceFollow("follow=\(Int((CFAbsoluteTimeGetCurrent() - t0) * 1000))ms n=\(entries.count)")
                     } else {
-                        jump.hasNewBelow = true
+                        // 只在真的变化时写：@Published 赋同一个值也会发 objectWillChange，
+                        // 而 ChatView 读着 jump，于是每个 delta 都会白重算一遍整棵树。
+                        if !jump.hasNewBelow { jump.hasNewBelow = true }
                     }
                 }
                 // 历史重建完成后滚到底：冷启动/切换会话都该停在最新一条，
                 // 而不是最早那条。延一帧是因为底部哨兵刚渲染出来，
                 // 立刻 scrollTo 会找不到目标。
                 .onChange(of: model.historyVersion) { _ in
-                    jump.atBottom = true
-                    jump.hasNewBelow = false
+                    if !jump.atBottom { jump.atBottom = true }
+                    if jump.hasNewBelow { jump.hasNewBelow = false }
                     DispatchQueue.main.async {
                         scrollToEnd(proxy)
                     }
@@ -161,25 +156,10 @@ struct ChatView: View {
                 // 滞后阈值：进入用 +40pt，离开必须滑出 280pt 才算离开 ——
                 // 这样刚往上蹭一点不会立刻冒出按钮（避免遮挡），状态也不会逐帧翻转。
                 .onPreferenceChange(BottomYKey.self) { maxY in
+                    model.recordPrefEvent()
                     let viewport = outer.size.height
-
-                    // 防御越界：contentSize 会变小（条目裁剪、一轮结束折叠、
-                    // 切换会话重建），而 contentOffset 仍停在旧位置 —— 于是「进到下面」。
-                    // 防重入锁存在 jump 里（引用类型普通属性）：
-                    // setContentOffset 会再次触发这个回调，用 @State 存锁会自己喂自己。
-                    if let scroll = jump.scrollView,
-                       !jump.clamping,
-                       !scroll.isDragging,
-                       !scroll.isDecelerating,
-                       !scroll.isTracking {
-                        let limit = scroll.bottomOffsetY
-                        if scroll.contentOffset.y > limit + 1 {
-                            jump.clamping = true
-                            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: limit), animated: false)
-                            DispatchQueue.main.async { jump.clamping = false }
-                        }
-                    }
-
+                    // 只做判定，不碰 UIKit —— 一旦在这里 setContentOffset，
+                    // 就会重新触发布局回调，又变成自己喂自己的环。
                     if maxY <= viewport + 90 {
                         if !jump.atBottom { jump.atBottom = true }
                         if jump.hasNewBelow { jump.hasNewBelow = false }
@@ -363,89 +343,28 @@ struct ChatView: View {
         .padding(.top, 80)
     }
 
-    /// 自动跟随用：贴到底，不带动画。
+    /// 自动跟随：滚到内容末尾的哨兵。
     ///
-    /// 之前用 `proxy.scrollTo(last.id, anchor: .bottom)`，流式输出时最后一条还在长高，
-    /// 用旧高度定位总会差几像素 —— 底部判定失败，之后就再也不跟随、按钮还乱冒。
-    /// 改成走 UIKit：先 layoutIfNeeded 让 contentSize 追上，再按真实底部定位。
-    /// 自动跟随用：按 contentOffset 精确贴底。
-    ///
-    /// 不用 `scrollTo(anchor: .bottom)`：内容末尾 + 那个 anchor 会算偏，
-    /// 实测会滚到「最新消息下面」的空白里。
-    /// 也不做 `layoutIfNeeded()`：流式输出时每秒调十几次，强制布局会拖死主线程。
-    /// 这里直接用当前的 contentSize —— 略旧反而安全：宁可差几像素（40pt 容差能兜住），
-    /// 也不会过头露白。
+    /// 刻意只用 SwiftUI 原生能力。
+    /// 之前这里试过 UIScrollView.setContentOffset + layoutIfNeeded + 多次校准 +
+    /// 冻结内容再解冻 —— 每一版都在「读布局 → 写偏移 → 触发布局」之间形成了
+    /// 难以排查的环，最后表现为整个 App 卡死（连主线程 Timer 都停跑）。
+    /// 原生 scrollTo 虽然偶尔差几像素，但不会把主线程拖住。
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        jump.atBottom = true
-        jump.hasNewBelow = false
-        if let scroll = jump.scrollView {
-            // 绝对不要在这里 layoutIfNeeded。
-            // LazyVStack 的懒加载会被强制布局打破 —— 几百条历史一次性布局要几百毫秒，
-            // 「发出消息的一瞬间卡死」就是这条路径：append → sync → onChange → 这里。
-            // 直接用当前 contentSize：略旧只会差几像素，90pt 容差完全兜得住。
-            let target = scroll.bottomOffsetY
-            if abs(scroll.contentOffset.y - target) > 2 {
-                scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
-            }
-            return
-        }
+        if !jump.atBottom { jump.atBottom = true }
+        if jump.hasNewBelow { jump.hasNewBelow = false }
         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
     }
 
-    /// 「跳到最下」按钮：先停惯性、冻结内容、算准高度、跳转、解冻。
+    /// 「跳到最下」按钮。
     ///
-    /// 按用户思路重写的关键一步是「冻结」：
-    /// 之前失败的全部原因都是「算高度」和「真正跳」之间内容还在追加，
-    /// target 一算出来就过期。冻结之后 contentSize 不变，跳转才准；
-    /// 解冻时积压的帧一次性应用，自动跟随顺势接上。
+    /// 两步：先不带动画定位一次（瞬时跳到末尾，等于打断惯性），
+    /// 再用 withAnimation 收尾。全程只用 SwiftUI，不碰 UIKit。
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
-        jump.hasNewBelow = false
-
-        guard let scroll = jump.scrollView else {
+        if jump.hasNewBelow { jump.hasNewBelow = false }
+        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+        withAnimation(.easeOut(duration: 0.22)) {
             proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-            return
-        }
-
-        // ① 冻结内容显示（数据照收，只是先不渲染进列表）
-        model.freezeContent()
-
-        // ② 先掐断惯性，让位置静止下来
-        scroll.stopDeceleration()
-
-        // ③ 等一帧：让 SwiftUI 把冻结前最后一次更新提交完，高度才是最终值
-        DispatchQueue.main.async {
-            scroll.layoutIfNeeded()
-            // ④ 现在 contentSize 稳定了，滚到底
-            scroll.scrollToBottomAnimated()
-            // ⑤ 确认真的到位之后才解冻 ——
-            //    固定等 0.35 秒在长内容下不够：还没滚到底就解冻，
-            //    积压的帧一涌进来高度暴增，位置又越界。
-            confirmBottomThenUnfreeze(scroll)
-        }
-    }
-
-    /// 反复确认「已经贴到底」再解冻；最多重试 10 次（约 0.5 秒）
-    private func confirmBottomThenUnfreeze(_ scroll: UIScrollView, attempt: Int = 0) {
-        let limit = scroll.bottomOffsetY
-        let reached = scroll.contentOffset.y >= limit - 1
-        guard reached || attempt >= 10 else {
-            // 还没到位：再滚一次，50ms 后复查（动画进行中也走这里）
-            let tail = CGRect(x: 0, y: max(0, scroll.contentSize.height - 1), width: 1, height: 1)
-            scroll.scrollRectToVisible(tail, animated: false)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                confirmBottomThenUnfreeze(scroll, attempt: attempt + 1)
-            }
-            return
-        }
-
-        model.unfreezeContent()
-        // 解冻后内容才真正补进来，可能触发折叠使高度骤减 → 再夹一次
-        DispatchQueue.main.async {
-            scroll.layoutIfNeeded()
-            let newLimit = scroll.bottomOffsetY
-            if scroll.contentOffset.y > newLimit {
-                scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: newLimit), animated: false)
-            }
         }
     }
 
@@ -632,14 +551,25 @@ struct ChatView: View {
         // 草稿按会话存，发完要清掉对应那一格
         model.drafts[model.draftKey(model.selectedSessionId)] = ""
         // 自己发的消息一定要跟着滚到底，别让「不打断」规则把自己挡住。
-        // 记下时间戳：onChange 里靠它区分「手机发的」和「电脑端发的」——
-        // 电脑端发消息时不再带动手机滚动。
-        jump.atBottom = true
-        jump.hasNewBelow = false
-        lastPhoneSendAt = Date()
+        // （原来这里还记一个 lastPhoneSendAt 给 onChange 做区分，那段逻辑已经没了，一并删掉）
+        if !jump.atBottom { jump.atBottom = true }
+        if jump.hasNewBelow { jump.hasNewBelow = false }
         focused = false
         sending = true
         let outgoing = payload
+        // 「按下发送后，主线程多久才轮到下一个任务」。
+        //
+        // 为什么需要它：send() 里的分步打点永远是 0ms（s2-append=0ms），
+        // 因为插入数组本身不花时间 —— 真实成本全在「插入之后那一次渲染与布局」，
+        // 而那段没有任何打点覆盖。两跳 async 之后如果这个数变大，
+        // 说明主线程确实被渲染占住了，而不是网络慢。
+        let tSend = CFAbsoluteTimeGetCurrent()
+        DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                let ms = Int((CFAbsoluteTimeGetCurrent() - tSend) * 1000)
+                model.traceFollow("render=\(ms)ms n=\(entries.count)")
+            }
+        }
         Task {
             await model.send(text: outgoing)
             sending = false

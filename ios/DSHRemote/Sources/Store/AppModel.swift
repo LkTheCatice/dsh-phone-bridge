@@ -232,38 +232,12 @@ final class AppModel: ObservableObject {
 
     // MARK: - 帧处理
 
-    /// 跳转期间冻结内容更新。
+    /// 帧应用入口。全程在主线程（本类是 @MainActor）。
     ///
-    /// 这是「跳不到底」的根因：算高度和真正跳转之间内容还在追加，
-    /// 算出来的目标位置立刻过期，算法再准也追不上。
-    /// 冻结后 contentSize 稳定，跳转才准；解冻时把积压的帧一次性应用，
-    /// 自动跟随会顺势把这段时间的新内容补上。
-    private(set) var isContentFrozen = false
-    private var frozenFrames: [(frame: [String: Any], isHistory: Bool)] = []
-
-    func freezeContent() {
-        isContentFrozen = true
-    }
-
-    func unfreezeContent() {
-        guard isContentFrozen else { return }
-        isContentFrozen = false
-        let pending = frozenFrames
-        frozenFrames.removeAll()
-        guard !pending.isEmpty else { return }
-        beginBatch()
-        for item in pending {
-            apply(seq: 0, frame: item.frame, isHistory: item.isHistory)
-        }
-        endBatch()
-    }
-
+    /// 历史回填会连续调用几百次，实测一口气跑完占主线程 1032ms
+    /// （看门狗 `stall=1032ms`，而 /v1/transcript 服务端只用了 25ms），
+    /// 所以 loadHistory 里做了分片 + Task.yield，见那里的注释。
     private func apply(seq: Int, frame: [String: Any], isHistory: Bool = false) {
-        // 冻结期只入队，不动 entries —— contentSize 才能保持不变
-        if isContentFrozen {
-            frozenFrames.append((frame: frame, isHistory: isHistory))
-            return
-        }
         if seq > lastSeq {
             lastSeq = seq
             // 每 20 帧落一次盘：冷启动时就能从上次的位置续传，
@@ -559,12 +533,22 @@ final class AppModel: ObservableObject {
     /// 降到 220 后渲染负担约为原来的 1/3，滚动起点也更快。
     private static let maxEntriesPerSession = 220
 
+    /// 满 cap 之后不要每条都裁：裁一次是 O(n) 的全量 filter，而流式输出时
+    /// 每个 delta 都会走一遍 append —— 等于每帧一次 220 元素的复制。
+    /// 留一截余量（cap + 40）再裁，裁剪次数降到 1/40，内存上限仍然是硬的。
+    private static let trimSlack = 40
+
+    /// 历史回填期间关掉逐条裁剪：几百帧连续 append，逐条裁就是 O(n²)。
+    /// 回填结束时统一裁一次（见 loadHistory）。
+    private var suppressTrim = false
+
     /// 超过上限就丢最老的，避免长时间使用后内存一直涨。
     /// 必须按 turn 边界裁：直接 suffix 会把「本轮过程 · N 步」这种
     /// 折叠块从中间切开，界面上会露出一半。
     private func trimIfNeeded(_ sessionId: String) {
+        guard !suppressTrim else { return }
         let cap = Self.maxEntriesPerSession
-        guard let list = entries[sessionId], list.count > cap else { return }
+        guard let list = entries[sessionId], list.count > cap + Self.trimSlack else { return }
         var keepFrom = 0
         var counted = 0
         for entry in list.reversed() {
@@ -750,20 +734,57 @@ final class AppModel: ObservableObject {
     /// Timer 跑在主线程上：主线程一被占住 Timer 就停跑，
     /// 恢复后间隔会明显变大 —— 这样能直接量出「卡了多久」，
     /// 也能区分「真卡死」和「只是网络慢」。
+    ///
+    /// 这一版把阈值从 1 秒降到 120ms，并且每 2 秒输出一行窗口统计。
+    /// 原因：旧阈值下 2200 行日志只有孤零零一条 `stall=1032ms`，
+    /// 所有 100~900ms 的抖动全被吞掉 —— 「有时候卡一下」根本没被量到。
+    ///
+    /// 判读表：
+    /// - 一行 `wd` 都不出现 → 主线程彻底锁死，Timer 停跑（真死锁）
+    /// - `gap>120ms:0`、body 也不高 → 主线程干净，卡不在渲染侧
+    /// - `gap>120ms:` 有一堆 + `body` 很高 → 失效风暴：每次状态写入都让整棵树重算并重新布局
+    /// - `body` 不高但 `max` 很大 → 单次阻塞操作（回填、解析、同步 IO）
     private var watchdogTimer: Timer?
     private var lastHeartbeat: CFAbsoluteTime = 0
+    private var stallCount = 0
+    private var worstGapMs = 0
+    private var bodyEvals = 0
+    private var prefEvents = 0
+
+    /// ChatView.body 每求值一次 +1。只累加整数、不发通知，不会引起任何重算。
+    func recordBodyEval() { bodyEvals += 1 }
+
+    /// onPreferenceChange 每触发一次 +1（布局回调频率）
+    func recordPrefEvent() { prefEvents += 1 }
 
     func startWatchdog() {
         guard watchdogTimer == nil else { return }
         lastHeartbeat = CFAbsoluteTimeGetCurrent()
+        var ticks = 0
         watchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             let now = CFAbsoluteTimeGetCurrent()
             let gap = now - self.lastHeartbeat
-            if gap > 1.0 {
-                self.pingDiagnostic("stall=\(Int(gap * 1000))ms")
-            }
             self.lastHeartbeat = now
+            let gapMs = Int(gap * 1000)
+            if gapMs > 120 {
+                self.stallCount += 1
+                self.worstGapMs = max(self.worstGapMs, gapMs)
+            }
+            ticks += 1
+            guard ticks >= 8 else { return }   // 2 秒一个窗口
+            ticks = 0
+            let bodies = self.bodyEvals
+            let prefs = self.prefEvents
+            let stalls = self.stallCount
+            let worst = self.worstGapMs
+            self.bodyEvals = 0
+            self.prefEvents = 0
+            self.stallCount = 0
+            self.worstGapMs = 0
+            // 全平静时不打日志，免得把真有信息的行淹掉
+            guard stalls > 0 || bodies > 12 || prefs > 12 else { return }
+            self.pingDiagnostic("wd gap>120ms:\(stalls) max:\(worst)ms body:\(bodies)/2s pref:\(prefs)/2s")
         }
     }
 
@@ -958,19 +979,39 @@ final class AppModel: ObservableObject {
         do {
             let raw = try await client.transcript(sessionId: sessionId, limit: limit)
             guard let frames = raw["frames"] as? [[String: Any]] else { return }
+            let started = CFAbsoluteTimeGetCurrent()
+            var worstChunkMs = 0
+            var chunkStart = started
             // 整段批量写，期间不发变更通知：几百帧就是几百次写入，
             // 逐次通知会让 ChatView 重建几百遍，切会话时手感发钝就是这个原因。
             beginBatch()
+            suppressTrim = true          // 逐条裁是 O(n²)：回填期间关掉，收尾统一裁一次
             entries[sessionId] = []
-            for frame in frames {
+            for (index, frame) in frames.enumerated() {
                 // seq 传 0 不推进实时游标；isHistory=true 避免每个 turn.end 都去刷会话列表
                 apply(seq: 0, frame: frame, isHistory: true)
+                // 每 40 帧让出一次主线程。
+                //
+                // 实测依据：/v1/transcript 服务端 25ms 就返回 200，
+                // 而客户端随后记录到 stall=1032ms —— 这 1 秒全花在这一圈 apply 上，
+                // 期间触控事件一条都排不进来。分片 + yield 之后每片只有几十毫秒，
+                // 主线程在片与片之间能跑 Timer 和触摸。
+                guard index % 40 == 39 else { continue }
+                let now = CFAbsoluteTimeGetCurrent()
+                worstChunkMs = max(worstChunkMs, Int((now - chunkStart) * 1000))
+                await Task.yield()
+                chunkStart = CFAbsoluteTimeGetCurrent()
             }
+            suppressTrim = false
+            trimIfNeeded(sessionId)
             endBatch()
+            let totalMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            trace("hist n=\(frames.count) total=\(totalMs)ms worstChunk=\(worstChunkMs)ms")
             historyNote = raw["note"] as? String
             // 通知界面：历史重建完成，可以滚到底了
             historyVersion &+= 1
         } catch {
+            suppressTrim = false
             endBatch()
             lastError = "读取历史失败：\(error.localizedDescription)"
         }
