@@ -1860,7 +1860,23 @@ function applyBridge(ctx, config) {
                 src: String(uq).slice(0, 260),
               };
             }
-          } catch { /* ignore */ }
+            // 真正的实现在 svc.commands.updateQueue 里。
+            // 六种 request 形状全报 "reading 'kind'"，说明不是字段名问题，
+            // 得看它内部读谁的 kind —— 这是最后一次探测。
+            const cmds = svc2 && svc2.commands;
+            if (cmds) {
+              probe.commandsKeys = Object.keys(cmds).slice(0, 30);
+              const cuq = cmds.updateQueue;
+              if (typeof cuq === "function") {
+                probe.commandsUpdateQueue = {
+                  length: cuq.length,
+                  src: String(cuq).slice(0, 900),
+                };
+              }
+            }
+          } catch (e) {
+            probe.commandsProbeError = String(e?.message || e).slice(0, 160);
+          }
           probe.typertService = {
               type: typeof svc,
               serviceKey: String((tr && tr.serviceKey) || ""),
