@@ -81,18 +81,23 @@ struct QueueSheet: View {
 
     @ViewBuilder
     private func row(index: Int, item: QueueItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 9) {
+                // 序号徽标：一眼看出排队次序
                 Text("\(index + 1)")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 16, alignment: .trailing)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(
+                        Circle().fill(index == 0 ? Color.accentColor : Color.secondary.opacity(0.45))
+                    )
                 Text(item.text)
                     .font(.callout)
-                    .lineLimit(3)
+                    .lineLimit(4)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 14) {
+            HStack(spacing: 18) {
                 Button {
                     beginEdit(item)
                 } label: {
@@ -121,7 +126,13 @@ struct QueueSheet: View {
                 .disabled(true)   // 写接口还没打通，先占位
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 7)
+        .listRowSeparator(.hidden)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(0.07))
+                .padding(.vertical, 3)
+        )
     }
 
     private func beginEdit(_ item: QueueItem) {

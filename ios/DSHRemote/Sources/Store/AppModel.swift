@@ -11,7 +11,33 @@ final class AppModel: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var phase: Phase = .disconnected
+    @Published private(set) var phase: Phase = .disconnected {
+        didSet { scheduleBannerUpdate() }
+    }
+
+    /// 断线横幅是否显示。
+    ///
+    /// 不能直接绑 `phase != .connected`：重连循环里 phase 会反复
+    /// failed → connected → failed（每次尝试都先置 failed），
+    /// 横幅跟着闪烁，用户看到「未连接」在反复刷新（用户实拍确认）。
+    /// 这里做 1.5 秒防抖：只有断线持续到这个时长才真的弹横幅。
+    @Published private(set) var showDisconnectBanner = false
+    private var bannerTask: Task<Void, Never>?
+
+    private func scheduleBannerUpdate() {
+        bannerTask?.cancel()
+        if phase == .connected || suppressDisconnect {
+            if showDisconnectBanner { showDisconnectBanner = false }
+            return
+        }
+        bannerTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if self.phase != .connected, !self.suppressDisconnect {
+                self.showDisconnectBanner = true
+            }
+        }
+    }
     @Published private(set) var pairing: PairingConfig?
     @Published private(set) var serverInfo: String = ""
     /// 会话列表搬到独立对象：它每条消息结束都刷新，留在 AppModel 上会让

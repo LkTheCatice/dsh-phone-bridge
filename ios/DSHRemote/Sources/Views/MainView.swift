@@ -195,7 +195,9 @@ struct BannerHost: View {
         VStack(spacing: 6) {
             // 断线提示：只有异常时才出现，正常不占位。
             // 回前台的头几秒跳过 —— 那时连接还没恢复，弹「未连接」是误报。
-            if model.phase != .connected && !model.suppressDisconnect {
+            // 用 showDisconnectBanner（1.5 秒防抖后的结果），
+            // 不要直接判 phase —— 重连时它会在 failed/connected 之间反复跳。
+            if model.showDisconnectBanner {
                 DisconnectBanner()
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -207,7 +209,7 @@ struct BannerHost: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
-        .animation(.easeInOut(duration: 0.2), value: model.phase)
+        .animation(.easeInOut(duration: 0.2), value: model.showDisconnectBanner)
         .animation(.easeInOut(duration: 0.2), value: model.suppressDisconnect)
     }
 }
