@@ -130,6 +130,11 @@ struct ChatView: View {
                         if bottom, jump.hasNewBelow { jump.hasNewBelow = false }
                     },
                     scrollRequest: scrollRequest,
+                    onLoadOlder: {
+                        if let sid = model.selectedSessionId {
+                            Task { await model.loadOlder(sid) }
+                        }
+                    },
                     onTapEntry: { id in
                         // 点消息看完整内容：列表里的表格是截断的，完整版在这里
                         detailEntry = visibleEntries.first { $0.id == id }

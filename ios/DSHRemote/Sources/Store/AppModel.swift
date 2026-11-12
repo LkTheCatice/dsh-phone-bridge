@@ -1305,6 +1305,46 @@ final class AppModel: ObservableObject {
     /// 把某个会话的历史事件拉回来重建成聊天记录。
     /// 之前只显示「连上之后收到的事件」，所以重开 App 后旧对话是空的。
     /// limit 从服务端取多少帧；实际留在内存里的条数还要过 220 的修剪。
+    /// 「上拉加载更早」的状态：已加载条数 / 是否还有更早 / 是否正在加载
+    @Published private(set) var olderHasMore = false
+    @Published private(set) var olderLoading = false
+    private var olderBefore: [String: Int] = [:]
+
+    /// 加载更早的消息（QQ 式上拉）。
+    /// 服务端按 before（已加载条数，从尾部往前数）分页返回。
+    func loadOlder(_ sessionId: String, limit: Int = 80) async {
+        guard let client, !sessionId.isEmpty, !olderLoading else { return }
+        olderLoading = true
+        defer { olderLoading = false }
+        let before = olderBefore[sessionId] ?? (entriesStorage[sessionId]?.count ?? 0)
+        do {
+            let raw = try await client.transcript(sessionId: sessionId, limit: limit, before: before)
+            guard let frames = raw["frames"] as? [[String: Any]], !frames.isEmpty else {
+                olderHasMore = false
+                return
+            }
+            olderHasMore = (raw["hasMore"] as? Bool) ?? false
+            if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
+                olderBefore[sessionId] = next
+            }
+            // 历史帧按顺序应用，插到已有条目的**前面**
+            let existing = entriesStorage[sessionId] ?? []
+            var prefix: [ChatEntry] = []
+            let previous = entriesStorage[sessionId]
+            entriesStorage[sessionId] = []
+            for frame in frames {
+                let seq = (frame["seq"] as? NSNumber)?.intValue ?? 0
+                apply(seq: seq, frame: frame, isHistory: true)
+            }
+            prefix = entriesStorage[sessionId] ?? []
+            entriesStorage[sessionId] = prefix + existing
+            _ = previous
+            syncCurrentEntries()
+        } catch {
+            trace("older-failed=\(error.localizedDescription.prefix(40))")
+        }
+    }
+
     func loadHistory(_ sessionId: String, limit: Int = 120) async {
         guard let client, !sessionId.isEmpty else { return }
         historyLoading = true

@@ -1467,15 +1467,30 @@ function applyBridge(ctx, config) {
 
       // 热会话走事件流；冷会话（没加载进 store）直接从磁盘日志重建，
       // 否则列表里 45 个会话点进去全是空的。
+      // 分页：before = 已加载的条数（从尾部往前数）。
+      // QQ 那种「上拉加载更早」就是靠它：每次多要 before 更大的那一批。
+      const before = Math.max(0, Number(url.searchParams.get("before")) || 0);
+      const paginate = (all) => {
+        const total = all.length;
+        const end = Math.max(0, total - before);
+        const start = Math.max(0, end - limit);
+        return {
+          frames: all.slice(start, end),
+          total,
+          hasMore: start > 0,
+          nextBefore: before + (end - start),
+        };
+      };
+
       if (!session) {
         const fromLog = framesFromLog(sessionId);
         if (fromLog) {
+          const page = paginate(fromLog);
           return sendJson(res, 200, {
             ok: true,
             sessionId,
             source: "log",
-            total: fromLog.length,
-            frames: fromLog.slice(-limit),
+            ...page,
           }, ctxEnc);
         }
         return sendJson(res, 200, {
@@ -1499,12 +1514,12 @@ function applyBridge(ctx, config) {
           frames.push(frame);
         }
       }
+      const page = paginate(frames);
       return sendJson(res, 200, {
         ok: true,
         sessionId,
         eventCount: events.length,
-        total: frames.length,
-        frames: frames.slice(-limit),
+        ...page,
       }, ctxEnc);
     }
 
