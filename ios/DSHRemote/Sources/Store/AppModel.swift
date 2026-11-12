@@ -445,6 +445,9 @@ final class AppModel: ObservableObject {
                 )
             }
             chat.applyQueueChange(target: target, start: start, removed: removed, items: items)
+            // 追一段：手机队列区一直不显示，需要确认这一帧到底有没有到、
+            // 解析出几条、处理后队列里有几条。
+            trace("q.changed t=\(target) s=\(start) r=\(removed) n=\(items.count) q=\(chat.queue.count)")
             return
         }
 
