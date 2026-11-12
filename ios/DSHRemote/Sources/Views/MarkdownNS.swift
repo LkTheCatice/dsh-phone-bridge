@@ -45,7 +45,9 @@ enum MarkdownNS {
         // 缓存不可变副本：可变对象被别处改动会污染缓存
         let frozen = NSAttributedString(attributedString: built)
         // cost 用「字符数 × 8」近似 attributed string 的实际占用（字符 + 属性表）
-        cache.setObject(frozen, forKey: text as NSString, cost: max(1, frozen.length * 8))
+        // 注意 key 必须和上面 get 用的是同一把（带 mode 前缀）：之前 set 用的是裸 text，
+        // 于是每次渲染都 miss，等于没有缓存（长回答反复解析 + 反复排版）。
+        cache.setObject(frozen, forKey: cacheKey as NSString, cost: max(1, frozen.length * 8))
         return frozen
     }
 
@@ -58,11 +60,28 @@ enum MarkdownNS {
             visible = blocks
         }
         if visible.isEmpty { return NSAttributedString(string: "（这条消息里没有表格）") }
+        var tableIndex = 0
         for (index, block) in visible.enumerated() {
             // 段与段之间：用段落样式给「段后距」，而不是靠空行撑 ——
             // 空行会随字号放大成一大片空白，看起来又松又散（可读性下降的主因）。
             if index > 0 {
                 out.append(NSAttributedString(string: "\n"))
+            }
+            // 详情页的「表格」视图只放表：一条回答里常有两三张表，
+            // 原来首尾相接，表头直接顶到上一张表的最后一行下面，看着像同一张表
+            // （用户实拍：左边还冒出一截短横线，分不清是分隔还是新表的表头线）。
+            if mode == .tablesOnly, case .table = block {
+                tableIndex += 1
+                if tableIndex > 1 {
+                    out.append(NSAttributedString(
+                        string: "\n▦ 第 \(tableIndex) 张表\n",
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 11, weight: .medium),
+                            .foregroundColor: UIColor.secondaryLabel,
+                            .paragraphStyle: Self.style(spacingAfter: 4, spacingBefore: 8, lineSpacing: 1),
+                        ]
+                    ))
+                }
             }
             out.append(renderBlock(block, isFirst: index == 0, mode: mode))
         }
@@ -140,42 +159,49 @@ enum MarkdownNS {
             return out
 
         case let .code(code, lang):
-            // 代码块：左右缩进 + 等宽 + 底色
+            // 代码块：等宽 + 整块底色，**不许出现「一行一个灰胶囊」**
             //
-            // lineSpacing 必须是 0：`.backgroundColor` 在 TextKit 里是**按行**绘制的，
-            // 行距一留出空隙，每一行就变成一条独立的小色条（用户实拍确认）。
-            // 行距靠 lineHeightMultiple 撑（它不影响背景绘制区域的连续性）。
+            // 用户实拍过的三种坏样子：
+            //  ① `lineSpacing > 0` → 底色按行绘制，被行距切成一条条
+            //  ② `lineHeightMultiple` → 即使 lineSpacing=0，行高被撑大后底色只覆盖
+            //     字形带（glyph band），行与行之间照样留白，看起来像每行一个灰胶囊
+            //  ③ 不给行尾补空格 → 每行底色只画到该行最后一个字符，右边缘参差不齐
+            // 现在的做法：行高用默认值（不撑）+ 每行按显示宽度补空格到统一宽度
+            // （等宽字体下宽度可精确计算），底色于是连成一整块规整矩形。
             let style = Self.style(
-                spacingAfter: 4, spacingBefore: before, lineSpacing: 0,
+                spacingAfter: 6, spacingBefore: before, lineSpacing: 0,
                 headIndent: 8, tailIndent: -8
             )
-            // 代码块**不折行**：折行会把缩进、ASCII 图、对齐的输出全打散。
-            // 超长行在末尾截断成 …，详情页（外层有横向 ScrollView）可以左右拖看全文。
+            // 气泡里一行大约放得下 46 个半角字符；详情页外层有横向滚动，可以放宽。
+            // 超长行仍在本行末尾截断成 …（详情页能横向拖看全文）。
             style.lineBreakMode = .byTruncatingTail
+            let maxChars = mode == .compact ? 46 : 96
+            let rawLines = clampCode(code).components(separatedBy: "\n")
+            let target = min(maxChars, rawLines.map { Self.displayWidth($0) }.max() ?? 0)
+            let padded = rawLines.map { line -> String in
+                let width = Self.displayWidth(line)
+                guard target > width else { return line }
+                return line + String(repeating: " ", count: target - width)
+            }.joined(separator: "\n")
+
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
-                let tag = NSAttributedString(
+                out.append(NSAttributedString(
                     string: lang + "\n",
                     attributes: [
                         .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                         .foregroundColor: UIColor.tertiaryLabel,
                         .paragraphStyle: style,
                     ]
-                )
-                out.append(tag)
+                ))
             }
             out.append(NSAttributedString(
-                string: clampCode(code),
+                string: padded,
                 attributes: [
                     .font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
                     .foregroundColor: UIColor.label,
                     .backgroundColor: UIColor.secondarySystemFill,
-                    // lineHeightMultiple 撑行高但不像 lineSpacing 那样把背景切断
-                    .paragraphStyle: {
-                        let s = style.mutableCopy() as? NSMutableParagraphStyle ?? style
-                        s.lineHeightMultiple = 1.28
-                        return s
-                    }(),
+                    .paragraphStyle: style,
                 ]
             ))
             return out
@@ -299,6 +325,14 @@ enum MarkdownNS {
                     // 这类）会被直接截断，点开完整内容也只看得到开头（用户实拍确认）。
                     natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: isFull ? 60 : 16)))
                 }
+            }
+            // 单列占比封顶：气泡里出现过 `%LOCALAPPDATA%\Programs\Swift\Platforms\6.4.2`
+            // 这种超长首列，把「结果」整列挤到屏幕外面 —— 用户看到的就是
+            // 左边一坨省略号 + 右边只剩半个字。封到一半宽度，配合下面按比例压缩，
+            // 起码每列都能露出可读的一段。
+            let columnShareCap = max(8, contentBudget / 2)
+            for i in 0..<columnCount where natural[i] > columnShareCap {
+                natural[i] = columnShareCap
             }
             let naturalTotal = natural.reduce(0, +)
             var columnWidths = natural
