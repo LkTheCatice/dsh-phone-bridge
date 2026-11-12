@@ -207,7 +207,12 @@ export function normalizeEvent(session, event) {
         /^(Time sampled while preparing|Browser time zone for this request|Elapsed since)/im.test(text) ||
         /Current DSH file policy|Approval prompts are disabled in this session|Current DeepSeek Harness implementation checkout|Current DeepSeek Harness Web GUI URL/i.test(
           text,
-        );
+        ) ||
+        // 3. checkpoint：上下文压缩时 DSH 会把一段
+        //    「This is an automatically generated checkpoint condensing an earlier span…」
+        //    注入成 user/message。它是给模型看的，之前直接在手机上显示成「我」说的话
+        //    （用户实拍：整屏都是 <compacted-summary> 原文）。
+        /automatically generated checkpoint|<compacted-summary>|condensing an earlier span/i.test(text);
       if (!injected) {
         frames.push({ ...base, type: "user.message", turn, text: clip(text, TEXT_LIMIT) });
       }
