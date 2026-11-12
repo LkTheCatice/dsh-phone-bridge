@@ -14,6 +14,9 @@ struct MainView: View {
                 .environmentObject(model.walletStore)
                 .tabItem { Label("对话", systemImage: "bubble.left.and.bubble.right") }
             SettingsView()
+                // SettingsView 订阅了 WalletStore（余额区），
+                // 不注入就会在打开设置页时崩 —— @EnvironmentObject 缺失是运行时崩溃，不是编译错误。
+                .environmentObject(model.walletStore)
                 .tabItem { Label("设置", systemImage: "gearshape") }
         }
         // 横幅交给独立子视图：MainView 包着 TabView，一旦在这里读 phase /
