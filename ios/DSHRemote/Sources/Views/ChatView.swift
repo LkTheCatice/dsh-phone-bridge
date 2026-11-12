@@ -6,6 +6,8 @@ struct ChatView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    /// 输入框高度（1~5 行自适应）
+    @State private var inputHeight: CGFloat = 36
     /// 上传进度（已完成张数, 总张数），nil 表示没在上传
     @State private var uploadProgress: (done: Int, total: Int)?
     /// 已上传到电脑、等着随消息一起发出的附件（显示成 chip，不塞进输入框）
@@ -478,13 +480,28 @@ struct ChatView: View {
                 }
                 .disabled(uploading)
 
-                TextField("让它跑点什么…", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
-                    .focused($focused)
+                // 用自己的 UITextView 包一层：SwiftUI 的 TextField 在键盘弹出
+                // 引起布局变化时会重建底层控件，把第一个按键（拼音首字母）丢掉。
+                ZStack(alignment: .topLeading) {
+                    if draft.isEmpty {
+                        Text("让它跑点什么…")
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 17)
+                            .allowsHitTesting(false)
+                    }
+                    ComposerTextView(
+                        text: $draft,
+                        focused: $focused,
+                        onHeightChange: { h in
+                            inputHeight = min(max(h, 36), 132)   // 1 行 ~36，最多 5 行 ~132
+                        }
+                    )
+                    .frame(height: inputHeight)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
 
                 Button(action: submit) {
                     Image(systemName: sending ? "hourglass" : "arrow.up.circle.fill")
