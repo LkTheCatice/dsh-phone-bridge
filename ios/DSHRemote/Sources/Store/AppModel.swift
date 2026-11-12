@@ -1335,11 +1335,12 @@ final class AppModel: ObservableObject {
         }
         do {
             let raw = try await client.transcript(sessionId: sessionId, limit: limit, before: before)
-            trace("older-frames=\(frames.count) hasMore=\(raw["hasMore"] ?? "?")")
             guard let frames = raw["frames"] as? [[String: Any]], !frames.isEmpty else {
+                trace("older-empty hasMore=\(raw["hasMore"] ?? "?")")
                 olderHasMore = false
                 return
             }
+            trace("older-frames=\(frames.count) hasMore=\(raw["hasMore"] ?? "?")")
             olderHasMore = (raw["hasMore"] as? Bool) ?? false
             if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
                 olderBefore[sessionId] = next
