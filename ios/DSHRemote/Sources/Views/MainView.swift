@@ -19,11 +19,17 @@ struct MainView: View {
         .overlay(alignment: .top) {
             BannerHost()
         }
-        .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
-            // 切回前台：先给 3 秒宽限，同时自动重连
-            model.beginReconnectGrace(seconds: 3)
-            Task { await model.reconnect() }
+        .onChange(of: scenePhase) { newPhase in
+            // 从后台回来时恢复连接。
+            // 原来这里是「无条件 reconnect()」，即使已连接也整条重连一遍；
+            // 现在交给 handleScenePhase 按状态区分：
+            //   已连接 → 只重启事件流（系统挂起过，旧流多半已死）
+            //   断开/失败 → 才真的重连
+            model.handleScenePhase(newPhase)
+            if newPhase == .active {
+                // 给 3 秒宽限，避免网络抖动时断线横幅闪一下
+                model.beginReconnectGrace(seconds: 3)
+            }
         }
         .task {
             if !model.isConnected { await model.connect() }

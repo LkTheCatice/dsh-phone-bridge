@@ -314,6 +314,38 @@ final class AppModel: ObservableObject {
         await connect()
     }
 
+    /// 前后台切换时的连接处理。
+    ///
+    /// 为什么需要它：App 进后台后系统会挂起/断开 SSE，回到前台时
+    /// `phase` 仍是 `.connected` 但流已经死了，界面上表现为「未连接」却又不会自动恢复。
+    /// 这里按当前状态分别处理：
+    /// - 已连接 → 重启事件流（旧的多半已断）并补一次状态
+    /// - 连接中 → 等它自己出结果
+    /// - 其余（失败/断开）→ 重新连接
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            // 主动停掉流，避免后台被系统拒绝后再带着一堆错误重连
+            streamTask?.cancel()
+        case .active:
+            guard pairing != nil else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                switch self.phase {
+                case .connected:
+                    self.startStream()
+                    await self.refresh()
+                case .connecting:
+                    break
+                default:
+                    await self.reconnect()
+                }
+            }
+        default:
+            break
+        }
+    }
+
     func forgetPairing() {
         disconnect()
         PairingStore.clear()
