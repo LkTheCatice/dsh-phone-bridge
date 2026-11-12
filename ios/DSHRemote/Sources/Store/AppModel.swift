@@ -1318,8 +1318,8 @@ final class AppModel: ObservableObject {
 
     /// 加载更早的消息（QQ 式上拉）。
     /// 服务端按 before（已加载条数，从尾部往前数）分页返回。
-    // 上拉一次多给一些：300 帧 ≈ 40~90 条消息，减少「拉好几次才到顶」的感觉
-    func loadOlder(_ sessionId: String, limit: Int = 300) async {
+    // 300 帧在上划明显卡顿，收到 120。宁可多拉两次，也要手感顺。
+    func loadOlder(_ sessionId: String, limit: Int = 120) async {
         guard let client, !sessionId.isEmpty, !olderLoading else { return }
         olderLoading = true
         defer { olderLoading = false }
@@ -1389,11 +1389,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // limit 的单位是**帧**，不是消息。一条消息约 3~8 帧
-    // （turn.start + user.message + deltas + turn.end + 工具调用），
-    // 所以 400 帧大约 50~120 条消息 —— 一次进来能看到的上下文多得多。
-    // 代价：解析在主线程分片进行（有 Task.yield），实测 400 帧可接受。
-    func loadHistory(_ sessionId: String, limit: Int = 400) async {
+    // limit 的单位是**帧**，不是消息。一条消息约 3~8 帧。
+    // 400 帧（约 50~120 条）在上划时会出现可感知的卡顿 —— 用户反馈后收紧到 200。
+    // 少一点但更顺，往上拉一次就能补上。
+    func loadHistory(_ sessionId: String, limit: Int = 200) async {
         guard let client, !sessionId.isEmpty else { return }
         historyLoading = true
         defer { historyLoading = false }

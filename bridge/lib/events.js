@@ -212,7 +212,11 @@ export function normalizeEvent(session, event) {
         //    「This is an automatically generated checkpoint condensing an earlier span…」
         //    注入成 user/message。它是给模型看的，之前直接在手机上显示成「我」说的话
         //    （用户实拍：整屏都是 <compacted-summary> 原文）。
-        /automatically generated checkpoint|<compacted-summary>|condensing an earlier span/i.test(text);
+        /automatically generated checkpoint|<compacted-summary>|condensing an earlier span/i.test(text) ||
+        // 4. 后台任务的命令回显：我起 background job 时，整段 PowerShell
+        //    脚本（几百行）会被当成 user/message 推进来，手机上就是满屏代码
+        //    （用户实拍）。特征很明显：`$script = @'` / `background job pwsh-…`。
+        /background job pwsh-|\$script\s*=\s*@'|\$env:PYTHONIOENCODING/i.test(text);
       if (!injected) {
         frames.push({ ...base, type: "user.message", turn, text: clip(text, TEXT_LIMIT) });
       }

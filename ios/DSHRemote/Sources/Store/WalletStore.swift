@@ -45,12 +45,13 @@ final class WalletStore: ObservableObject {
                 )
             }
         }
-        // 去重：DSH 会返回两条同币种的余额（用户实拍两行「余额（CNY）」）
-        var seen = Set<String>()
+        // 去重：桥返回两组 —— wallets（主钱包）和 bonuses（赠送额度）。
+        // 同一个币种常常两边各有一条，金额还一样，界面上就是两行「余额（CNY）」
+        // （用户实拍）。所以 key 只按 currency，主钱包排前面优先保留。
+        var seenCurrency = Set<String>()
         wallets = (parse("wallets", bonus: false) + parse("bonuses", bonus: true)).filter { w in
-            let key = "\(w.isBonus)-\(w.currency)"
-            if seen.contains(key) { return false }
-            seen.insert(key)
+            if seenCurrency.contains(w.currency) { return false }
+            seenCurrency.insert(w.currency)
             return true
         }
     }
