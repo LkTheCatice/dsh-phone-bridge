@@ -140,10 +140,14 @@ enum MarkdownNS {
             return out
 
         case let .code(code, lang):
-            // 代码块：左右缩进 + 等宽 + 底色 + 稍紧的行距
+            // 代码块：左右缩进 + 等宽 + 底色
+            //
+            // lineSpacing 必须是 0：`.backgroundColor` 在 TextKit 里是**按行**绘制的，
+            // 行距一留出空隙，每一行就变成一条独立的小色条（用户实拍确认）。
+            // 行距靠 lineHeightMultiple 撑（它不影响背景绘制区域的连续性）。
             let style = Self.style(
-                spacingAfter: 2, spacingBefore: before, lineSpacing: 1.5,
-                headIndent: 10, tailIndent: -10
+                spacingAfter: 4, spacingBefore: before, lineSpacing: 0,
+                headIndent: 8, tailIndent: -8
             )
             // 代码块**不折行**：折行会把缩进、ASCII 图、对齐的输出全打散。
             // 超长行在末尾截断成 …，详情页（外层有横向 ScrollView）可以左右拖看全文。
@@ -166,7 +170,12 @@ enum MarkdownNS {
                     .font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
                     .foregroundColor: UIColor.label,
                     .backgroundColor: UIColor.secondarySystemFill,
-                    .paragraphStyle: style,
+                    // lineHeightMultiple 撑行高但不像 lineSpacing 那样把背景切断
+                    .paragraphStyle: {
+                        let s = style.mutableCopy() as? NSMutableParagraphStyle ?? style
+                        s.lineHeightMultiple = 1.28
+                        return s
+                    }(),
                 ]
             ))
             return out
