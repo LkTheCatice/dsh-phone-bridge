@@ -1625,6 +1625,36 @@ function applyBridge(ctx, config) {
             } catch { probe.queueLike[k] = "<err>"; }
           }
         }
+        // 第二层：把可疑对象的形状挖出来
+        // 第一轮已知：ctrl 上没有 queue/pending 方法，session 上也没有 queue 字段。
+        // 候选集中在 controlState / listState / derived / derivedNodes / eventsSnapshot。
+        const describe = (v) => {
+          if (v === null || v === undefined) return "null";
+          if (typeof v === "function") return "<fn>";
+          if (typeof v !== "object") return String(v).slice(0, 120);
+          if (Array.isArray(v)) {
+            const head = v.length ? JSON.stringify(v[0]).slice(0, 200) : "";
+            return `Array(${v.length})` + (head ? " first=" + head : "");
+          }
+          const keys = Object.keys(v).slice(0, 24);
+          const out = { keys };
+          for (const k of keys) {
+            if (!/queue|pending|list|item|message|task|busy|run/i.test(k)) continue;
+            try { out[k] = JSON.stringify(v[k]).slice(0, 300); } catch { out[k] = "<err>"; }
+          }
+          return out;
+        };
+
+        probe.deep = {};
+        for (const key of ["controlState", "listState", "history", "commands", "agents"]) {
+          try { probe.deep["ctrl." + key] = describe(ctrl[key]); } catch (e) { probe.deep["ctrl." + key] = "<err>"; }
+        }
+        if (session) {
+          for (const key of ["derived", "derivedNodes", "eventsSnapshot", "header", "log"]) {
+            try { probe.deep["session." + key] = describe(session[key]); } catch (e) { probe.deep["session." + key] = "<err>"; }
+          }
+        }
+
         logLine(probe);
       } catch (e) {
         logLine({ step: "queue.probe/failed", error: String(e?.message || e).slice(0, 200) });
