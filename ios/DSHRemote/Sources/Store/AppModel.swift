@@ -565,8 +565,18 @@ final class AppModel: ObservableObject {
                 || text.contains("Current DSH file policy")
                 || text.contains("Approval prompts are disabled in this session")
             guard !injected else { return }
-            // 去重：send() 已经本地乐观插入过同一条，服务端回显时不能再插一次
-            // —— 否则自己发的消息会显示两遍。
+            // 去重：send() 已经本地乐观插入过同一条，服务端回显时不能再插一次。
+            //
+            // ① 首选：找本地那条 local- 前缀且文本相同的，直接替换成服务端的正式 id。
+            //    不设时间窗 —— 排队时服务端可能几十秒后才回显，用 15 秒窗口会漏。
+            if let idx = entries[sid]?.lastIndex(where: { $0.id.hasPrefix("local-") && $0.text == text }) {
+                var item = entries[sid]![idx]
+                item.running = false
+                entries[sid]![idx] = item
+                return
+            }
+            // ② 兜底：万一 local- 那条已经被别的路径消费掉（例如切会话重载），
+            //    再用「文本相同 + 近距离」判断一次。
             let recent = entries[sid]?.suffix(3) ?? []
             let duplicated = recent.contains { item in
                 item.kind == .user
@@ -1055,7 +1065,10 @@ final class AppModel: ObservableObject {
 
         let target = selectedSessionId
         let sid = target ?? "pending"
-        append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: trimmed, at: Date()))
+        // local- 前缀标记「这条是我本地乐观插入的」：服务端回显时要替换它，
+        // 而不是再插一条。靠 id 前缀识别比靠「文本 + 15 秒时间窗」可靠 ——
+        // 排队场景下服务端可能要等几十秒才回显，时间窗一过就变成两条重复。
+        append(sid, ChatEntry(id: "local-\(UUID().uuidString)", kind: .user, text: trimmed, at: Date()))
         let t3 = CFAbsoluteTimeGetCurrent()
         trace("s2-append=\(Int((t3 - t2) * 1000))ms n=\(entriesStorage[sid]?.count ?? -1)")
         do {
