@@ -171,6 +171,8 @@ final class MessageCell: UICollectionViewCell {
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
     private var onTapAttachments: (() -> Void)?
+    /// 当前渲染的条目（高度缓存要按它生成 key）
+    private var currentEntry: ChatEntry?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -207,6 +209,7 @@ final class MessageCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         textView.attributedText = nil
+        currentEntry = nil
         attachmentLabel.text = nil
         attachmentLabel.isHidden = true
         onTapAttachments = nil
@@ -217,6 +220,7 @@ final class MessageCell: UICollectionViewCell {
     }
 
     func configure(_ entry: ChatEntry, streaming: Bool, onTapAttachments: (() -> Void)?) {
+        currentEntry = entry
         textView.attributedText = MessageRender.attributed(entry)
         self.onTapAttachments = onTapAttachments
 
@@ -238,18 +242,52 @@ final class MessageCell: UICollectionViewCell {
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
+        let width = layoutAttributes.size.width
+        let key = cacheKey(for: layoutAttributes, width: width)
+        if let cached = Self.heightCache[key], abs(cached.width - width) < 0.5 {
+            var attributes = layoutAttributes
+            attributes.size.height = cached.height
+            return attributes
+        }
+
         setNeedsLayout()
         layoutIfNeeded()
-        let width = layoutAttributes.size.width
         let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
         let size = contentView.systemLayoutSizeFitting(
             target,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         )
+        let height = ceil(size.height)
+        if let key { Self.store(key: key, height: height, width: width) }
+
         var attributes = layoutAttributes
-        attributes.size.height = ceil(size.height)
+        attributes.size.height = height
         return attributes
+    }
+
+    /// 高度缓存用「id + 内容长度 + 附件数」作 key：内容一变就不复用旧高度。
+    /// 不用 attributed string 的 hash —— 那个在每个 cell 上算一次比测量还贵。
+    private func cacheKey(for attributes: UICollectionViewLayoutAttributes, width: CGFloat) -> String? {
+        guard let entry = currentEntry else { return nil }
+        return "\(entry.id)|\(entry.text.count)|\(entry.summary?.count ?? 0)|\(Int(width))"
+    }
+
+    /// 高度缓存。**有上限**（LRU 600 条），避免长会话把内存吃满。
+    private struct CachedHeight { let height: CGFloat; let width: CGFloat }
+    private static var heightStorage: [String: CachedHeight] = [:]
+    private static var heightOrder: [String] = []
+    private static let heightCapacity = 600
+
+    private static func store(key: String, height: CGFloat, width: CGFloat) {
+        if heightStorage[key] == nil {
+            heightOrder.append(key)
+            if heightOrder.count > heightCapacity {
+                let drop = heightOrder.removeFirst()
+                heightStorage.removeValue(forKey: drop)
+            }
+        }
+        heightStorage[key] = CachedHeight(height: height, width: width)
     }
 }
 
