@@ -1577,6 +1577,20 @@ function applyBridge(ctx, config) {
         });
         throw error;
       }
+
+      // 诊断：把 DSH 的 prompt 返回值**完整**记一条。
+      // 目的是确认「排队」时到底有没有队列信息（queued / position / pending…）。
+      // 手机端现在只能知道 accepted，拿不到排队状态，这是排队功能的第一块拼图。
+      try {
+        logLine({
+          step: "task.result",
+          sessionId,
+          mode: body.mode || "queue",
+          keys: result && typeof result === "object" ? Object.keys(result) : [],
+          result: JSON.stringify(result).slice(0, 1200),
+        });
+      } catch { /* 记日志失败不影响主流程 */ }
+
       return sendJson(res, 200, {
         ok: true,
         sessionId,

@@ -1,0 +1,68 @@
+workflows:
+  ios-unsigned-ipa:
+    name: DSHRemote unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      groups: []
+      vars:
+        XCODE_WORKSPACE: "ios/DSHRemote/DSHRemote.xcodeproj"
+        SCHEME: "DSHRemote"
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          set -e
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        script: |
+          set -e
+          cd ios/DSHRemote
+          xcodegen generate
+
+      - name: Build (no code signing)
+        script: |
+          set -o pipefail
+          cd ios/DSHRemote
+          xcodebuild \
+            -project DSHRemote.xcodeproj \
+            -scheme DSHRemote \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            MARKETING_VERSION="$(echo $CM_COMMIT | cut -c1-7)" \
+            CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-1}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+          grep -E "error:" build.log > errors.txt || true
+          test ! -s errors.txt
+
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          cd ios/DSHRemote
+          APP_PATH="build/Build/Products/Release-iphoneos/DSHRemote.app"
+          test -d "$APP_PATH"
+          rm -rf Payload DSHRemote-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry DSHRemote-unsigned.ipa Payload
+          ls -lh DSHRemote-unsigned.ipa
+
+    artifacts:
+      - ios/DSHRemote/DSHRemote-unsigned.ipa
+      - ios/DSHRemote/build.log
+      - ios/DSHRemote/errors.txt
