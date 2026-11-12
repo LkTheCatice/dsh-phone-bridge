@@ -24,7 +24,8 @@ struct EntryDetailSheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         // 完整渲染：表格按卡片式展开，不截行列
-                        Text(MarkdownNS.render(entry.text, mode: .full))
+                        // NSAttributedString → AttributedString 才能交给 SwiftUI 的 Text
+                        Text(AttributedString(MarkdownNS.render(entry.text, mode: .full)))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
