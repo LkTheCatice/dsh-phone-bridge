@@ -264,6 +264,34 @@ final class AppModel: ObservableObject {
     /// turn.start 的时间，用来在 turn.end 显示"用时 N 秒"
     private var turnStartedAt: [String: Date] = [:]
 
+    /// 一轮里的「第几段回答」。
+    ///
+    /// 插队（steer）在 DSH 里是把消息塞进**当前轮的下一步**，所以插队那条的
+    /// 回答和本轮前面的回答共用同一个 `turn`。原来气泡 id 固定是 `sid#ans<turn>`，
+    /// 两段文本会被拼进**同一个**气泡，而那个气泡在插队消息**上方** ——
+    /// 表现就是「插队执行成功了，但手机端看不到它的输出」（用户实拍）。
+    ///
+    /// 分隔点取「每来一条 user.message 就开新段」：插队回显正好是一条
+    /// `user/message`（见 22:57:57 的 `USER『报这个 …』`），后续 delta 因此落到
+    /// 新的气泡 id 上，自然排在插队消息下面。
+    private var answerSegment: [String: Int] = [:]
+
+    /// 每个会话当前所在的轮次。
+    ///
+    /// 有些帧（尤其 user/message）不带 turn，靠它把轮次补齐 ——
+    /// 否则这些条目 turn=0，排序时永远排在最前。
+    private var currentTurn: [String: Int] = [:]
+
+    /// 当前轮的回答段落号（0 是本轮第一段）
+    private func segmentNow(_ sessionId: String) -> Int {
+        answerSegment[sessionId] ?? 0
+    }
+
+    /// 开新一段回答
+    private func advanceSegment(_ sessionId: String) {
+        answerSegment[sessionId] = (answerSegment[sessionId] ?? 0) + 1
+    }
+
     /// 会话列表变化时刷新标题标量（标题要单独一个 @Published，
     /// 否则 ChatView 得自己去 sessions 里查，列表一刷新整棵聊天树就重算）
     private var cancellables = Set<AnyCancellable>()
@@ -454,7 +482,12 @@ final class AppModel: ObservableObject {
         // 卡死取证：主线程最后进入的是哪一帧
         stallWatcher.setMark("apply:\(type)")
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
-        let turn = (frame["turn"] as? NSNumber)?.intValue ?? 0
+        // user/message 帧里 DSH 经常不带 turn（插队回显就是这种：22:57:57 那条
+        // `USER『报这个 …』` 的 data 里没有 turn）。原来一律落到 0，而 0 在
+        // 「按 turn 排序」里永远排最前 —— 上拉加载更早之后，提问就会跑到整屏最上面。
+        // 没带 turn 就用当前轮的轮次补上。
+        let frameTurn = (frame["turn"] as? NSNumber)?.intValue ?? 0
+        let turn = frameTurn > 0 ? frameTurn : (currentTurn[sid] ?? 0)
 
         // 流式状态：只在翻转时写
         switch type {
@@ -516,15 +549,20 @@ final class AppModel: ObservableObject {
             // turn.start/turn.end 会被挤在同一瞬间，于是永远显示「用时 0 秒」
             let startedAt = Self.frameDate(frame)
             turnStartedAt[sid] = startedAt
+            // 记下当前轮：后面不带 turn 的帧（插队回显等）要靠它补齐
+            currentTurn[sid] = turn
+            // 新一轮从第 0 段开始；插队会把它往后推
+            answerSegment[sid] = 0
             append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: startedAt, running: true))
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
-            upsertStreaming(sid, id: "\(sid)#think\(turn)", kind: .thinking, delta: text, header: "", turn: turn)
+            upsertStreaming(sid, id: BubbleIds.thinking(sid, turn: turn, segment: segmentNow(sid)), kind: .thinking, delta: text, header: "", turn: turn, at: Self.frameDate(frame))
 
         case "assistant.delta":
             let text = (frame["text"] as? String) ?? ""
-            upsertStreaming(sid, id: "\(sid)#ans\(turn)", kind: .assistant, delta: text, header: "", turn: turn)
+            // 带段落号：插队后同一 turn 的新回答另起一条，否则会拼回插队消息上方的旧气泡
+            upsertStreaming(sid, id: BubbleIds.answer(sid, turn: turn, segment: segmentNow(sid)), kind: .assistant, delta: text, header: "", turn: turn, at: Self.frameDate(frame))
 
         case "tool.call":
             let callId = (frame["callId"] as? String) ?? UUID().uuidString
@@ -640,11 +678,17 @@ final class AppModel: ObservableObject {
                 || text.contains("Current DSH file policy")
                 || text.contains("Approval prompts are disabled in this session")
             guard !injected else { return }
+            // 每来一条真正的用户消息就开新一段回答：插队（next-step）就是靠这个
+            // 把「插队那条的输出」从上一个气泡里分出来，落到自己下面。
+            advanceSegment(sid)
             // 去重：send() 已经本地乐观插入过同一条，服务端回显时不能再插一次。
             //
             // ① 首选：找本地那条 local- 前缀且文本相同的，直接替换成服务端的正式 id。
             //    不设时间窗 —— 排队时服务端可能几十秒后才回显，用 15 秒窗口会漏。
-            if let idx = entries[sid]?.lastIndex(where: { $0.id.hasPrefix("local-") && $0.text == text }) {
+            //    比较用 sameMessage 归一化：插队占位存的是队列项原文，服务端回显
+            //    可能多出 `[附件] …` 之类的装饰，直接 == 会匹配不上，
+            //    占位就一直挂着「▍我 · 已插队，等当前任务完成」。
+            if let idx = entries[sid]?.lastIndex(where: { $0.id.hasPrefix("local-") && Self.sameMessage($0.text, text) }) {
                 var item = entries[sid]![idx]
                 item.running = false
                 item.queued = false
@@ -660,7 +704,7 @@ final class AppModel: ObservableObject {
             let recent = entries[sid]?.suffix(3) ?? []
             let duplicated = recent.contains { item in
                 item.kind == .user
-                    && item.text == text
+                    && Self.sameMessage(item.text, text)
                     && abs(item.at.timeIntervalSinceNow) < 15
             }
             guard !duplicated else { return }
@@ -805,11 +849,20 @@ final class AppModel: ObservableObject {
     /// 现在放到 300：初始 400 帧约合 100 条消息，加上一两次上拉正好够，
     /// 超出 340（cap + trimSlack）才开始裁头部。
     private static let maxEntriesPerSession = 300
-
     /// 满 cap 之后不要每条都裁：裁一次是 O(n) 的全量 filter，而流式输出时
     /// 每个 delta 都会走一遍 append —— 等于每帧一次 220 元素的复制。
     /// 留一截余量（cap + 40）再裁，裁剪次数降到 1/40，内存上限仍然是硬的。
     private static let trimSlack = 40
+
+    /// 一页最多多少帧（初始加载 / 上拉各一个）。
+    ///
+    /// **单位是帧，不是消息**，一条消息约 3~8 帧。实测：
+    /// - 400 帧（≈50~120 条）一次灌进列表，上划明显卡顿（用户实拍）
+    /// - 300 帧同样能感觉到顿
+    /// - 200 / 120 顺，代价是多拉一次
+    /// 这里做成硬上限：调用方传多大都钳住，避免「把容量调大」再把卡顿调回来。
+    static let historyPageLimit = 200
+    static let olderPageLimit = 120
 
     /// 历史回填期间关掉逐条裁剪：几百帧连续 append，逐条裁就是 O(n²)。
     /// 回填结束时统一裁一次（见 loadHistory）。
@@ -869,7 +922,7 @@ final class AppModel: ObservableObject {
         return foldedEntries.count
     }
 
-    private func upsertStreaming(_ sessionId: String, id: String, kind: ChatEntry.Kind, delta: String, header: String, turn: Int = 0) {
+    private func upsertStreaming(_ sessionId: String, id: String, kind: ChatEntry.Kind, delta: String, header: String, turn: Int = 0, at: Date = Date()) {
         guard !sessionId.isEmpty else { return }
         // 就地改字典里的数组。之前是「取出来 → 改 → 塞回去」，
         // 每次 delta 都会 CoW 复制整个数组（几百条），流式输出时开销很明显。
@@ -882,10 +935,17 @@ final class AppModel: ObservableObject {
             id: id,
             kind: kind,
             text: (header.isEmpty ? "" : header + "\n") + delta,
-            at: Date(),
+            at: at,
             running: true,
             turn: turn
         ))
+    }
+
+    /// 判断两条用户消息是不是同一条（用于替换本地乐观插入的占位）。
+    ///
+    /// 实现搬到 Core/BubbleIds.swift（纯 Foundation，本机可编译可测）。
+    static func sameMessage(_ a: String, _ b: String) -> Bool {
+        BubbleIds.sameMessage(a, b)
     }
 
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
@@ -1325,6 +1385,9 @@ final class AppModel: ObservableObject {
     // 300 帧在上划明显卡顿，收到 120。宁可多拉两次，也要手感顺。
     func loadOlder(_ sessionId: String, limit: Int = 120) async {
         guard let client, !sessionId.isEmpty, !olderLoading else { return }
+        // 同样钳住：上拉一页最多 olderPageLimit 帧（≈30~40 条），
+        // 否则一次往头部插太多，滚动会顿（用户实拍：容量调大后上划卡顿）。
+        let page = BubbleIds.pageSize(limit, cap: Self.olderPageLimit)
         olderLoading = true
         defer { olderLoading = false }
         // 用服务端给的 nextBefore，**不能**用条目数 ——
@@ -1345,13 +1408,13 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            let raw = try await client.transcript(sessionId: sessionId, limit: limit, before: before)
+            let raw = try await client.transcript(sessionId: sessionId, limit: page, before: before)
             guard let frames = raw["frames"] as? [[String: Any]], !frames.isEmpty else {
                 trace("older-empty hasMore=\(raw["hasMore"] ?? "?")")
                 olderHasMore = false
                 return
             }
-            trace("older-frames=\(frames.count) hasMore=\(raw["hasMore"] ?? "?")")
+            trace("older-frames=\(frames.count) page=\(page) hasMore=\(raw["hasMore"] ?? "?")")
             olderHasMore = (raw["hasMore"] as? Bool) ?? false
             if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
                 olderBefore[sessionId] = next
@@ -1398,6 +1461,10 @@ final class AppModel: ObservableObject {
     // 少一点但更顺，往上拉一次就能补上。
     func loadHistory(_ sessionId: String, limit: Int = 200) async {
         guard let client, !sessionId.isEmpty else { return }
+        // 硬上限：一页帧数一旦调大，就是「一次性往列表头插上百条」，
+        // UICollectionView 的 diff + 高度重算全压在主线程（用户实拍：调大后上划卡顿）。
+        // 参数可以随便传，这里一律钳住，避免再回到那次卡顿。
+        let page = BubbleIds.pageSize(limit, cap: Self.historyPageLimit)
         historyLoading = true
         defer { historyLoading = false }
         do {
@@ -1410,7 +1477,7 @@ final class AppModel: ObservableObject {
             var lastError: Error?
             for attempt in 0..<3 {
                 do {
-                    raw = try await client.transcript(sessionId: sessionId, limit: limit)
+                    raw = try await client.transcript(sessionId: sessionId, limit: page)
                     lastError = nil
                     break
                 } catch {
@@ -1436,6 +1503,8 @@ final class AppModel: ObservableObject {
             beginBatch()
             suppressTrim = true          // 逐条裁是 O(n²)：回填期间关掉，收尾统一裁一次
             entries[sessionId] = []
+            // 从头重放，段落号也跟着从头数（否则回填出来的 id 会带上一轮的段号）
+            answerSegment[sessionId] = 0
             for (index, frame) in frames.enumerated() {
                 // seq 传 0 不推进实时游标；isHistory=true 避免每个 turn.end 都去刷会话列表
                 apply(seq: 0, frame: frame, isHistory: true)
