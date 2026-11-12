@@ -1552,6 +1552,30 @@ function applyBridge(ctx, config) {
             })(),
           });
         } catch { /* 探测失败不影响兜底 */ }
+        // getBalance 挂在 platformClientHeaders 上失败（要读某个 client 的 version），
+        // 但 account 还暴露了 getState / getProfile —— 它们可能直接给出登录态，
+        // 也许余额该从那儿拿，而不是 getBalance。
+        try {
+          const state = await account.getState();
+          logLine({
+            step: "balance.state",
+            keys: state && typeof state === "object" ? Object.keys(state).slice(0, 24) : [],
+            state: JSON.stringify(state).slice(0, 900),
+          });
+        } catch (e2) {
+          logLine({ step: "balance.state/failed", error: String(e2?.message || e2).slice(0, 200) });
+        }
+        try {
+          const profile = await account.getProfile();
+          logLine({
+            step: "balance.profile",
+            keys: profile && typeof profile === "object" ? Object.keys(profile).slice(0, 24) : [],
+            profile: JSON.stringify(profile).slice(0, 700),
+          });
+        } catch (e3) {
+          logLine({ step: "balance.profile/failed", error: String(e3?.message || e3).slice(0, 200) });
+        }
+
         logLine({ step: "balance", error: message.slice(0, 200) });
         // getBalance 内部会读账号客户端的状态；它没初始化时就是这类
         // "Cannot read properties of undefined (reading 'version')"，
