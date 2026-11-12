@@ -1768,6 +1768,19 @@ function applyBridge(ctx, config) {
           return out;
         };
 
+        // typertRemote 是「远程调用门面」，可能是唯一能发起 splice 的入口
+        try {
+          const tr = ctrl.typertRemote;
+          const own = tr ? Object.keys(tr).slice(0, 40) : [];
+          let proto = [];
+          try {
+            proto = tr ? Object.getOwnPropertyNames(Object.getPrototypeOf(tr) || {}).slice(0, 40) : [];
+          } catch { /* ignore */ }
+          probe.typertRemote = { own, proto };
+        } catch (e) {
+          probe.typertRemote = { error: String(e?.message || e).slice(0, 120) };
+        }
+
         probe.deep = {};
         for (const key of ["controlState", "listState", "history", "commands", "agents"]) {
           try { probe.deep["ctrl." + key] = describe(ctrl[key]); } catch (e) { probe.deep["ctrl." + key] = "<err>"; }

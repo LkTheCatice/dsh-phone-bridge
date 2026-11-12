@@ -19,6 +19,8 @@ struct ChatView: View {
     /// 排队提示：持久显示在输入区上方，直到这一轮真的开始（或超时）
     /// 之前用 toast，一闪而过 —— 用户以为没发出去，又发了一遍，列表里出现两条重复。
     @State private var queuedNotice = false
+    /// 排队详情面板
+    @State private var showQueue = false
     @FocusState private var focused: Bool
 
     @State private var photoItems: [PhotosPickerItem] = []
@@ -324,6 +326,10 @@ struct ChatView: View {
                 ModelPickerSheet()
                     .environmentObject(model)
             }
+            .sheet(isPresented: $showQueue) {
+                QueueSheet(chat: chat)
+                    .environmentObject(model)
+            }
             .sheet(isPresented: $showingSessions) {
                 SessionListSheet()
                     .environmentObject(model)
@@ -428,34 +434,33 @@ struct ChatView: View {
             // SwiftUI 会在结构变化时重建整个子树，TextField 跟着重建，
             // 正在组合的拼音就被打断 —— 表现就是「选完图后第一个字母不进拼音」。
             // 改成恒定结构 + 用高度和透明度控制，视图树不变，输入法状态就不会丢。
-            // 队列：电脑端排的队也在这一份里（两边读同一份 queue.changed）
+            // 队列：点开看详情（每条可编辑/插队）。
+            // 电脑端排的队也在这一份里（两边读同一份 queue.changed）。
             if !chat.queue.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
+                Button {
+                    showQueue = true
+                } label: {
+                    HStack(spacing: 6) {
                         Image(systemName: "text.line.first.and.arrowtriangle.forward")
                             .font(.system(size: 11))
                         Text("队列 \(chat.queue.count) 条")
                             .font(.caption.weight(.medium))
-                        Spacer()
-                    }
-                    .foregroundStyle(.secondary)
-                    ForEach(chat.queue.prefix(3)) { item in
-                        Text(item.text)
+                        Text(chat.queue.first?.text ?? "")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                    }
-                    if chat.queue.count > 3 {
-                        Text("还有 \(chat.queue.count - 3) 条…")
-                            .font(.caption2)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.08))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.08))
+                .buttonStyle(.plain)
             }
 
             // 已排队提示：持久显示（12 秒或该轮开始为止），不是一闪而过的 toast。
@@ -521,23 +526,9 @@ struct ChatView: View {
             .frame(height: attachments.isEmpty ? 0 : 44)
             .opacity(attachments.isEmpty ? 0 : 1)
             .clipped()
-            // 发送方式：排队（等当前轮结束）/ 插队（打断当前轮）
-            HStack(spacing: 8) {
-                Picker("发送方式", selection: $model.sendMode) {
-                    ForEach(SendMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 132)
-                Text(model.sendMode.hint)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 6)
+            // 发送方式不再让用户选：一律排队（和电脑端一致）。
+            // 想立刻执行的话，在队列里对那一条点「插队」—— 那是显式操作，
+            // 比发送前猜「会不会打断当前轮」清楚得多。
             HStack(alignment: .bottom, spacing: 8) {
                 // 附件入口跟 QQ 一样放在输入框左边
                 Menu {
@@ -617,7 +608,8 @@ struct ChatView: View {
         //   ② 最后一条 assistant 的 running 还是 true（这一轮确实在生成）
         let pendingLocal = chat.entries.contains { $0.id.hasPrefix("local-") }
         let assistantRunning = chat.entries.last(where: { $0.kind == .assistant })?.running == true
-        let willQueue = (pendingLocal || assistantRunning) && model.sendMode == .queue
+        // 一律走排队：只有「还在跑」时才算排队（用于提示），否则就是立即执行
+        let willQueue = pendingLocal || assistantRunning
         // 附件和文字合并成一条消息：附件路径放后面，文字保持原样在前面
         let attachmentLines = attachments.map { "[附件] \($0)" }.joined(separator: "\n")
         let payload = attachmentLines.isEmpty
