@@ -1548,7 +1548,15 @@ function applyBridge(ctx, config) {
         removedCount: payload.removedCount,
         inserted: payload.inserted,
       };
+      // 新推断：六种形状都报 "reading 'kind'"，它们的共同点是 target 传了字符串。
+      // 如果内部写的是 request.target.kind，字符串就取不到 .kind
+      // —— 正好报成 "Cannot read properties of undefined (reading 'kind')"。
+      // 所以 target 很可能是个 { kind: "next-turn" } 对象。
+      const targetObj = { kind: payload.target };
       const attempts = [
+        { name: "target-obj", body: { ...base, target: targetObj } },
+        { name: "target-obj+session", body: { ...base, target: targetObj, session: { id: sessionId } } },
+        { name: "target-obj-kind-splice", body: { ...base, target: targetObj, kind: "splice" } },
         { name: "kind-splice", body: { ...base, kind: "splice" } },
         { name: "kind-inbox", body: { ...base, kind: "inbox" } },
         { name: "kind-update", body: { ...base, kind: "update" } },
