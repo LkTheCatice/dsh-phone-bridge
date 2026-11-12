@@ -206,53 +206,60 @@ enum MarkdownNS {
             )
 
         case let .table(headers, rows):
-            // 表格：等宽 + 稍紧行距；**单元格内容也要走行内解析** ——
-            // 之前这里直接拼原始字符串，导致 `**粗体**` 的星号原样显示（用户截图确认）。
-            // 行距压到 1、段后 0：表格要紧凑，散开就读不成表了
-            let style = Self.style(spacingAfter: 0, spacingBefore: before, lineSpacing: 1)
+            // 用 TextKit 原生的 NSTextTable 渲染**真表格**。
+            //
+            // 之前把表格降级成「用 │ 分隔的对齐文本行」，三列内容长度差异大时
+            // 长单元格会把整行撑乱、换行后完全对不上列（用户实拍确认）——
+            // 手机窄屏上没有「文本对齐」这回事，必须交给真正的表格布局。
+            //
+            // NSTextTable 是 NSAttributedString 的段落属性，UITextView 直接用
+            // NSLayoutManager 排版，不需要额外的视图层级。
+            let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
+            guard columnCount > 0 else { return NSAttributedString() }
 
-            func cellRow(_ cells: [String], weight: UIFont.Weight) -> NSAttributedString {
-                let row = NSMutableAttributedString()
-                let base = UIFont.monospacedSystemFont(ofSize: 12, weight: weight)
-                for (i, cell) in cells.enumerated() {
-                    if i > 0 {
-                        // 分隔符用次级色而不是三级色：三级灰在浅色背景上几乎看不见，
-                        // 表格会长成一段散落的文字（用户实拍反馈）。
-                        row.append(NSAttributedString(
-                            string: " │ ",
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 12),
-                                .foregroundColor: UIColor.secondaryLabel,
-                            ]
-                        ))
-                    }
-                    row.append(inline(cell, base: base))
-                }
-                row.addAttribute(
-                    .paragraphStyle,
-                    value: style,
-                    range: NSRange(location: 0, length: row.length)
-                )
-                return row
-            }
+            let table = NSTextTable()
+            table.numberOfColumns = columnCount
+            table.layoutAlgorithm = .automaticLayoutAlgorithm   // 按内容分配列宽
+            table.collapsesBorders = true
 
             let out = NSMutableAttributedString()
-            if !headers.isEmpty {
-                out.append(cellRow(headers, weight: .semibold))
-                // 分隔线：提高字号与颜色对比，并补足长度（原来 9pt 三级灰几乎不可见）
-                out.append(NSAttributedString(
-                    string: "\n" + String(repeating: "─", count: max(12, headers.count * 10)) + "\n",
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 11),
-                        .foregroundColor: UIColor.secondaryLabel,
-                        .paragraphStyle: style,
-                    ]
-                ))
+            func appendRow(_ cells: [String], rowIndex: Int, isHeader: Bool) {
+                for column in 0..<columnCount {
+                    let text = column < cells.count ? cells[column] : ""
+                    let block = NSTextTableBlock(
+                        table: table,
+                        startingRow: rowIndex,
+                        rowSpan: 1,
+                        startingColumn: column,
+                        columnSpan: 1
+                    )
+                    block.setBorderColor(UIColor.separator)
+                    block.setWidth(0.5, for: .border)
+                    block.setContentWidth(5, for: .padding)
+                    if isHeader { block.backgroundColor = UIColor.secondarySystemFill }
+
+                    let style = NSMutableParagraphStyle()
+                    style.textBlocks = [block]
+                    style.lineSpacing = 1
+
+                    let base = UIFont.monospacedSystemFont(ofSize: 11.5, weight: isHeader ? .semibold : .regular)
+                    let cell = NSMutableAttributedString(attributedString: inline(text, base: base))
+                    // 每个单元格必须以换行结束，NSTextTable 靠段落来切格
+                    cell.append(NSAttributedString(string: "\n", attributes: [.font: base]))
+                    cell.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: cell.length))
+                    out.append(cell)
+                }
             }
+
+            if !headers.isEmpty { appendRow(headers, rowIndex: 0, isHeader: true) }
             for (i, row) in rows.enumerated() {
-                if i > 0 { out.append(NSAttributedString(string: "\n")) }
-                out.append(cellRow(row, weight: .regular))
+                appendRow(row, rowIndex: i + 1, isHeader: false)
             }
+            // 表格后留一点间距
+            out.append(NSAttributedString(string: "\n", attributes: [
+                .font: UIFont.systemFont(ofSize: 4),
+                .paragraphStyle: Self.style(spacingAfter: 0, spacingBefore: 0, lineSpacing: 0),
+            ]))
             return out
         }
     }
