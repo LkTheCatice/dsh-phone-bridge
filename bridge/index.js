@@ -1777,6 +1777,26 @@ function applyBridge(ctx, config) {
             proto = tr ? Object.getOwnPropertyNames(Object.getPrototypeOf(tr) || {}).slice(0, 40) : [];
           } catch { /* ignore */ }
           probe.typertRemote = { own, proto };
+          // typertRemote 只是 { service, serviceKey, namespace } 的包装，
+          // 真正的调用入口应该在 service 上。这是最后一次探测：
+          // 如果 service 也没有 splice / inbox 之类的方法，就说明 DSH
+          // 没把队列写操作暴露给外部，手机的编辑/删除/插队只能停在「读」。
+          try {
+            const svc = tr && tr.service;
+            probe.typertService = {
+              type: typeof svc,
+              serviceKey: String((tr && tr.serviceKey) || ""),
+              namespace: String((tr && tr.namespace) || ""),
+              keys: svc && typeof svc === "object" ? Object.keys(svc).slice(0, 40) : [],
+              proto: (() => {
+                try { return Object.getOwnPropertyNames(Object.getPrototypeOf(svc) || {}).slice(0, 40); }
+                catch { return []; }
+              })(),
+              str: typeof svc === "string" || typeof svc === "number" ? String(svc) : "",
+            };
+          } catch (e) {
+            probe.typertService = { error: String(e?.message || e).slice(0, 120) };
+          }
         } catch (e) {
           probe.typertRemote = { error: String(e?.message || e).slice(0, 120) };
         }
