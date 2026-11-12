@@ -526,6 +526,25 @@ final class AppModel: ObservableObject {
                 )
             }
             chat.applyQueueChange(target: target, start: start, removed: removed, items: items)
+            // 真·排队时，把本地那条「乐观插入」的气泡撤掉。
+            //
+            // 起因（用户实拍）：发送时界面判断「不忙」→ 本地先插了一条气泡；
+            // 而 DSH 那边其实还在跑（一轮里有工具调用的阶段，最后一条 assistant
+            // 的 running 已经翻 false），于是这条被真的排进队列 ——
+            // 结果同一条消息「既在队列里、又在对话里」。
+            //
+            // 队列区本来就会显示它，所以这里删掉气泡，和「排队只在队列里显示」一致。
+            if target == "next-turn", !items.isEmpty {
+                for item in items {
+                    guard let list = entriesStorage[sid], !list.isEmpty else { break }
+                    if let idx = list.lastIndex(where: { candidate in
+                        candidate.id.hasPrefix("local-") && BubbleIds.matchesQueueItem(item.text, candidate.text)
+                    }) {
+                        entriesStorage[sid]?.remove(at: idx)
+                        trace("queue.drop-local sid=\(sid.suffix(6)) q=\(chat.queue.count)")
+                    }
+                }
+            }
             // 追一段：手机队列区一直不显示，需要确认这一帧到底有没有到、
             // 解析出几条、处理后队列里有几条。
             trace("q.changed t=\(target) s=\(start) r=\(removed) n=\(items.count) q=\(chat.queue.count)")

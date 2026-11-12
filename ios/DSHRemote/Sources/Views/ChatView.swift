@@ -634,8 +634,13 @@ struct ChatView: View {
         //   ② 最后一条 assistant 的 running 还是 true（这一轮确实在生成）
         let pendingLocal = chat.entries.contains { $0.id.hasPrefix("local-") }
         let assistantRunning = chat.entries.last(where: { $0.kind == .assistant })?.running == true
-        // 一律走排队：只有「还在跑」时才算排队（用于提示），否则就是立即执行
-        let willQueue = pendingLocal || assistantRunning
+        // ③ 本轮还在进行（turn.start ~ turn.end）。
+        //
+        // 用户实拍：一轮里有工具调用时，最后一条 assistant 的 running 已经翻 false，
+        // 于是前两个条件都不成立 → 界面以为「不忙」→ 本地插气泡；
+        // 而 DSH 那边这一轮还没结束，消息被真的排进队列 → 同一条既在队列又在对话里。
+        // streaming 是 turn 级信号，正好补上这个阶段。
+        let willQueue = pendingLocal || assistantRunning || chat.streaming
         // 附件和文字合并成一条消息：附件路径放后面，文字保持原样在前面
         let attachmentLines = attachments.map { "[附件] \($0)" }.joined(separator: "\n")
         let payload = attachmentLines.isEmpty

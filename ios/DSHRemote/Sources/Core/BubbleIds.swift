@@ -37,6 +37,19 @@ enum BubbleIds {
         normalize(a) == normalize(b)
     }
 
+    /// 队列项文本（桥截断到 400 字）能不能对上本地那条占位。
+    ///
+    /// 除了归一化相等，还接受「一边是另一边的前缀」（都 ≥ 20 字）：
+    /// 桥会把长消息截到 400 字，长消息于是永远比不相等 —— 不认前缀就等于没对上。
+    static func matchesQueueItem(_ itemText: String, _ placeholderText: String) -> Bool {
+        let a = normalize(itemText)
+        let b = normalize(placeholderText)
+        if a.isEmpty || b.isEmpty { return false }
+        if a == b { return true }
+        guard min(a.count, b.count) >= 20 else { return false }
+        return a.hasPrefix(b) || b.hasPrefix(a)
+    }
+
     private static func normalize(_ text: String) -> String {
         text
             .split(separator: "\n", omittingEmptySubsequences: true)

@@ -43,6 +43,17 @@ check(BubbleIds.pageSize(80, cap: 120) == 80, "小于 cap 尊重调用方")
 check(BubbleIds.pageSize(0, cap: 120) == 40, "0 帧抬到下限 40")
 check(BubbleIds.pageSize(-5, cap: 120) == 40, "负数抬到下限 40")
 
+// 4) 队列项 vs 本地占位（「排队消息不该同时出现在对话里」的判据）
+check(BubbleIds.matchesQueueItem("插队的标也还在气泡里没删", "插队的标也还在气泡里没删"), "完全一致要认")
+check(BubbleIds.matchesQueueItem("报这个\n[附件] E:/x.jpg", "报这个"), "占位没有附件装饰也要认")
+check(BubbleIds.matchesQueueItem("报这个", "报这个\n[附件] E:/x.jpg"), "反过来也要认")
+let longQueued = String(repeating: "这是一条很长的排队消息，", count: 40)
+let truncatedQueued = String(longQueued.prefix(400))
+check(BubbleIds.matchesQueueItem(truncatedQueued, longQueued), "桥截断到 400 字也要对上")
+check(!BubbleIds.matchesQueueItem("短", "短的"), "太短的前缀不许认（防误删）")
+check(!BubbleIds.matchesQueueItem("第一条消息内容足够长了哦", "第二条消息内容也足够长了"), "不同内容不能认")
+check(!BubbleIds.matchesQueueItem("", "任何东西"), "空队列项不能认")
+
 print("BubbleIds: 检查 \(checks) 项，失败 \(failures) 项")
 if failures > 0 {
     print("❌ 有断言失败")
