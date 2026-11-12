@@ -187,6 +187,16 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private let bubble = UIView()
     private var bubbleTop: NSLayoutConstraint?
     private var bubbleBottom: NSLayoutConstraint?
+    /// 气泡宽度：用户消息按内容收缩并靠右，助手消息铺满
+    /// 气泡宽度 = stack 宽度 + 20（真正控宽，equalTo）
+    private var bubbleWidth: NSLayoutConstraint?
+    /// stack 尾部：两种布局都贴右
+    private var stackTrailing: NSLayoutConstraint?
+    /// stack 宽度：仅用户消息启用
+    private var stackWidth: NSLayoutConstraint?
+    /// stack leading：助手固定 0，用户改成 ≥56（可收缩）
+    private var stackLeadingEq: NSLayoutConstraint?
+    private var stackLeadingMin: NSLayoutConstraint?
     private var onTapAttachments: (() -> Void)?
     /// 点开链接 / 折叠提示（由 ChatView 决定行为）
     private var onOpenLink: ((URL) -> Void)?
@@ -231,13 +241,23 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
         topConstraint = stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4)
+        // 约束分两套，按消息角色切换：
+        //   助手 → leading 固定 0 + trailing 固定（铺满）
+        //   用户 → leading 改成 ≥56（可收缩）+ width 固定（按内容）+ trailing 固定（贴右）
         NSLayoutConstraint.activate([
             topConstraint!,
             stack.topAnchor.constraint(equalTo: contentView.topAnchor),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
         ])
+        stackLeadingEq = stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
+        stackLeadingMin = stack.leadingAnchor.constraint(
+            greaterThanOrEqualTo: contentView.leadingAnchor, constant: 56)
+        stackTrailing = stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        stackWidth = stack.widthAnchor.constraint(equalToConstant: 0)
+        stackLeadingEq?.isActive = true
+        stackTrailing?.isActive = true
+        stackLeadingMin?.isActive = false
+        stackWidth?.isActive = false
         // 气泡比文字各方向外扩 10pt（左右）/ 6pt（上下）
         bubbleTop = bubble.topAnchor.constraint(equalTo: stack.topAnchor, constant: -6)
         bubbleBottom = bubble.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: 6)
@@ -247,6 +267,8 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             bubble.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: -10),
             bubble.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: 10),
         ])
+        bubbleWidth = bubble.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 20)
+        bubbleWidth?.isActive = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -311,14 +333,20 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         textView.attributedText = MessageRender.attributed(entry)
         self.onTapAttachments = onTapAttachments
 
-        // 气泡配色：用户 = 淡主题色，助手 = 淡灰，系统/工具行不画气泡
+        // 气泡配色 + 布局：
+        //   用户 → 淡主题色气泡，按内容收缩，整体靠右（文字在气泡内左对齐）
+        //   助手 → 淡灰气泡，铺满整宽
+        //   系统/工具 → 透明，不画气泡
         switch entry.kind {
         case .user:
             bubble.backgroundColor = UIColor.tintColor.withAlphaComponent(0.11)
+            applyUserBubbleLayout(attributed: textView.attributedText, maxWidth: contentWidth)
         case .assistant:
             bubble.backgroundColor = UIColor.secondarySystemBackground
+            applyFullWidthLayout()
         default:
             bubble.backgroundColor = .clear
+            applyFullWidthLayout()
         }
 
         // 附件提示：只在真的有媒体时占位（用 MediaRefScan，纯 Foundation，已单测）
@@ -338,6 +366,41 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             attachmentLabel.isHidden = false
         }
 
+    }
+
+    /// cell 内容可用宽度（contentView 宽度，不含缩进）
+    private var contentWidth: CGFloat {
+        max(120, contentView.bounds.width)
+    }
+
+    private func applyFullWidthLayout() {
+        stackLeadingMin?.isActive = false
+        stackWidth?.isActive = false
+        stackLeadingEq?.isActive = true
+        textView.textAlignment = .natural
+        // 助手气泡铺满：靠 leading/trailing 撑开，宽度约束让位
+        bubbleWidth?.priority = .defaultLow
+    }
+
+    /// 用户气泡：按内容收缩（不短于 22%，不长于 78% 可用宽度），整体贴右。
+    /// 上限用 78% 是为了留出左侧空白 —— 否则长消息气泡会一直伸到左边，
+    /// 看起来反而像整块背景（用户反馈）。
+    private func applyUserBubbleLayout(attributed: NSAttributedString?, maxWidth: CGFloat) {
+        guard let attributed else { return }
+        let upper = max(120, maxWidth * 0.78)
+        let measured = attributed.boundingRect(
+            with: CGSize(width: upper - 20, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        ).width
+        let bubbleW = min(ceil(measured) + 20, upper)
+
+        bubbleWidth?.priority = .required
+        stackLeadingEq?.isActive = false
+        stackLeadingMin?.isActive = true
+        stackWidth?.isActive = true
+        stackWidth?.constant = bubbleW - 20
+        textView.textAlignment = .natural
     }
 
     override func preferredLayoutAttributesFitting(
