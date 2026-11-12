@@ -1563,11 +1563,26 @@ final class AppModel: ObservableObject {
 
     func steerQueued(itemId: String) async -> String? {
         guard let client, let sid = selectedSessionId else { return "未连接" }
-        guard chat.queue.contains(where: { $0.id == itemId }) else {
+        guard let item = chat.queue.first(where: { $0.id == itemId }) else {
             return "这条已经不在队列里了"
         }
         do {
             _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "steer")
+            // 插队成功后立刻本地插一条占位。
+            //
+            // 为什么需要：插队会让这条从 next-turn 队列移除，但 DSH 要先把
+            // 手头的小任务做完才真正执行 —— 这期间它「队列里没有了、对话框里
+            // 也还没出现」，看起来像消息消失了（用户反馈）。
+            // 电脑端会给它挂一个「未执行」的标记，这里用同样的思路：
+            // 先插一条 pending 条目，等服务端回显时按 local- 前缀替换掉。
+            append(sid, ChatEntry(
+                id: "local-\(UUID().uuidString)",
+                kind: .user,
+                text: item.text,
+                at: Date(),
+                queued: true,
+                steering: true
+            ))
             return nil
         } catch {
             return error.localizedDescription

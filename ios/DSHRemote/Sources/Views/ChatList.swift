@@ -635,6 +635,7 @@ enum MessageRender {
         case .user:
             // 排队中：明确标出来。否则本地乐观插入的消息看起来和「已执行」一样，
             // 用户会以为它已经开始跑了（实测反馈）。
+            if entry.steering { return "▍我 · 已插队，等当前任务完成\n" }
             return entry.queued ? "▍我 · 排队中\n" : "▍我\n"
         case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
         case .thinking: return "思考\n"

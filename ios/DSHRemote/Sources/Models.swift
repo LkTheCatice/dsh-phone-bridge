@@ -83,6 +83,10 @@ struct ChatEntry: Identifiable, Hashable {
     /// 这条是本地乐观插入、还没被服务端确认的消息（排队中）。
     /// 显示上要明确标出来，否则用户会以为它已经执行了。
     var queued: Bool = false
+    /// 这条是「点了插队、DSH 还没轮到执行」的占位。
+    /// 机队语义和排队不同：它不是等前面排完，而是等 DSH 收尾手头的小任务，
+    /// 所以文案要分开（用户反馈：插队后消息两边都没有，像消失了）。
+    var steering: Bool = false
     /// collapsedSteps 里包着的原始条目
     var folded: [ChatEntry] = []
     /// 时间标签：只有和上一条隔了 5 分钟以上才填，nil 表示不显示
