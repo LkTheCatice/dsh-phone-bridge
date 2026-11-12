@@ -1524,15 +1524,51 @@ function applyBridge(ctx, config) {
         removedCount: Number(body.removedCount ?? 0),
         inserted: Array.isArray(body.inserted) ? body.inserted : [],
       };
-      try {
-        const result = await svcQ.updateQueue(payload);
-        logLine({ step: "queue.update", sessionId, ...payload, ok: true });
-        return sendJson(res, 200, { ok: true, result: result ?? null }, ctxEnc);
-      } catch (error) {
-        const message = String(error?.message || error);
-        logLine({ step: "queue.update", sessionId, ...payload, error: message.slice(0, 300) });
-        throw new HttpError(500, "update-failed", message.slice(0, 200));
+      // updateQueue 只收一个 request 对象，但真实字段名不确定
+      // （实测报 "Cannot read properties of undefined (reading 'kind')"，
+      //  说明少了 kind 之类的字段）。这里按几种常见形状依次尝试，
+      // 成功后把有效形状记进日志，之后就能固定下来。
+      const base = {
+        sessionId,
+        target: payload.target,
+        start: payload.start,
+        removedCount: payload.removedCount,
+        inserted: payload.inserted,
+      };
+      const attempts = [
+        { name: "kind-splice", body: { ...base, kind: "splice" } },
+        { name: "kind-inbox", body: { ...base, kind: "inbox" } },
+        { name: "kind-update", body: { ...base, kind: "update" } },
+        { name: "op-splice", body: { ...base, op: "splice" } },
+        { name: "plain", body: base },
+        { name: "nested", body: { sessionId, request: base } },
+      ];
+      let lastError = null;
+      for (const attempt of attempts) {
+        try {
+          const result = await svcQ.updateQueue(attempt.body);
+          logLine({
+            step: "queue.update/ok",
+            shape: attempt.name,
+            sessionId,
+            target: payload.target,
+            start: payload.start,
+            removedCount: payload.removedCount,
+            insertedCount: payload.inserted.length,
+          });
+          return sendJson(res, 200, { ok: true, shape: attempt.name, result: result ?? null }, ctxEnc);
+        } catch (error) {
+          lastError = error;
+          logLine({
+            step: "queue.update/try",
+            shape: attempt.name,
+            error: String(error?.message || error).slice(0, 160),
+          });
+        }
       }
+      const message = String(lastError?.message || lastError || "unknown");
+      logLine({ step: "queue.update", sessionId, ...base, error: message.slice(0, 300) });
+      throw new HttpError(500, "update-failed", message.slice(0, 200));
     }
 
     if (method === "GET" && pathname === "/v1/balance") {

@@ -255,7 +255,9 @@ enum MarkdownNS {
             let isFull = (mode != .compact)   // full 与 tablesOnly 都按完整宽度渲染
             let rowLimit = isFull ? 200 : 10
             let columnLimit = isFull ? 8 : 5
-            let availableChars = isFull ? 400 : 46   // 详情页不压缩：宽度由外层横向滚动承载
+            // 详情页总预算放大到 900：外层是横向 ScrollView，
+            // 宽度不够时用户能左右拖，没必要为了「塞进屏幕」而压缩内容。
+            let availableChars = isFull ? 900 : 46
             let charWidth: CGFloat = isFull ? 6.4 : 7.2
             let fontSize: CGFloat = isFull ? 10 : 11.5
 
@@ -293,7 +295,9 @@ enum MarkdownNS {
             var natural = [Int](repeating: 0, count: columnCount)
             for row in allRows {
                 for (i, cell) in row.enumerated() where i < columnCount {
-                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: isFull ? 22 : 16)))
+                    // 详情页放宽到 60：之前是 22，长说明（「每行 Date() + 格式化 + cwd 名称解析」
+                    // 这类）会被直接截断，点开完整内容也只看得到开头（用户实拍确认）。
+                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: isFull ? 60 : 16)))
                 }
             }
             let naturalTotal = natural.reduce(0, +)
