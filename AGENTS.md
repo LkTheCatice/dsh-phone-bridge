@@ -63,6 +63,24 @@ cd phone-dsh\tools\selftest
 artifact —— **artifact 存在就等于构建成功**（失败的话该步骤不会产出）。
 2026-11-12 就碰到过排队卡 45 分钟但产物早已生成的情况。
 
+### 批量改代码时的一个坑（今天犯了三次）
+
+用脚本按「起止标记」替换 `switch` 里的某个 `case` 时，很容易把 **`switch` 的收尾 `}` 一起吃掉**，
+结果是后面所有类型都被吞进函数内部，报 `static methods may only be declared on a type`。
+
+**规则**：脚本替换后必须做一次括号深度校对，再提交。
+
+```python
+depth = 0
+for i, l in enumerate(lines, 1):
+    depth += l.count("{") - l.count("}")
+    if depth < 0: print("负深度于", i)      # 说明多吃了 }
+print("最终深度:", depth)                    # 必须是 0
+```
+
+注意：这个粗算会把**注释和字符串里的 `{`** 算进去（`ToolSummary.swift` 就误报过），
+所以「深度 0 + `swiftc -parse` 通过」两个条件都要满足才算过。
+
 ## 4. 观测与验证（改任何渲染相关代码都要按这个来）
 
 - 连上电脑后第一行日志必须是 `build=<sha>.<run> os=<ver>` —— **不知道版本就没法归因**。
