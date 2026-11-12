@@ -1576,8 +1576,18 @@ function applyBridge(ctx, config) {
       if (!account || typeof account.getBalance !== "function") {
         return sendJson(res, 200, { ok: false, status: "unavailable", wallets: [], bonuses: [] }, ctxEnc);
       }
+      // getBalance(client) 需要一个 client 描述对象，平台请求头要用它的三个字段：
+      //   x-client-version / x-client-locale / x-client-timezone-offset
+      // （见 app.asar 里 platformClientHeaders 的实现）
+      // 之前不传就报 "Cannot read properties of undefined (reading 'version')" ——
+      // 一直误判成「没登录」，其实是少传了这个参数。
+      const platformClient = {
+        version: VERSION || "0.0.0",
+        locale: "zh-CN",
+        timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
+      };
       try {
-        const result = await account.getBalance();
+        const result = await account.getBalance(platformClient);
         // 返回形如 null | { status:"ready", value:[{currency,balance}], bonusWallets:[...] } | { status:"failed" }
         if (!result || result.status !== "ready") {
           return sendJson(res, 200, {
@@ -1634,7 +1644,7 @@ function applyBridge(ctx, config) {
           logLine({ step: "balance.state/failed", error: String(e2?.message || e2).slice(0, 200) });
         }
         try {
-          const profile = await account.getProfile();
+          const profile = await account.getProfile(platformClient);
           logLine({
             step: "balance.profile",
             keys: profile && typeof profile === "object" ? Object.keys(profile).slice(0, 24) : [],
