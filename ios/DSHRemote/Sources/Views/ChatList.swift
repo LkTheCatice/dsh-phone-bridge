@@ -244,7 +244,7 @@ final class MessageCell: UICollectionViewCell {
     ) -> UICollectionViewLayoutAttributes {
         let width = layoutAttributes.size.width
         let key = cacheKey(for: layoutAttributes, width: width)
-        if let cached = Self.heightCache[key], abs(cached.width - width) < 0.5 {
+        if let cached = Self.heightStorage[key], abs(cached.width - width) < 0.5 {
             var attributes = layoutAttributes
             attributes.size.height = cached.height
             return attributes
