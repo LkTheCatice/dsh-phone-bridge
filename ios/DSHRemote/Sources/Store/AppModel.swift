@@ -60,24 +60,23 @@ final class AppModel: ObservableObject {
     /// `onChange(of: entries.count)` 就会在错误时机被触到 —— 表现就是
     /// 「明明在这个对话，却被别的对话的更新拉到底部」。
     /// 现在 ChatView 只观察这个属性，别的会话怎么变都不影响它。
-    @Published private(set) var currentEntries: [ChatEntry] = []
+    /// 聊天数据（条目 / 流式心跳 / 生成状态 / 历史版本）搬到了独立 store，
+    /// 否则 ChatView 会因为 @EnvironmentObject 全量订阅，每 350ms 白重算一次。
+    let chat = ChatStore()
     /// 当前会话内容的变化计数。
     ///
     /// 自动跟随靠它触发，而不是监听 `entries.last?.text`：
     /// 最后一条若是 thinking 或工具行，文本不变但高度在长，
     /// 只看 text 就会漏掉，位置掉队后 atBottom 判为 false，跟随彻底停摆。
-    @Published private(set) var streamTick = 0
     /// 当前会话是否正在生成（turn.start ~ turn.end）。
     ///
     /// 用途：流式期间 ChatView 改用「极简渲染」——只画纯文本、不画 markdown/图片/按钮。
     /// 因为这台设备上 LazyVStack + 富文本单次布局就要几百毫秒，
     /// 而流式每秒触发多次重排，无论单段优化到多便宜都会饱和（实测 b:sys 也能卡 14 秒）。
     /// 只在 true/false 翻转时写，不会造成额外通知。
-    @Published private(set) var isStreaming = false
     /// 历史重建完成的计数。界面靠它决定「该滚到底了」——
     /// 回填时底部哨兵还没渲染，proxy.scrollTo 找不到目标，
     /// 所以必须等渲染完再滚，否则冷启动会停在最早的消息上。
-    @Published private(set) var historyVersion = 0
 
     /// 手指在滚动/惯性期间不更新列表（由 View 层通过 onScrollPhaseChange 设置）。
     /// 拖动时每来一帧就重排列表，滚动必然卡死 —— 等手停下来再补
@@ -105,9 +104,8 @@ final class AppModel: ObservableObject {
         let next = selectedSessionId.flatMap { entriesStorage[$0] } ?? []
         // 整数组比较：只比 count / last 会漏掉「中间某条在变」的情况，
         // 那正是跟随失效的原因之一。ChatEntry 实现了 ==，逐项比较很快。
-        guard next != currentEntries else { return }
-        currentEntries = next
-        streamTick &+= 1
+        chat.setEntries(next)
+        chat.bumpTick()
     }
 
     /// 标记「当前会话内容可能变了」。
@@ -413,9 +411,9 @@ final class AppModel: ObservableObject {
         // 流式状态：只在翻转时写
         switch type {
         case "turn.start", "assistant.delta", "assistant.thinking":
-            if !isStreaming { isStreaming = true }
+            chat.setStreaming(true)
         case "turn.end":
-            if isStreaming { isStreaming = false }
+            chat.setStreaming(false)
         default:
             break
         }
@@ -1293,7 +1291,7 @@ final class AppModel: ObservableObject {
             trace("hist n=\(frames.count) total=\(totalMs)ms worstChunk=\(worstChunkMs)ms")
             historyNote = raw["note"] as? String
             // 通知界面：历史重建完成，可以滚到底了
-            historyVersion &+= 1
+            chat.bumpHistoryVersion()
         } catch {
             suppressTrim = false
             endBatch()
@@ -1401,7 +1399,7 @@ final class AppModel: ObservableObject {
 
     func entriesForSelection() -> [ChatEntry] {
         // 直接读发布属性：ChatView 依赖它，才能和其他会话的写入隔离开
-        currentEntries
+        chat.entries
     }
 
     // MARK: - 文件

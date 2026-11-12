@@ -4,6 +4,9 @@ import UniformTypeIdentifiers
 
 struct ChatView: View {
     @EnvironmentObject private var model: AppModel
+    /// 聊天数据单独订阅：流式输出时 streamTick / entries 每 350ms 变一次，
+    /// 如果混在 AppModel 里，@EnvironmentObject 的全量订阅会让整个页面白重算。
+    @EnvironmentObject private var chat: ChatStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     /// 输入框高度（1~5 行自适应）
@@ -57,7 +60,7 @@ struct ChatView: View {
     /// 当前会话的条目。
     /// 读 model.currentEntries（@Published）而不是每次现查字典 ——
     /// 这样别的会话收到消息不会让这里重建、也不会误触发 onChange 的滚动。
-    private var entries: [ChatEntry] { model.currentEntries }
+    private var entries: [ChatEntry] { chat.entries }
 
     /// 一次最多渲染多少条。
     ///
@@ -116,7 +119,7 @@ struct ChatView: View {
                 // 一条消息 = 一个 cell = 一个视图，滚动成本与消息总数无关。
                 ChatList(
                     entries: visibleEntries,
-                    isStreaming: model.isStreaming,
+                    isStreaming: chat.streaming,
                     onBottomChanged: { bottom in
                         if jump.atBottom != bottom { jump.atBottom = bottom }
                         if bottom, jump.hasNewBelow { jump.hasNewBelow = false }
@@ -141,7 +144,7 @@ struct ChatView: View {
                         }
                     }
                 )
-                .onChange(of: model.streamTick) { _ in
+                .onChange(of: chat.tick) { _ in
                     if jump.atBottom {
                         // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
                         let now = Date()
@@ -153,7 +156,7 @@ struct ChatView: View {
                         jump.hasNewBelow = true
                     }
                 }
-                .onChange(of: model.historyVersion) { _ in
+                .onChange(of: chat.historyVersion) { _ in
                     if !jump.atBottom { jump.atBottom = true }
                     if jump.hasNewBelow { jump.hasNewBelow = false }
                     scrollRequest += 1
