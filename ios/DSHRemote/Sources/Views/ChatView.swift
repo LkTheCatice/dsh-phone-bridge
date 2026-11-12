@@ -486,21 +486,20 @@ struct ChatView: View {
                     if draft.isEmpty {
                         Text("让它跑点什么…")
                             .foregroundStyle(.tertiary)
+                            // 与 textContainerInset 对齐：左右 12 + 4（lineFragmentPadding 归零后的视觉留白）
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 13)
+                            .padding(.vertical, 10)
                             .allowsHitTesting(false)
                     }
                     ComposerTextView(
                         text: $draft,
                         focused: $focused,
                         onHeightChange: { h in
-                            inputHeight = min(max(h, 26), 118)   // 1 行约 26，最多 5 行约 118
+                            inputHeight = min(max(h, 38), 138)   // 1 行 38（行高 20 + 上下内边距 18），5 行封顶
                         }
                     )
                     .frame(height: inputHeight)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
 
                 Button(action: submit) {
