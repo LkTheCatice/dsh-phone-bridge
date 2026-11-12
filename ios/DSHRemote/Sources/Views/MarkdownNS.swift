@@ -304,7 +304,9 @@ enum MarkdownNS {
             var columnWidths = natural
             if naturalTotal > contentBudget, naturalTotal > 0 {
                 let scale = Double(contentBudget) / Double(naturalTotal)
-                columnWidths = natural.map { max(4, Int((Double($0) * scale).rounded(.down))) }
+                // 下限从 4 提到 8：太窄的列会被压成「一两字 + …」，
+                // 看起来像排版坏了（用户实拍）。宁可整体变宽靠横向滚动看。
+                columnWidths = natural.map { max(8, Int((Double($0) * scale).rounded(.down))) }
             }
 
             var stops: [NSTextTab] = []
@@ -342,7 +344,24 @@ enum MarkdownNS {
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
                 out.append(makeRow(headers, isHeader: true))
-                out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 4)]))
+                // 表头分隔线：用一整行「─」而不是 .underlineStyle。
+                // underlineStyle 是逐字符的，tabStops 留下的空白覆盖不到，
+                // 看起来会断成几截（用户实拍）。
+                // 「─」在等宽字体下宽度正好一个字符，按列宽总和铺满即可连续。
+                let totalChars = columnWidths.reduce(0, +) + (columnCount - 1) * gutterChars
+                let ruleStyle = NSMutableParagraphStyle()
+                ruleStyle.tabStops = stops
+                ruleStyle.lineSpacing = 0
+                ruleStyle.lineHeightMultiple = 1.0
+                ruleStyle.paragraphSpacing = isFull ? 6 : 3
+                out.append(NSAttributedString(
+                    string: String(repeating: "─", count: max(8, totalChars)) + "\n",
+                    attributes: [
+                        .font: UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
+                        .foregroundColor: UIColor.separator,
+                        .paragraphStyle: ruleStyle,
+                    ]
+                ))
             }
             for (i, row) in shownRows.enumerated() {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
@@ -389,12 +408,7 @@ enum MarkdownNS {
             // 而 tabStops 对齐产生的空白不属于任何字符 —— 底色会在行尾
             // 断掉一段（用户实拍「最上面一行的灰色少了一段」）。
             // 改成给表头文字加下划线，横跨整行的视觉效果靠它完成。
-            if !headers.isEmpty {
-                let headerText = makeRow(headers, isHeader: true)
-                let headerRange = NSRange(location: 0, length: min(headerText.length, out.length))
-                out.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: headerRange)
-                out.addAttribute(.underlineColor, value: UIColor.separator, range: headerRange)
-            }
+
             return out
         }
 
