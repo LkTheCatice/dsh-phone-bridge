@@ -69,6 +69,18 @@ struct SettingsView: View {
                                     Text("电脑上的 DSH 还没登录 DeepSeek 账号").font(.caption)
                                     Text("登录后回来点「刷新余额」").font(.caption2).foregroundStyle(.secondary)
                                 }
+                            } else if model.walletsStatus == "credential-stored" {
+                                // 凭据在（已登录），但 DSH 的余额接口内部拿不到数字
+                                // （platformClient 未初始化）。不谎报「没登录」，
+                                // 而是给状态 + 网页查询入口。
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("已登录（凭据已存储）").font(.caption)
+                                    Text("这台 DSH 的余额接口暂时取不到数字")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                    if let url = model.walletUsageUrl, let dest = URL(string: url) {
+                                        Link("打开 DeepSeek 用量页", destination: dest).font(.caption)
+                                    }
+                                }
                             } else if model.walletsStatus == "failed" {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("读取失败").font(.caption)

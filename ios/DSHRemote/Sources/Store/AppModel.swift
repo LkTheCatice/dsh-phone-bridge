@@ -1407,6 +1407,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var walletsStatus: String = "idle"
     /// 服务端给的失败原因（显示在设置页，便于判断是没登录还是网络问题）
     @Published private(set) var walletsDetail: String?
+    /// 余额接口不可用时的兜底链接（DSH 的 token 查询不到时会给出 usage 页地址）
+    @Published private(set) var walletUsageUrl: String?
 
     func loadBalance() async {
         guard let client else { return }

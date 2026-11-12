@@ -1580,11 +1580,25 @@ function applyBridge(ctx, config) {
         // getBalance 内部会读账号客户端的状态；它没初始化时就是这类
         // "Cannot read properties of undefined (reading 'version')"，
         // 通常意味着电脑上的 DSH 还没登录 DeepSeek 账号。
-        const signedOut = /version|undefined|null/i.test(message);
+        // 用 getState() 兜底：它不依赖那个没初始化的 client，能给出
+        //   status: "credential-stored"（说明凭据在、已登录）
+        //   links:  { usageUrl, topUpUrl }
+        // 之前这里一律判成 not-signed-in，于是手机上显示「电脑上的 DSH 还没登录」——
+        // 是误报（用户明明登录着）。
+        let stateStatus = "";
+        let links = {};
+        try {
+          const st = await account.getState();
+          stateStatus = String(st?.status || "");
+          links = (st && typeof st.links === "object" && st.links) || {};
+        } catch { /* 拿不到就退回旧判断 */ }
+
+        const signedOut = !stateStatus && /version|undefined|null/i.test(message);
         return sendJson(res, 200, {
           ok: false,
-          status: signedOut ? "not-signed-in" : "failed",
+          status: stateStatus || (signedOut ? "not-signed-in" : "failed"),
           detail: message.slice(0, 160),
+          links,
           wallets: [],
           bonuses: [],
         }, ctxEnc);
