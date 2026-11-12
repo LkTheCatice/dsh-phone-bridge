@@ -1316,7 +1316,13 @@ final class AppModel: ObservableObject {
         guard let client, !sessionId.isEmpty, !olderLoading else { return }
         olderLoading = true
         defer { olderLoading = false }
-        let before = olderBefore[sessionId] ?? (entriesStorage[sessionId]?.count ?? 0)
+        // 用服务端给的 nextBefore，**不能**用条目数 ——
+        // 一个条目可能由多个帧合成，两个数字对不上会导致重复拉取
+        // （用户实拍：同一条消息被插了三次）。
+        guard let before = olderBefore[sessionId] else {
+            olderHasMore = false
+            return
+        }
         do {
             let raw = try await client.transcript(sessionId: sessionId, limit: limit, before: before)
             guard let frames = raw["frames"] as? [[String: Any]], !frames.isEmpty else {
@@ -1327,18 +1333,20 @@ final class AppModel: ObservableObject {
             if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
                 olderBefore[sessionId] = next
             }
-            // 历史帧按顺序应用，插到已有条目的**前面**
+            // 历史帧按顺序应用，插到已有条目的**前面**。
+            // 不能「清空 → apply → 拼回去」：apply 里带 foldSteps / syncCurrentEntries
+            // 等副作用，而且一旦 before 算错就会把已加载的帧再插一遍
+            // （用户实拍：同一条消息出现三次）。
             let existing = entriesStorage[sessionId] ?? []
-            var prefix: [ChatEntry] = []
-            let previous = entriesStorage[sessionId]
+            let existingIds = Set(existing.map(\.id))
             entriesStorage[sessionId] = []
             for frame in frames {
                 let seq = (frame["seq"] as? NSNumber)?.intValue ?? 0
                 apply(seq: seq, frame: frame, isHistory: true)
             }
-            prefix = entriesStorage[sessionId] ?? []
-            entriesStorage[sessionId] = prefix + existing
-            _ = previous
+            // 只保留「已有条目里没有的」新条目，按 id 去重兜底
+            let fresh = (entriesStorage[sessionId] ?? []).filter { !existingIds.contains($0.id) }
+            entriesStorage[sessionId] = fresh + existing
             syncCurrentEntries()
         } catch {
             trace("older-failed=\(error.localizedDescription.prefix(40))")
@@ -1372,6 +1380,11 @@ final class AppModel: ObservableObject {
             }
             if let lastError { throw lastError }
             guard let frames = raw["frames"] as? [[String: Any]] else { return }
+            // 记下「下次往更早拉」的游标，以及还有没有更早的
+            if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
+                olderBefore[sessionId] = next
+            }
+            olderHasMore = (raw["hasMore"] as? Bool) ?? false
             let started = CFAbsoluteTimeGetCurrent()
             var worstChunkMs = 0
             var chunkStart = started
