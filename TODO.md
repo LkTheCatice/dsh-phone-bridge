@@ -1,7 +1,7 @@
 # 待做清单
 
-> 更新：2026-11-11 20:08
-> 当前包：2,250 KB（`ec03688`）
+> 更新：2026-11-12 23:15
+> 当前包：2,542 KB（`8f29ab5`）
 > 服务端已生效：冷会话历史/标题（zstd 多 frame）、runtime context 过滤、transcript、fs 多级目录、归档过滤、fs mkdir/delete、`/v1/balance`
 
 ---
@@ -12,7 +12,6 @@
 
 | # | 项目 | 现状 / 卡点 | 量级 |
 |---|---|---|---|
-| 1 | **排队消息的插队 / 修改 / 删除** | 「排队/插队」只决定发送时的行为；消息进了 DSH 队列就动不了。`sessionController` 只有 `updateQueue`，没有公开的队列读取接口，得先摸清 inbox 状态才能列出待处理项 | 大 |
 | 2 | **图片编辑（画笔）** | 需要 PencilKit 画布 + 存取回相册的完整流程 | 大 |
 | 3 | **模型推理强度** | `modelCatalog` 已返回 `reasoning.efforts`，UI 只在选模型，没展示档位 | 中 |
 | 4 | **手机上管设备** | 拉黑/批准只在 DSH 设置页。`/admin/devices*` 是本机免 token 的，搬进 App 要先解决鉴权 | 中 |
@@ -32,7 +31,6 @@
 | # | 项目 | 说明 | 量级 |
 |---|---|---|---|
 | 10 | **图片缓存只在内存** | App 重启后全部重新下载。可落盘到 Caches | 小 |
-| 11 | **transcript 无分页** | 一次拉 600 帧，超长会话会被截断（那段历史看不到） | 中 |
 | 12 | **免费签名 7 天过期** | 到期必须重签重装，没有任何提醒 | 小 |
 | 13 | Sideloadly 受系统代理影响 | 系统代理指向 `127.0.0.1:7892`，Clash 没开时直接 `ProxyError` | 环境问题 |
 | 14 | `git push` 偶发静默失败 | 已改走 SSH（`ssh.github.com:443`）；推送后用 `rev-parse` 校验 | 环境问题 |
@@ -51,6 +49,23 @@
 **单独排期**：排队消息管理、图片编辑（都是大工程，各需一轮完整迭代）
 
 **等外部输入**：Bark key、手机上管设备的鉴权方案
+
+---
+
+## 二·五、2026-11-12 当天完成
+
+| 项目 | 关键点 |
+|---|---|
+| **排队消息管理** | 从 `app.asar` 的 zod schema 逆向出真实参数：`{sessionId, itemId, action:{kind:"edit"\|"remove"\|"steer"}}`。之前猜了七轮全失败，报错都是 `reading 'kind'`（缺 action） |
+| **队列读取** | `agent/inbox/spliced` 事件 → 桥转成 `queue.changed` 帧 → ChatStore 自己维护队列（排队/移除/替换/插队） |
+| **transcript 分页** | `/v1/transcript?before=N` + `hasMore`/`nextBefore`；手机端上拉 90pt 触发、按 id 去重、`performWithoutAnimation` 内补偿 offset |
+| **余额** | `getBalance(client)` 少传 client（要 version/locale/timezoneOffsetSeconds），补上后用 getState 兜底；显示两位小数 + 去重 |
+| **401 自动重新握手** | 桥重启后握手态丢失，`sendWithHeaders` 检测 `handshake-required` 自动握手重试一次 |
+| **拆 store** | ChatStore / ComfyStore / WalletStore，`AppModel` 的 `@Published` 28 → 23 |
+| **气泡** | 用户淡蓝按内容收缩靠右、助手淡灰；间距 8pt（之前两个 top 约束打架导致无效） |
+| **代码块 / 表格排版** | 代码块 `lineSpacing` 0 + `lineHeightMultiple`（底色才连成块）；表格表头改用下划线（底色覆盖不到 tabStops 空白） |
+| **启动加载历史** | 之前只在会话切换时加载，启动时 id 没变化就不加载 → 加 `.task` |
+| **删「文件」页** | 只列目录不能预览，无意义；上传/接收能力保留 |
 
 ---
 
