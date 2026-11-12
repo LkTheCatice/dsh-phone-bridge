@@ -1429,6 +1429,9 @@ final class AppModel: ObservableObject {
                 }
             }
             wallets = parse("wallets", bonus: false) + parse("bonuses", bonus: true)
+            // 余额接口取不到数字时，桥会附上 getState() 拿到的用量页地址
+            // （usageUrl）。之前漏了这一步，所以设置页只有状态没有链接。
+            walletUsageUrl = ((raw["links"] as? [String: Any])?["usageUrl"] as? String)
         } catch {
             walletsStatus = "failed"
             walletsDetail = error.localizedDescription
