@@ -83,6 +83,8 @@ struct ChatList: UIViewRepresentable {
         private var lookup: [String: ChatEntry] = [:]
         private var lastScrollRequest = -1
         private var lastBottomValue: Bool?
+        /// 上一次 apply 的内容指纹：没变就整段跳过
+        private var lastFingerprint = ""
 
         init(_ parent: ChatList) {
             self.parent = parent
@@ -120,6 +122,16 @@ struct ChatList: UIViewRepresentable {
         /// fatal error，而启动时「历史回填」与「实时帧」会写进同一个
         /// `sid#turn5` 这样的 id（实测启动闪退一次）。快照同样不允许重复 item。
         func apply(_ entries: [ChatEntry]) {
+            // 快速指纹：没变就直接返回。
+            //
+            // 为什么必须加：updateUIView 在任何 SwiftUI 状态变化时都会调，
+            // 而流式输出时 tick 每秒十几次 —— 每次都把 300 条重建 lookup、
+            // 重新 appendItems、再让 diffable data source 做一次全量 diff。
+            // 这是「消息越多越卡」的主因（md 和图片都只在可见 cell 上花时间）。
+            let fp = fingerprint(entries)
+            guard fp != lastFingerprint else { return }
+            lastFingerprint = fp
+
             var seen = Set<String>()
             var unique: [ChatEntry] = []
             unique.reserveCapacity(entries.count)
@@ -163,6 +175,15 @@ struct ChatList: UIViewRepresentable {
                     cv.layoutIfNeeded()
                 }
             }
+        }
+
+        /// 内容指纹：count + 首末 id + 末条文本长度。
+        /// 流式追加必然改末条长度；上拉插入必然改首条 id。
+        private func fingerprint(_ entries: [ChatEntry]) -> String {
+            guard let first = entries.first, let last = entries.last else {
+                return "0"
+            }
+            return "\(entries.count)|\(first.id)|\(last.id)|\(last.text.count)"
         }
 
         func handleScrollRequest(_ token: Int) {
