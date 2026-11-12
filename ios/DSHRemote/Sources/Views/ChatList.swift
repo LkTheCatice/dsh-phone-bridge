@@ -368,9 +368,17 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
 
     }
 
-    /// cell 内容可用宽度（contentView 宽度，不含缩进）
+    /// cell 内容可用宽度。
+    ///
+    /// **不能直接用 contentView.bounds.width**：configure 发生在布局之前，
+    /// 那时 bounds 还是 0，按 0 算出来的气泡宽度就是 0 —— 文字被裁掉，
+    /// 表现就是「历史消息全看不见了」（用户实拍确认）。
+    /// 所以先退回屏幕宽度兜底，等真正布局后 cell 会再走一次 configure。
     private var contentWidth: CGFloat {
-        max(120, contentView.bounds.width)
+        let w = contentView.bounds.width
+        if w > 1 { return w }
+        let screen = textView.window?.bounds.width ?? UIScreen.main.bounds.width
+        return max(120, screen - 24)
     }
 
     private func applyFullWidthLayout() {
@@ -393,6 +401,16 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
         ).width
+        // measured 为 0（宽度没算出来）时不能给 0 —— 那会让文字彻底消失。
+        // 这种情况退回铺满，宁可不好看也不能看不见。
+        guard measured > 1 else {
+            stackLeadingMin?.isActive = false
+            stackWidth?.isActive = false
+            stackLeadingEq?.isActive = true
+            textView.textAlignment = .natural
+            bubbleWidth?.priority = .defaultLow
+            return
+        }
         let bubbleW = min(ceil(measured) + 20, upper)
 
         bubbleWidth?.priority = .required
