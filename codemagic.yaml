@@ -27,6 +27,21 @@ workflows:
           fi
           xcodegen --version
 
+      # 构建前先跑 Foundation 层自测（188 项断言）。
+      # macOS 上 swiftc 直接可用，不需要 Xcode/模拟器：
+      # 这一层覆盖解析器、行内标记、表格、媒体扫描、缓存 ——
+      # 本地能拦住的问题就不要浪费构建额度。
+      - name: Selftest (Foundation layer)
+        script: |
+          set -e
+          swiftc \
+            tools/selftest/main.swift \
+            ios/DSHRemote/Sources/Core/MarkdownModel.swift \
+            ios/DSHRemote/Sources/Core/MarkdownCache.swift \
+            ios/DSHRemote/Sources/Core/MediaRefScan.swift \
+            -o /tmp/dsh-selftest
+          /tmp/dsh-selftest
+
       - name: Generate Xcode project
         script: |
           set -e
