@@ -14,20 +14,18 @@ struct EntryDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showRaw = false
 
+    /// 表格需要的宽度（nil 表示不需要横向滚动）
+    private var tableWidth: CGFloat? { MarkdownNS.requiredTableWidth(for: entry.text) }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    switch entry.kind {
-                    case .toolCall, .toolResult:
-                        toolContent
-                    case .collapsedSteps:
-                        collapsedContent
-                    default:
-                        markdownContent
-                    }
+            ScrollView(.vertical) {
+                ScrollView(.horizontal, showsIndicators: tableWidth != nil) {
+                    content
+                        // 宽表按自然宽度渲染，外层横向拖动看全（用户建议）
+                        .frame(width: tableWidth.map { max($0, UIScreen.main.bounds.width - 28) })
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(14)
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -43,6 +41,21 @@ struct EntryDetailSheet: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+                VStack(alignment: .leading, spacing: 14) {
+                    switch entry.kind {
+                    case .toolCall, .toolResult:
+                        toolContent
+                    case .collapsedSteps:
+                        collapsedContent
+                    default:
+                        markdownContent
+                    }
+                }
+                .padding(14)
     }
 
     private var isMarkdownKind: Bool {

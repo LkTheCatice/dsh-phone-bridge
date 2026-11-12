@@ -224,7 +224,7 @@ enum MarkdownNS {
             let isFull = (mode == .full)
             let rowLimit = isFull ? 200 : 10
             let columnLimit = isFull ? 8 : 5
-            let availableChars = isFull ? 90 : 46
+            let availableChars = isFull ? 400 : 46   // 详情页不压缩：宽度由外层横向滚动承载
             let charWidth: CGFloat = isFull ? 6.4 : 7.2
             let fontSize: CGFloat = isFull ? 10 : 11.5
 
@@ -233,18 +233,7 @@ enum MarkdownNS {
             let columnCount = min(maxColumns, columnLimit)
             let hiddenColumns = maxColumns - columnCount
 
-            func displayWidth(_ s: String) -> Int {
-                s.unicodeScalars.reduce(0) { acc, u in
-                    let wide = (u.value >= 0x1100 && u.value <= 0x115F)
-                        || (u.value >= 0x2E80 && u.value <= 0xA4CF)
-                        || (u.value >= 0xAC00 && u.value <= 0xD7A3)
-                        || (u.value >= 0xF900 && u.value <= 0xFAFF)
-                        || (u.value >= 0xFE30 && u.value <= 0xFE6F)
-                        || (u.value >= 0xFF00 && u.value <= 0xFF60)
-                        || (u.value >= 0xFFE0 && u.value <= 0xFFE6)
-                    return acc + (wide ? 2 : 1)
-                }
-            }
+            let displayWidth = Self.displayWidth
 
             let shownRows = Array(rows.prefix(rowLimit))
             let gutterChars = 2
@@ -358,17 +347,56 @@ enum MarkdownNS {
     /// - 绝对地址（http/https/mailto 等）→ 直接用
     /// - 相对路径（phone-dsh/dist/x.ipa）→ 包成 dsh://path?p=<编码后的路径>，
     ///   由上层决定是提示还是跳到文件页；总比「染成蓝色却点不动」好
+    /// 显示宽度：中文/全角算 2、其余算 1（等宽字体下才成立）
+    static func displayWidth(_ s: String) -> Int {
+        s.unicodeScalars.reduce(0) { acc, u in
+            let wide = (u.value >= 0x1100 && u.value <= 0x115F)
+                || (u.value >= 0x2E80 && u.value <= 0xA4CF)
+                || (u.value >= 0xAC00 && u.value <= 0xD7A3)
+                || (u.value >= 0xF900 && u.value <= 0xFAFF)
+                || (u.value >= 0xFE30 && u.value <= 0xFE6F)
+                || (u.value >= 0xFF00 && u.value <= 0xFF60)
+                || (u.value >= 0xFFE0 && u.value <= 0xFFE6)
+            return acc + (wide ? 2 : 1)
+        }
+    }
+
+    /// 详情页需要多宽才能把表格完整显示（不压缩）。
+    /// 返回 nil 表示这条消息里没有需要横向放大的表格。
+    static func requiredTableWidth(for text: String) -> CGFloat? {
+        var widest: CGFloat = 0
+        for block in MarkdownCache.blocksSync(for: text) {
+            guard case let .table(headers, rows) = block else { continue }
+            let columns = max(headers.count, rows.map(\.count).max() ?? 0)
+            guard columns > 0 else { continue }
+            var natural = [Int](repeating: 0, count: columns)
+            for row in [headers] + rows {
+                for (i, cell) in row.enumerated() where i < columns {
+                    natural[i] = max(natural[i], displayWidth(InlineParser.stripResidual(cell)))
+                }
+            }
+            let totalChars = natural.reduce(0, +) + (columns - 1) * 2
+            // 详情页字号 10pt 等宽字体单个字符约 6.4pt
+            let width = CGFloat(totalChars) * 6.4
+            widest = max(widest, width)
+        }
+        return widest > 0 ? widest : nil
+    }
+
     static func linkTarget(for raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        if let url = URL(string: trimmed), url.scheme != nil {
-            return url
+        // 只有**真的能打开**的才返回 URL（→ 才会染蓝 + 可点）：
+        // - http / https / mailto 等带 scheme 的绝对地址
+        // - dsh:// 内部路由
+        // 相对路径（phone-dsh/dist/x.ipa、AGENTS.md 这类）一律返回 nil：
+        // 手机上打不开，染蓝只会让人以为能点（用户反馈「只要是个路径都标蓝」）。
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
+            return nil
         }
-        var components = URLComponents()
-        components.scheme = "dsh"
-        components.host = "path"
-        components.queryItems = [URLQueryItem(name: "p", value: trimmed)]
-        return components.url
+        let allowed: Set<String> = ["http", "https", "mailto", "tel", "dsh"]
+        guard allowed.contains(scheme) else { return nil }
+        return url
     }
 
     private static func inline(_ text: String, base: UIFont) -> NSAttributedString {
