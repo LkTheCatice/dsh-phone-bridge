@@ -372,13 +372,21 @@ enum MarkdownNS {
                 if hiddenColumns > 0 { note += "（还有 \(hiddenColumns) 列未显示）" }
                 if rows.count > limit { note += "… 还有 \(rows.count - limit) 行未显示" }
                 // 提示紧跟在表格后面。放在 cell 的附件标签上会跑到整条消息末尾（用户实拍反馈）。
-                note += "\n▦ 表格已折叠，点按看完整版"
                 out.append(NSAttributedString(
                     string: note,
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 11),
                         .foregroundColor: UIColor.tertiaryLabel,
                         .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 3, lineSpacing: 1),
+                    ]
+                ))
+                // 「可点」的部分用强调色 + ›，和上面灰掉的统计文字区分（用户建议）
+                out.append(NSAttributedString(
+                    string: "\n▦ 表格已折叠 · 点按看完整版 ›",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+                        .foregroundColor: UIColor.tintColor,
+                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 1, lineSpacing: 1),
                     ]
                 ))
             }

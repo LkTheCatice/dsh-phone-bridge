@@ -187,8 +187,9 @@ final class MessageCell: UICollectionViewCell {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
+        // 可点内容用强调色，和不可点的信息文字区分（用户建议）
         attachmentLabel.font = .systemFont(ofSize: 12)
-        attachmentLabel.textColor = .secondaryLabel
+        attachmentLabel.textColor = .tintColor
         attachmentLabel.numberOfLines = 1
         attachmentLabel.isUserInteractionEnabled = true
         attachmentLabel.addGestureRecognizer(
@@ -238,7 +239,7 @@ final class MessageCell: UICollectionViewCell {
             if !refs.images.isEmpty { parts.append("\(refs.images.count) 张图片") }
             if !refs.videos.isEmpty { parts.append("\(refs.videos.count) 个视频") }
             if !refs.audios.isEmpty { parts.append("\(refs.audios.count) 段音频") }
-            attachmentLabel.text = "📎 " + parts.joined(separator: " · ") + "，点按查看"
+            attachmentLabel.text = "📎 " + parts.joined(separator: " · ") + " · 点按查看 ›"
             attachmentLabel.isHidden = false
         }
 
@@ -333,6 +334,7 @@ enum MessageRender {
         case .toolCall:
             var text = entry.text
             if let summary = entry.summary, !summary.isEmpty { text += " · " + summary }
+            text += "  ›"   // 可点开的提示（颜色保持灰，避免整屏发蓝）
             body = NSAttributedString(
                 string: text,
                 attributes: [
