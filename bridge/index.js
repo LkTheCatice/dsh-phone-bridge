@@ -294,6 +294,19 @@ function applyBridge(ctx, config) {
     // 手机端据此自己维护一份队列：排队就加、移除就删、改内容就替换。
     if (event.type === "agent/inbox/spliced") {
       try {
+        // 关键探测：事件**外层**有哪些字段。
+        // 队列属于 agent（agent/inbox/spliced），而 updateQueue 报
+        // "reading 'kind'" —— 很可能是因为只传了 sessionId、缺 agentId。
+        try {
+          const outer = {};
+          for (const k of Object.keys(event).slice(0, 24)) {
+            if (k === "data") continue;
+            const v = event[k];
+            outer[k] = v && typeof v === "object" ? JSON.stringify(v).slice(0, 200) : String(v).slice(0, 120);
+          }
+          logLine({ step: "inbox.event", keys: Object.keys(event).slice(0, 24), outer });
+        } catch { /* ignore */ }
+
         const d = event.data || {};
         const items = (Array.isArray(d.inserted) ? d.inserted : []).map((it) => {
           const content = Array.isArray(it?.content) ? it.content : [];
