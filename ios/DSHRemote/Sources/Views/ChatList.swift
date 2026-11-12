@@ -88,8 +88,9 @@ struct ChatList: UIViewRepresentable {
             dataSource = UICollectionViewDiffableDataSource<String, String>(collectionView: view) { [weak self] cv, indexPath, id in
                 let cell = cv.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
                 if let entry = self?.lookup[id] {
-                    let index = entries.firstIndex { $0.id == id }
-                    let previousKind = (index ?? 0) > 0 ? entries[(index ?? 1) - 1].kind : nil
+                    let list = self?.parent.entries ?? []
+                    let index = list.firstIndex { $0.id == id }
+                    let previousKind = (index ?? 0) > 0 ? list[(index ?? 1) - 1].kind : nil
                     let isRoleChange = previousKind != nil && previousKind != entry.kind
                     cell.configure(
                         entry,
