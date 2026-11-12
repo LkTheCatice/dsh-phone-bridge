@@ -27,11 +27,21 @@ struct QueueSheet: View {
         NavigationStack {
             Group {
                 if chat.queue.isEmpty {
-                    ContentUnavailableView(
-                        "队列是空的",
-                        systemImage: "text.line.first.and.arrowtriangle.forward",
-                        description: Text("当前没有排队的消息。\n发送新消息时会自动排到队尾。")
-                    )
+                    // 不用 ContentUnavailableView：它要 iOS 17+，
+                    // 而本项目部署目标更低（CI 直接报只读 API 不可用）。
+                    VStack(spacing: 10) {
+                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                            .font(.system(size: 34))
+                            .foregroundStyle(.tertiary)
+                        Text("队列是空的")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Text("当前没有排队的消息。\n发送新消息时会自动排到队尾。")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
                         Section {
