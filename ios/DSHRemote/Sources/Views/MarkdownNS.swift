@@ -27,93 +27,156 @@ enum MarkdownNS {
     static func build(_ blocks: [Block]) -> NSAttributedString {
         let out = NSMutableAttributedString()
         for (index, block) in blocks.enumerated() {
+            // 段与段之间：用段落样式给「段后距」，而不是靠空行撑 ——
+            // 空行会随字号放大成一大片空白，看起来又松又散（可读性下降的主因）。
             if index > 0 {
                 out.append(NSAttributedString(string: "\n"))
-                if case .code = block {} else {
-                    out.append(NSAttributedString(string: "\n"))
-                }
             }
-            out.append(renderBlock(block))
+            out.append(renderBlock(block, isFirst: index == 0))
         }
         return out
     }
 
+    /// 统一段落样式：行距 + 段后距 + 缩进
+    private static func style(
+        spacingAfter: CGFloat = 8,
+        spacingBefore: CGFloat = 0,
+        lineSpacing: CGFloat = 3,
+        headIndent: CGFloat = 0,
+        firstLineIndent: CGFloat? = nil
+    ) -> NSParagraphStyle {
+        let p = NSMutableParagraphStyle()
+        p.lineSpacing = lineSpacing
+        p.paragraphSpacing = spacingAfter
+        p.paragraphSpacingBefore = spacingBefore
+        p.headIndent = headIndent
+        p.firstLineHeadIndent = firstLineIndent ?? headIndent
+        return p
+    }
+
     // MARK: - 块级
 
-    private static func renderBlock(_ block: Block) -> NSAttributedString {
+    private static func renderBlock(_ block: Block, isFirst: Bool = false) -> NSAttributedString {
+        // 首段不需要「段前距」，否则顶部会空一块
+        let before: CGFloat = isFirst ? 0 : 10
+
         switch block {
         case let .heading(level, text):
-            let size: CGFloat = level <= 2 ? 20 : 17
-            return inline(text, base: .systemFont(ofSize: size, weight: .semibold))
+            // 标题：字号 + 段前距（让层级「立起来」，而不是靠空行）
+            let size: CGFloat = level <= 2 ? 21 : 18
+            let style = Self.style(
+                spacingAfter: 6,
+                spacingBefore: isFirst ? 0 : (level <= 2 ? 14 : 10),
+                lineSpacing: 2
+            )
+            let out = NSMutableAttributedString(attributedString: inline(text, base: .systemFont(ofSize: size, weight: .semibold)))
+            out.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: out.length))
+            return out
 
         case let .paragraph(text):
-            return inline(text, base: .systemFont(ofSize: 15))
-
-        case let .quote(text):
-            let body = inline(text, base: .systemFont(ofSize: 14))
-            let out = NSMutableAttributedString(
-                string: "▍ ",
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14),
-                    .foregroundColor: UIColor.tertiaryLabel,
-                ]
-            )
-            out.append(body)
+            let out = NSMutableAttributedString(attributedString: inline(text, base: .systemFont(ofSize: 16)))
             out.addAttribute(
-                .foregroundColor,
-                value: UIColor.secondaryLabel,
+                .paragraphStyle,
+                value: Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 4),
                 range: NSRange(location: 0, length: out.length)
             )
             return out
 
+        case let .quote(text):
+            // 引用：整体缩进 + 竖线 + 灰字
+            let out = NSMutableAttributedString(
+                string: "▍ ",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 15),
+                    .foregroundColor: UIColor.tertiaryLabel,
+                    .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 4, headIndent: 4, firstLineIndent: 4),
+                ]
+            )
+            let body = NSMutableAttributedString(attributedString: inline(text, base: .systemFont(ofSize: 15)))
+            body.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: NSRange(location: 0, length: body.length))
+            body.addAttribute(
+                .paragraphStyle,
+                value: Self.style(spacingAfter: 2, spacingBefore: 0, lineSpacing: 4, headIndent: 18, firstLineIndent: 18),
+                range: NSRange(location: 0, length: body.length)
+            )
+            out.append(body)
+            return out
+
         case let .code(code, lang):
+            // 代码块：左右缩进 + 等宽 + 底色 + 稍紧的行距
+            let style = Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 1.5, headIndent: 10)
+            style.tailIndent = -10
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
-                out.append(NSAttributedString(
+                let tag = NSAttributedString(
                     string: lang + "\n",
                     attributes: [
-                        .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                        .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                         .foregroundColor: UIColor.tertiaryLabel,
+                        .paragraphStyle: style,
                     ]
-                ))
+                )
+                out.append(tag)
             }
             out.append(NSAttributedString(
                 string: clampCode(code),
                 attributes: [
-                    .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
                     .foregroundColor: UIColor.label,
                     .backgroundColor: UIColor.secondarySystemFill,
+                    .paragraphStyle: style,
                 ]
             ))
             return out
 
         case let .bullet(items):
+            // 列表：悬挂缩进（换行时对齐文字，不对齐符号）
             let out = NSMutableAttributedString()
             for (i, item) in items.enumerated() {
-                if i > 0 { out.append(NSAttributedString(string: "\n")) }
+                let style = Self.style(
+                    spacingAfter: i == items.count - 1 ? 2 : 5,
+                    spacingBefore: i == 0 ? before : 0,
+                    lineSpacing: 4,
+                    headIndent: 20,
+                    firstLineIndent: 4
+                )
                 out.append(NSAttributedString(
                     string: "• ",
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 15),
+                        .font: UIFont.systemFont(ofSize: 16),
                         .foregroundColor: UIColor.secondaryLabel,
+                        .paragraphStyle: style,
                     ]
                 ))
-                out.append(inline(item, base: .systemFont(ofSize: 15)))
+                let body = NSMutableAttributedString(attributedString: inline(item, base: .systemFont(ofSize: 16)))
+                body.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: body.length))
+                out.append(body)
+                if i < items.count - 1 { out.append(NSAttributedString(string: "\n")) }
             }
             return out
 
         case let .ordered(items):
             let out = NSMutableAttributedString()
             for (i, item) in items.enumerated() {
-                if i > 0 { out.append(NSAttributedString(string: "\n")) }
+                let style = Self.style(
+                    spacingAfter: i == items.count - 1 ? 2 : 5,
+                    spacingBefore: i == 0 ? before : 0,
+                    lineSpacing: 4,
+                    headIndent: 24,
+                    firstLineIndent: 4
+                )
                 out.append(NSAttributedString(
                     string: "\(i + 1). ",
                     attributes: [
-                        .font: UIFont.monospacedDigitSystemFont(ofSize: 15, weight: .regular),
+                        .font: UIFont.monospacedDigitSystemFont(ofSize: 16, weight: .regular),
                         .foregroundColor: UIColor.secondaryLabel,
+                        .paragraphStyle: style,
                     ]
                 ))
-                out.append(inline(item, base: .systemFont(ofSize: 15)))
+                let body = NSMutableAttributedString(attributedString: inline(item, base: .systemFont(ofSize: 16)))
+                body.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: body.length))
+                out.append(body)
+                if i < items.count - 1 { out.append(NSAttributedString(string: "\n")) }
             }
             return out
 
@@ -123,43 +186,46 @@ enum MarkdownNS {
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 12),
                     .foregroundColor: UIColor.tertiaryLabel,
+                    .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 0),
                 ]
             )
 
         case let .table(headers, rows):
-            // 表格降级成「对齐文本行」：可读、不需要 Grid 布局
+            // 表格：等宽 + 稍紧行距，表头加粗
+            let style = Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 2)
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
                 out.append(NSAttributedString(
-                    string: headers.joined(separator: "  |  ") + "\n",
+                    string: headers.joined(separator: "  │  ") + "\n",
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+                        .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .semibold),
                         .foregroundColor: UIColor.label,
+                        .paragraphStyle: style,
                     ]
                 ))
                 out.append(NSAttributedString(
-                    string: String(repeating: "─", count: max(8, headers.count * 6)) + "\n",
+                    string: String(repeating: "─", count: max(8, headers.count * 8)) + "\n",
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 10),
+                        .font: UIFont.systemFont(ofSize: 9),
                         .foregroundColor: UIColor.tertiaryLabel,
+                        .paragraphStyle: style,
                     ]
                 ))
             }
             for (i, row) in rows.enumerated() {
-                if i > 0 { out.append(NSAttributedString(string: "\n")) }
                 out.append(NSAttributedString(
-                    string: row.joined(separator: "  |  "),
+                    string: row.joined(separator: "  │  "),
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 12),
+                        .font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
                         .foregroundColor: UIColor.label,
+                        .paragraphStyle: style,
                     ]
                 ))
+                if i < rows.count - 1 { out.append(NSAttributedString(string: "\n")) }
             }
             return out
         }
     }
-
-    // MARK: - 行内（**粗体** / *斜体* / `代码`）
 
     /// 行内格式：用 `InlineParser` 的**分段结果**拼接属性。
     ///

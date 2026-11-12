@@ -261,11 +261,15 @@ enum MessageRender {
 
         // 角色前缀（一条小字），正文用 markdown 富文本
         if let prefix = prefix(for: entry) {
+            let color: UIColor = (entry.kind == .user) ? .tintColor : .tertiaryLabel
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.paragraphSpacing = 2
             out.append(NSAttributedString(
                 string: prefix,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
-                    .foregroundColor: UIColor.tertiaryLabel,
+                    .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+                    .foregroundColor: color,
+                    .paragraphStyle: paragraph,
                 ]
             ))
         }
@@ -302,11 +306,14 @@ enum MessageRender {
                 ]
             )
         default:
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
             body = NSAttributedString(
                 string: entry.text,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 15),
+                    .font: UIFont.systemFont(ofSize: 16),
                     .foregroundColor: UIColor.label,
+                    .paragraphStyle: paragraph,
                 ]
             )
         }
@@ -316,8 +323,8 @@ enum MessageRender {
 
     private static func prefix(for entry: ChatEntry) -> String? {
         switch entry.kind {
-        case .user: return "我\n"
-        case .assistant: return entry.running ? "AI（正在生成）\n" : "AI\n"
+        case .user: return "▍我\n"
+        case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
         case .thinking: return "思考\n"
         case .toolCall: return "> "
         case .collapsedSteps: return "▸ "
