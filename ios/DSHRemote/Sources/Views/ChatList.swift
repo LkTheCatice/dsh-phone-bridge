@@ -187,6 +187,8 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private var onOpenLink: ((URL) -> Void)?
     /// cell 顶部留白（角色切换时更大）
     private var topConstraint: NSLayoutConstraint?
+    /// 内容块左边界：用户消息靠右（留出 56pt），其余贴左
+    private var leadingConstraint: NSLayoutConstraint?
     private var stackTopSpacing: CGFloat = 4 {
         didSet { topConstraint?.constant = stackTopSpacing }
     }
@@ -283,6 +285,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         self.onOpenLink = onOpenLink
         // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强
         stackTopSpacing = isRoleChange ? 14 : 4
+        // 用户消息把内容块整体右移（不是文字缩进）：左边界 56pt，
+        // 这样右边界贴着屏幕右边，看起来才像「我说的」，与微信/QQ 一致。
+        leadingConstraint?.constant = (entry.kind == .user) ? 56 : 0
         textView.attributedText = MessageRender.attributed(entry)
         self.onTapAttachments = onTapAttachments
 
@@ -365,11 +370,7 @@ enum MessageRender {
             let color: UIColor = (entry.kind == .user) ? .tintColor : .tertiaryLabel
             let paragraph = NSMutableParagraphStyle()
             paragraph.paragraphSpacing = 2
-            if entry.kind == .user {
-                // 和正文用同一个缩进，否则前缀会贴在左边而正文在右边
-                paragraph.headIndent = 56
-                paragraph.firstLineHeadIndent = 56
-            }
+
             out.append(NSAttributedString(
                 string: prefix,
                 attributes: [
@@ -420,14 +421,8 @@ enum MessageRender {
         default:
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 4
-            if entry.kind == .user {
-                // 用户消息靠右：像聊天软件那样整体右移，
-                // 但**文字仍左对齐**（中文整段右对齐会难读）。
-                // 用 headIndent 而不是 alignment = .right 就是这个原因。
-                paragraph.headIndent = 56
-                paragraph.firstLineHeadIndent = 56
-                paragraph.paragraphSpacing = 3
-            }
+            // 用户消息的「靠右」交给 cell 的 leading 约束（见 configure），
+            // 这里只调间距 —— 如果在文字上再缩进一次会双重偏移。
             body = NSAttributedString(
                 string: entry.text,
                 attributes: [
