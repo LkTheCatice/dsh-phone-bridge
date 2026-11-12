@@ -244,6 +244,15 @@ struct ChatView: View {
                 Task { await model.loadHistory(sessionId) }
             }
             }
+            // 首次出现时补一次历史加载。
+            // 之前只在 selectedSessionId **变化**时加载 —— 但 App 启动时
+            // 会话 id 是从 UserDefaults 恢复的，值没变，onChange 不触发，
+            // 于是历史一直是空的（用户实拍：先前的对话看不到）。
+            .task {
+                if let sid = model.selectedSessionId, chat.entries.isEmpty {
+                    await model.loadHistory(sid)
+                }
+            }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             // 键盘弹起时藏掉底部 Tab Bar：否则它被键盘盖住，三个按钮点不到
