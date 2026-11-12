@@ -21,6 +21,8 @@ struct ChatList: UIViewRepresentable {
     let onTapEntry: (String) -> Void
     /// 点击「📎 附件」提示行（打开媒体面板）
     let onTapAttachments: (String) -> Void
+    /// 点击消息里的链接（dsh:// 自定义 scheme 或普通 URL）
+    let onOpenLink: (String, URL) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -91,6 +93,9 @@ struct ChatList: UIViewRepresentable {
                         streaming: self?.parent.isStreaming ?? false,
                         onTapAttachments: { [weak self] in
                             self?.parent.onTapAttachments(id)
+                        },
+                        onOpenLink: { [weak self] url in
+                            self?.parent.onOpenLink(id, url)
                         }
                     )
                 }
@@ -157,29 +162,30 @@ struct ChatList: UIViewRepresentable {
             parent.onBottomChanged(bottom)
         }
 
-        func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-            collectionView.deselectItem(at: indexPath, animated: false)
-            guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
-            parent.onTapEntry(id)
-        }
+        // 不再实现 didSelectItemAt：它会抢走 UITextView 里的链接点击，
+        // 导致「蓝色链接点不开」。点开详情改由 attributed string 里的
+        // dsh://detail 链接触发（见 MessageRender）。
     }
 }
 
 // MARK: - Cell
 
 /// 一条消息一个 cell。第一版先用 UITextView 承载纯文本（富文本在下一阶段接上）。
-final class MessageCell: UICollectionViewCell {
+final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     static let reuseID = "MessageCell"
 
     private let textView = UITextView()
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
     private var onTapAttachments: (() -> Void)?
+    /// 点开链接 / 折叠提示（由 ChatView 决定行为）
+    private var onOpenLink: ((URL) -> Void)?
     /// 当前渲染的条目（高度缓存要按它生成 key）
     private var currentEntry: ChatEntry?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        textView.delegate = self          // 链接点击必须由 delegate 处理
         textView.isEditable = false
         textView.isScrollEnabled = false          // 高度由内容决定，交给 cell
         textView.isSelectable = true
@@ -218,14 +224,50 @@ final class MessageCell: UICollectionViewCell {
         attachmentLabel.text = nil
         attachmentLabel.isHidden = true
         onTapAttachments = nil
+        onOpenLink = nil
+    }
+
+    // MARK: - UITextViewDelegate（链接与自定义 scheme）
+
+    func textView(
+        _ textView: UITextView,
+        shouldInteractWith URL: URL,
+        in characterRange: NSRange,
+        interaction: UITextItemInteraction
+    ) -> Bool {
+        // 自定义 scheme 交给上层（dsh://detail 看完整版、dsh://attachments 看附件）
+        if URL.scheme == "dsh" {
+            onOpenLink?(URL)
+            return false
+        }
+        // 普通链接走系统（Safari）
+        return interaction != .invokeDefaultAction ? false : true
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldInteractWith URL: URL,
+        in characterRange: NSRange
+    ) -> Bool {
+        if URL.scheme == "dsh" {
+            onOpenLink?(URL)
+            return false
+        }
+        return true
     }
 
     @objc private func handleTapAttachments() {
         onTapAttachments?()
     }
 
-    func configure(_ entry: ChatEntry, streaming: Bool, onTapAttachments: (() -> Void)?) {
+    func configure(
+        _ entry: ChatEntry,
+        streaming: Bool,
+        onTapAttachments: (() -> Void)?,
+        onOpenLink: ((URL) -> Void)? = nil
+    ) {
         currentEntry = entry
+        self.onOpenLink = onOpenLink
         textView.attributedText = MessageRender.attributed(entry)
         self.onTapAttachments = onTapAttachments
 

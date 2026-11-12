@@ -126,6 +126,17 @@ struct ChatView: View {
                     },
                     onTapAttachments: { id in
                         attachmentEntry = visibleEntries.first { $0.id == id }
+                    },
+                    onOpenLink: { id, url in
+                        let target = visibleEntries.first { $0.id == id }
+                        switch url.host ?? url.path {
+                        case "detail", "":
+                            detailEntry = target
+                        case "attachments":
+                            attachmentEntry = target
+                        default:
+                            break   // 普通链接由系统处理
+                        }
                     }
                 )
                 .onChange(of: model.streamTick) { _ in

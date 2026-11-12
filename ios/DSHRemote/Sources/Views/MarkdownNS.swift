@@ -381,14 +381,20 @@ enum MarkdownNS {
                     ]
                 ))
                 // 「可点」的部分用强调色 + ›，和上面灰掉的统计文字区分（用户建议）
-                out.append(NSAttributedString(
+                // 做成 dsh://detail 链接：UITextView 里只有 .link 属性才收得到点击
+                // （普通文字上盖 onTapGesture 会被 cell 拦截）
+                var hint = NSMutableAttributedString(
                     string: "\n▦ 表格已折叠 · 点按看完整版 ›",
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 12, weight: .medium),
                         .foregroundColor: UIColor.tintColor,
                         .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 1, lineSpacing: 1),
                     ]
-                ))
+                )
+                if let url = URL(string: "dsh://detail") {
+                    hint.addAttribute(.link, value: url, range: NSRange(location: 0, length: hint.length))
+                }
+                out.append(hint)
             }
             return out
         }
