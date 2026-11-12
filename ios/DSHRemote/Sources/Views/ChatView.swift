@@ -16,6 +16,9 @@ struct ChatView: View {
     /// 已上传到电脑、等着随消息一起发出的附件（显示成 chip，不塞进输入框）
     @State private var attachments: [String] = []
     @State private var sending = false
+    /// 排队提示：持久显示在输入区上方，直到这一轮真的开始（或超时）
+    /// 之前用 toast，一闪而过 —— 用户以为没发出去，又发了一遍，列表里出现两条重复。
+    @State private var queuedNotice = false
     @FocusState private var focused: Bool
 
     @State private var photoItems: [PhotosPickerItem] = []
@@ -156,7 +159,11 @@ struct ChatView: View {
                         jump.hasNewBelow = true
                     }
                 }
-                .onChange(of: chat.historyVersion) { _ in
+                .onChange(of: chat.streaming) { streaming in
+                // 新一轮真的开始跑了，「已排队」提示就该收起
+                if streaming, queuedNotice { queuedNotice = false }
+            }
+            .onChange(of: chat.historyVersion) { _ in
                     if !jump.atBottom { jump.atBottom = true }
                     if jump.hasNewBelow { jump.hasNewBelow = false }
                     scrollRequest += 1
@@ -421,6 +428,21 @@ struct ChatView: View {
             // SwiftUI 会在结构变化时重建整个子树，TextField 跟着重建，
             // 正在组合的拼音就被打断 —— 表现就是「选完图后第一个字母不进拼音」。
             // 改成恒定结构 + 用高度和透明度控制，视图树不变，输入法状态就不会丢。
+            // 已排队提示：持久显示（12 秒或该轮开始为止），不是一闪而过的 toast。
+            // 同样遵守「恒定结构」原则，用高度/透明度控制显隐。
+            HStack(spacing: 5) {
+                Image(systemName: "clock.badge.checkmark")
+                    .font(.system(size: 11))
+                Text("已排队 · 等当前轮跑完再执行")
+                    .font(.caption)
+            }
+            .foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .frame(height: queuedNotice ? 20 : 0)
+            .opacity(queuedNotice ? 1 : 0)
+            .clipped()
+
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text(uploadText).font(.caption).foregroundStyle(.secondary)
@@ -575,9 +597,14 @@ struct ChatView: View {
         focused = false
         sending = true
         if willQueue {
-            // 排队的确认：把「已在队列里等着」这件事说出来，
-            // 而不是让它和「已发送并开始执行」看起来一模一样。
-            model.showToast("已排队 · 等当前轮跑完再执行")
+            // 持久提示（输入区上方那条橙色状态条），不是一闪而过的 toast：
+            // 用户实测「发送时它直接进消息框且提示不明显」，结果以为没发出去又发了一次。
+            queuedNotice = true
+            Task {
+                // 12 秒后自动收起；如果那一轮提前开始，会在下面被清掉
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                if queuedNotice { queuedNotice = false }
+            }
         }
         let outgoing = payload
         // 「按下发送后，主线程多久才轮到下一个任务」。
