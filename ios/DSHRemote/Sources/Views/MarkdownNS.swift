@@ -206,59 +206,98 @@ enum MarkdownNS {
             )
 
         case let .table(headers, rows):
-            // 表格：**每行压成一个段落**（不是每个单元格一个段落）。
+            // 表格：用 **tabStops 做真正的列对齐**。
             //
-            // 走过的两条错路：
-            // 1. 「用 │ 分隔的对齐文本行」→ 长内容撑乱整行，窄屏不可读（用户实拍否决）
-            // 2. 「卡片式：每行 = 标题段 + 每列一段」→ 可读了，但文本量翻几倍，
-            //    实测 STUCK 从 1 条 725ms 涨到 65 条 6965ms（mark=body）
-            // 现在折中：一行一条，用 — 和 ｜ 分隔，列名省略（表头已给出语义），
-            // 段落数与普通文本相同，成本回到基线。
-            let limit = 12
-            let shown = rows.prefix(limit)
-            var out = NSMutableAttributedString()
+            // 走过的路：
+            // 1. 「│ 分隔的对齐文本行」→ 长内容撑乱整行，列根本对不上
+            // 2. 「卡片式：每行拆 2~3 段」→ 可读了，但段落数翻倍，
+            //    实测 STUCK 从 1 条 725ms 涨到 65 条 6965ms
+            // 3. 「一行一条用 ｜ 分隔」→ 便宜，但列仍不对齐（用户：不直观）
+            //
+            // 现在：等宽字体 + 按显示宽度算出的 tabStops + 每行用 \t 分隔。
+            // 列是真的对齐了，段落数与普通文本相同（成本回到基线）。
+            let maxColumns = max(headers.count, rows.map(\.count).max() ?? 0)
+            guard maxColumns > 0 else { return NSAttributedString() }
 
-            for (i, row) in shown.enumerated() {
-                var line = NSMutableAttributedString()
-                let title = row.first ?? ""
-                if !title.isEmpty {
-                    // ⚠️ 标题必须走 inline()：之前直接拼字符串，
-                    // 于是 `**\`NSTextTable\` 做表格**` 的星号和反引号原样露出（用户实拍）。
-                    line.append(NSAttributedString(
-                        string: "▸ ",
-                        attributes: [
-                            .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                            .foregroundColor: UIColor.secondaryLabel,
-                        ]
-                    ))
-                    line.append(inline(title, base: .systemFont(ofSize: 13, weight: .semibold)))
+            // 中文/全角算 2 个字符宽，其余算 1 —— 等宽字体下才能对齐
+            func displayWidth(_ s: String) -> Int {
+                s.unicodeScalars.reduce(0) { acc, u in
+                    let wide = (u.value >= 0x1100 && u.value <= 0x115F)
+                        || (u.value >= 0x2E80 && u.value <= 0xA4CF)
+                        || (u.value >= 0xAC00 && u.value <= 0xD7A3)
+                        || (u.value >= 0xF900 && u.value <= 0xFAFF)
+                        || (u.value >= 0xFE30 && u.value <= 0xFE6F)
+                        || (u.value >= 0xFF00 && u.value <= 0xFF60)
+                        || (u.value >= 0xFFE0 && u.value <= 0xFFE6)
+                    return acc + (wide ? 2 : 1)
                 }
-                let rest = Array(row.dropFirst()).filter { !$0.isEmpty }
-                for value in rest {
-                    line.append(NSAttributedString(
-                        string: "  ｜ ",
-                        attributes: [
-                            .font: UIFont.systemFont(ofSize: 11),
-                            .foregroundColor: UIColor.tertiaryLabel,
-                        ]
-                    ))
-                    line.append(inline(value, base: .systemFont(ofSize: 13)))
+            }
+
+            let limit = 10
+            let shownRows = Array(rows.prefix(limit))
+            // 单格最多留 14 个字符宽，避免一格挤爆整行
+            func clampCell(_ s: String, maxWidth: Int = 14) -> String {
+                let stripped = InlineParser.stripResidual(s)
+                if displayWidth(stripped) <= maxWidth { return stripped }
+                var out = ""
+                var w = 0
+                for ch in stripped {
+                    let cw = displayWidth(String(ch))
+                    if w + cw > maxWidth - 1 { break }
+                    out.append(ch)
+                    w += cw
                 }
-                line.addAttribute(
-                    .paragraphStyle,
-                    value: Self.style(
-                        spacingAfter: 6,
-                        spacingBefore: i == 0 ? before : 0,
-                        lineSpacing: 3,
-                        headIndent: 14,
-                        firstLineIndent: 2
-                    ),
-                    range: NSRange(location: 0, length: line.length)
-                )
-                out.append(line)
-                if i < shown.count - 1 {
-                    out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 2)]))
+                return out + "…"
+            }
+
+            let table = [headers] + shownRows
+            var columnWidths = [Int](repeating: 0, count: maxColumns)
+            for row in table {
+                for (i, cell) in row.enumerated() where i < maxColumns {
+                    columnWidths[i] = max(columnWidths[i], displayWidth(clampCell(cell)))
                 }
+            }
+
+            // 12pt 等宽字体单个字符约 7.2pt
+            let charWidth: CGFloat = 7.2
+            let gutter = 2   // 列间留 2 个字符宽
+            var stops: [NSTextTab] = []
+            var location: CGFloat = 0
+            for i in 1..<maxColumns {
+                location += CGFloat(columnWidths[i - 1] + gutter) * charWidth
+                stops.append(NSTextTab(textAlignment: .left, location: location))
+            }
+
+            func makeRow(_ row: [String], isHeader: Bool) -> NSAttributedString {
+                let style = NSMutableParagraphStyle()
+                style.tabStops = stops
+                style.lineSpacing = 3
+                style.paragraphSpacing = isHeader ? 4 : 3
+                style.headIndent = 0
+                let base = UIFont.monospacedSystemFont(ofSize: 11.5, weight: isHeader ? .semibold : .regular)
+                let line = NSMutableAttributedString()
+                for column in 0..<maxColumns {
+                    if column > 0 {
+                        line.append(NSAttributedString(string: "\t", attributes: [.font: base]))
+                    }
+                    let text = column < row.count ? clampCell(row[column]) : ""
+                    line.append(NSAttributedString(string: text, attributes: [
+                        .font: base,
+                        .foregroundColor: isHeader ? UIColor.label : UIColor.secondaryLabel,
+                    ]))
+                }
+                line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
+                return line
+            }
+
+            let out = NSMutableAttributedString()
+            if !headers.isEmpty {
+                out.append(makeRow(headers, isHeader: true))
+                out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)]))
+            }
+            for (i, row) in shownRows.enumerated() {
+                if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
+                out.append(makeRow(row, isHeader: false))
             }
             if rows.count > limit {
                 out.append(NSAttributedString(
@@ -266,7 +305,6 @@ enum MarkdownNS {
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 11),
                         .foregroundColor: UIColor.tertiaryLabel,
-                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 2, lineSpacing: 0, headIndent: 14),
                     ]
                 ))
             }
