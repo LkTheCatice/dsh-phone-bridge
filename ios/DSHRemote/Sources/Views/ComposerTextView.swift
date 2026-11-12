@@ -16,11 +16,10 @@ import UIKit
 /// `updateUIView` 绝对不能去改 `text`，否则组合态会被打断。
 struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
-    /// 是否第一响应者
-    @Binding var focused: Bool
+    /// 是否第一响应者。用 FocusState 的投影类型，才能直接接 `$focused`
+    var focused: FocusState<Bool>.Binding
     /// 内容高度变化（用于让外层按 1~5 行自适应）
     var onHeightChange: (CGFloat) -> Void = { _ in }
-    var placeholder: String = ""
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -56,9 +55,9 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         // focus 同步（键盘出现/消失时 SwiftUI 不会重建这个 view，所以是安全的）
-        if focused, !view.isFirstResponder {
+        if focused.wrappedValue, !view.isFirstResponder {
             view.becomeFirstResponder()
-        } else if !focused, view.isFirstResponder {
+        } else if !focused.wrappedValue, view.isFirstResponder {
             view.resignFirstResponder()
         }
     }
@@ -78,11 +77,11 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ view: UITextView) {
-            if !parent.focused { parent.focused = true }
+            if !parent.focused.wrappedValue { parent.focused.wrappedValue = true }
         }
 
         func textViewDidEndEditing(_ view: UITextView) {
-            if parent.focused { parent.focused = false }
+            if parent.focused.wrappedValue { parent.focused.wrappedValue = false }
         }
 
         func reportHeight() {

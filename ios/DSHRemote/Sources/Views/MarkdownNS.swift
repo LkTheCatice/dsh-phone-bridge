@@ -208,18 +208,21 @@ enum MarkdownNS {
         case let .table(headers, rows):
             // 表格：等宽 + 稍紧行距；**单元格内容也要走行内解析** ——
             // 之前这里直接拼原始字符串，导致 `**粗体**` 的星号原样显示（用户截图确认）。
-            let style = Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 2)
+            // 行距压到 1、段后 0：表格要紧凑，散开就读不成表了
+            let style = Self.style(spacingAfter: 0, spacingBefore: before, lineSpacing: 1)
 
             func cellRow(_ cells: [String], weight: UIFont.Weight) -> NSAttributedString {
                 let row = NSMutableAttributedString()
                 let base = UIFont.monospacedSystemFont(ofSize: 12, weight: weight)
                 for (i, cell) in cells.enumerated() {
                     if i > 0 {
+                        // 分隔符用次级色而不是三级色：三级灰在浅色背景上几乎看不见，
+                        // 表格会长成一段散落的文字（用户实拍反馈）。
                         row.append(NSAttributedString(
-                            string: "  │  ",
+                            string: " │ ",
                             attributes: [
-                                .font: UIFont.systemFont(ofSize: 10),
-                                .foregroundColor: UIColor.tertiaryLabel,
+                                .font: UIFont.systemFont(ofSize: 12),
+                                .foregroundColor: UIColor.secondaryLabel,
                             ]
                         ))
                     }
@@ -236,11 +239,12 @@ enum MarkdownNS {
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
                 out.append(cellRow(headers, weight: .semibold))
+                // 分隔线：提高字号与颜色对比，并补足长度（原来 9pt 三级灰几乎不可见）
                 out.append(NSAttributedString(
-                    string: "\n" + String(repeating: "─", count: max(8, headers.count * 8)) + "\n",
+                    string: "\n" + String(repeating: "─", count: max(12, headers.count * 10)) + "\n",
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 9),
-                        .foregroundColor: UIColor.tertiaryLabel,
+                        .font: UIFont.systemFont(ofSize: 11),
+                        .foregroundColor: UIColor.secondaryLabel,
                         .paragraphStyle: style,
                     ]
                 ))
