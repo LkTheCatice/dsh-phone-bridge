@@ -659,7 +659,7 @@ struct ChatView: View {
             }
         }
         Task {
-            await model.send(text: outgoing)
+            await model.send(text: outgoing, localEcho: !willQueue)
             sending = false
         }
     }

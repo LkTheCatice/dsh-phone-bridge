@@ -1085,7 +1085,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func send(text: String, mode: SendMode? = nil) async {
+    /// - Parameter localEcho: 是否本地乐观插入。
+    ///   排队时不插 —— 和电脑端一致：排队只在队列里显示，等真正开始执行才进对话。
+    func send(text: String, mode: SendMode? = nil, localEcho: Bool = true) async {
         guard let client else { return }
         let t0 = CFAbsoluteTimeGetCurrent()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1104,7 +1106,12 @@ final class AppModel: ObservableObject {
         // local- 前缀标记「这条是我本地乐观插入的」：服务端回显时要替换它，
         // 而不是再插一条。靠 id 前缀识别比靠「文本 + 15 秒时间窗」可靠 ——
         // 排队场景下服务端可能要等几十秒才回显，时间窗一过就变成两条重复。
-        append(sid, ChatEntry(id: "local-\(UUID().uuidString)", kind: .user, text: trimmed, at: Date(), queued: true))
+        //
+        // 排队时不插：电脑端排队也不进对话框（只在队列里），
+        // 手机上做本地插入会造成「手机有、电脑没有」的差异（用户反馈）。
+        if localEcho {
+            append(sid, ChatEntry(id: "local-\(UUID().uuidString)", kind: .user, text: trimmed, at: Date(), queued: true))
+        }
         let t3 = CFAbsoluteTimeGetCurrent()
         trace("s2-append=\(Int((t3 - t2) * 1000))ms n=\(entriesStorage[sid]?.count ?? -1)")
         do {
