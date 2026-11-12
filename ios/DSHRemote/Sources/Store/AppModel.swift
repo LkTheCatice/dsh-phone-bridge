@@ -794,7 +794,13 @@ final class AppModel: ObservableObject {
     /// 每次发消息、每次流式刷新都在这个规模上重算，主线程被压住，
     /// 输入法事件排不上队，「打开软件时第一个字母不进拼音」和「发送瞬间卡死」都是它。
     /// 降到 220 后渲染负担约为原来的 1/3，滚动起点也更快。
-    private static let maxEntriesPerSession = 80
+    /// 每个会话保留的最大条目数。
+    ///
+    /// 原来是 80 —— 而 loadOlder 一次就往头部插 300 帧（约 40~90 条），
+    /// 插进去立刻又被 trimIfNeeded 从头部裁掉，等于白拉。
+    /// 现在放到 600：初始 400 帧 + 两三次上拉都在容量内，
+    /// 又不会让单个会话无限膨胀（600 条 × 几 KB 仍是可接受量级）。
+    private static let maxEntriesPerSession = 600
 
     /// 满 cap 之后不要每条都裁：裁一次是 O(n) 的全量 filter，而流式输出时
     /// 每个 delta 都会走一遍 append —— 等于每帧一次 220 元素的复制。
