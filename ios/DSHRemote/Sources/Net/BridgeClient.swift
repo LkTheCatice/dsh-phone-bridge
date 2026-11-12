@@ -269,6 +269,23 @@ final class BridgeClient {
         try await getJSON("/v1/comfy")
     }
 
+    /// 队列写操作（编辑 / 删除 / 插队）
+    func updateQueue(
+        sessionId: String,
+        target: String,
+        start: Int,
+        removedCount: Int,
+        inserted: [[String: Any]]
+    ) async throws -> [String: Any] {
+        try await postJSON("/v1/queue/update", json: [
+            "sessionId": sessionId,
+            "target": target,
+            "start": start,
+            "removedCount": removedCount,
+            "inserted": inserted,
+        ])
+    }
+
     func balance() async throws -> [String: Any] {
         try await getJSON("/v1/balance")
     }

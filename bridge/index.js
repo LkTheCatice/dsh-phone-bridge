@@ -1503,6 +1503,38 @@ function applyBridge(ctx, config) {
 
     // 可用模型列表（附当前会话的选择）
     // 账户余额：走 DSH 自带的 accountController，不碰 API key
+    // 队列写操作：转发给 sessionController.updateQueue。
+    // 语义已从 agent/inbox/spliced 事件反推：
+    //   编辑 = { target:"next-turn", start:该条位置, removedCount:1, inserted:[改后的消息] }
+    //   删除 = { target:"next-turn", start:该条位置, removedCount:1, inserted:[] }
+    //   插队 = 先 next-turn 移除，再 { target:"next-step", start:0, removedCount:0, inserted:[该条消息] }
+    if (method === "POST" && pathname === "/v1/queue/update") {
+      const body = await readJsonBody();
+      const ctrlQ = sessionController || ctx.sessionController;
+      const svcQ = ctrlQ && ctrlQ.typertRemote && ctrlQ.typertRemote.service;
+      if (!svcQ || typeof svcQ.updateQueue !== "function") {
+        throw new HttpError(503, "not-ready", "updateQueue 不可用");
+      }
+      const sessionId = String(body.sessionId || "");
+      if (!sessionId) throw new HttpError(400, "bad-request", "需要 sessionId");
+      const payload = {
+        sessionId,
+        target: String(body.target || "next-turn"),
+        start: Number(body.start ?? 0),
+        removedCount: Number(body.removedCount ?? 0),
+        inserted: Array.isArray(body.inserted) ? body.inserted : [],
+      };
+      try {
+        const result = await svcQ.updateQueue(payload);
+        logLine({ step: "queue.update", sessionId, ...payload, ok: true });
+        return sendJson(res, 200, { ok: true, result: result ?? null }, ctxEnc);
+      } catch (error) {
+        const message = String(error?.message || error);
+        logLine({ step: "queue.update", sessionId, ...payload, error: message.slice(0, 300) });
+        throw new HttpError(500, "update-failed", message.slice(0, 200));
+      }
+    }
+
     if (method === "GET" && pathname === "/v1/balance") {
       const account = ctx.get?.("accountController") || ctx.accountController;
       if (!account || typeof account.getBalance !== "function") {
@@ -1783,7 +1815,17 @@ function applyBridge(ctx, config) {
           // 没把队列写操作暴露给外部，手机的编辑/删除/插队只能停在「读」。
           try {
             const svc = tr && tr.service;
-            probe.typertService = {
+            try {
+            const svc2 = tr && tr.service;
+            const uq = svc2 && svc2.updateQueue;
+            if (typeof uq === "function") {
+              probe.updateQueueSig = {
+                length: uq.length,
+                src: String(uq).slice(0, 260),
+              };
+            }
+          } catch { /* ignore */ }
+          probe.typertService = {
               type: typeof svc,
               serviceKey: String((tr && tr.serviceKey) || ""),
               namespace: String((tr && tr.namespace) || ""),

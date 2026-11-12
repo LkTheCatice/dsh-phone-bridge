@@ -114,7 +114,6 @@ struct QueueSheet: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.red.opacity(0.85))
-                .disabled(true)   // 写接口还没打通，先占位
 
                 Button {
                     steer(item)
@@ -123,7 +122,6 @@ struct QueueSheet: View {
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
-                .disabled(true)   // 写接口还没打通，先占位
             }
         }
         .padding(.vertical, 7)
@@ -143,15 +141,23 @@ struct QueueSheet: View {
     }
 
     private func remove(_ item: QueueItem) {
-        // 删除 = splice(target: next-turn, start: 该条位置, removedCount: 1, inserted: [])
-        // 语义已经确认（事件里有 removedCount 字段），但还没有能调用的写接口。
-        let stillThere = chat.queue.contains { $0.rpcId == item.rpcId }
-        notice = stillThere ? "删除接口还在打通中" : "这条已经不在队列里了"
+        Task {
+            if let err = await model.removeQueued(rpcId: item.rpcId) {
+                notice = err
+            } else {
+                notice = "已删除"
+            }
+        }
     }
 
     private func steer(_ item: QueueItem) {
-        // 写入口未打通（DSH 的 splice 还没找到可调用的 API）
-        notice = "插队接口还在打通中"
+        Task {
+            if let err = await model.steerQueued(rpcId: item.rpcId) {
+                notice = err
+            } else {
+                notice = "已插队"
+            }
+        }
     }
 
     @ViewBuilder
@@ -196,7 +202,14 @@ struct QueueSheet: View {
             editing = nil
             return
         }
-        notice = "编辑接口还在打通中"
-        editing = nil
+        Task {
+            if let err = await model.editQueued(rpcId: item.rpcId, newText: draft.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                notice = err
+            } else {
+                notice = "已保存"
+            }
+            editing = nil
+        }
+        return
     }
 }

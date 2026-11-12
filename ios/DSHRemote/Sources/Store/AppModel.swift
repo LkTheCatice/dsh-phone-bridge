@@ -1465,6 +1465,79 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - 队列写操作（编辑 / 删除 / 插队）
+
+    /// 编辑队列里某一条的内容。
+    /// 用 rpcId 定位（不按下标）：队列随时会变，按下标会改到别人那条上。
+    func editQueued(rpcId: String, newText: String) async -> String? {
+        guard let client, let sid = selectedSessionId else { return "未连接" }
+        guard let index = chat.queue.firstIndex(where: { $0.rpcId == rpcId }) else {
+            return "这条已经不在队列里了"
+        }
+        let item = chat.queue[index]
+        let inserted: [[String: Any]] = [[
+            "id": item.id,
+            "role": "user",
+            "content": [["type": "text", "text": newText]],
+            "source": ["kind": "user", "rpcId": item.rpcId],
+        ]]
+        do {
+            _ = try await client.updateQueue(
+                sessionId: sid, target: "next-turn", start: index,
+                removedCount: 1, inserted: inserted
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// 从队列删除某一条
+    func removeQueued(rpcId: String) async -> String? {
+        guard let client, let sid = selectedSessionId else { return "未连接" }
+        guard let index = chat.queue.firstIndex(where: { $0.rpcId == rpcId }) else {
+            return "这条已经不在队列里了"
+        }
+        do {
+            _ = try await client.updateQueue(
+                sessionId: sid, target: "next-turn", start: index,
+                removedCount: 1, inserted: []
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// 把队列里某一条改成插队（立刻执行）
+    func steerQueued(rpcId: String) async -> String? {
+        guard let client, let sid = selectedSessionId else { return "未连接" }
+        guard let index = chat.queue.firstIndex(where: { $0.rpcId == rpcId }) else {
+            return "这条已经不在队列里了"
+        }
+        let item = chat.queue[index]
+        let inserted: [[String: Any]] = [[
+            "id": item.id,
+            "role": "user",
+            "content": [["type": "text", "text": item.text]],
+            "source": ["kind": "user", "rpcId": item.rpcId],
+        ]]
+        do {
+            // 两步：先从 next-turn 摘掉，再插到 next-step
+            _ = try await client.updateQueue(
+                sessionId: sid, target: "next-turn", start: index,
+                removedCount: 1, inserted: []
+            )
+            _ = try await client.updateQueue(
+                sessionId: sid, target: "next-step", start: 0,
+                removedCount: 0, inserted: inserted
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     /// 只取文件大小：读 1 字节，靠响应头拿总大小，不下载内容
     func probeFileSize(path: String) async -> Int64 {
         guard let client else { return 0 }
