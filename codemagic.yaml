@@ -9,6 +9,8 @@ workflows:
         XCODE_WORKSPACE: "ios/DSHRemote/DSHRemote.xcodeproj"
         SCHEME: "DSHRemote"
       xcode: latest
+    # 注意：自动触发需要在 Codemagic 项目设置里 Create webhook；
+    # 没配也能构建，但要手动点「Start new build」。
     triggering:
       events:
         - push
@@ -41,8 +43,8 @@ workflows:
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
-            MARKETING_VERSION="$(echo $CM_COMMIT | cut -c1-7)" \
-            CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-1}" \
+            MARKETING_VERSION="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" \
+            CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-$(date +%s)}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
