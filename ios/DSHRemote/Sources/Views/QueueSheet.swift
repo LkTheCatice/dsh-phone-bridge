@@ -97,18 +97,26 @@ struct QueueSheet: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // 写操作（编辑/删除/插队）走不通：DSH 的 commands.updateQueue 内部
-            // 依赖未初始化的状态，六种 request 形状全部报
-            // "Cannot read properties of undefined (reading 'kind')" ——
-            // 和余额接口的 getBalance() 是同一类问题（方法在、依赖不在）。
-            // 与其留三个点了会报 500 的按钮，不如直接说清楚。
-            HStack(spacing: 5) {
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 10))
-                Text("编辑 / 删除 / 插队 请在电脑上操作")
-                    .font(.caption2)
+            // 三个写操作已接通。参数取自 DSH 的 zod schema：
+            //   updateQueue({ sessionId, itemId, action: {kind} })
+            // itemId 用的是 item.id（agent/inbox/spliced 里的 inserted[i].id）。
+            HStack(spacing: 18) {
+                Button { beginEdit(item) } label: {
+                    Label("编辑", systemImage: "pencil").font(.caption)
+                }
+                .buttonStyle(.borderless)
+
+                Button { remove(item) } label: {
+                    Label("删除", systemImage: "trash").font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red.opacity(0.85))
+
+                Button { steer(item) } label: {
+                    Label("插队", systemImage: "arrow.up.to.line").font(.caption)
+                }
+                .buttonStyle(.borderless)
             }
-            .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 7)
         .listRowSeparator(.hidden)
@@ -128,7 +136,7 @@ struct QueueSheet: View {
 
     private func remove(_ item: QueueItem) {
         Task {
-            if let err = await model.removeQueued(rpcId: item.rpcId) {
+            if let err = await model.removeQueued(itemId: item.id) {
                 notice = err
             } else {
                 notice = "已删除"
@@ -138,7 +146,7 @@ struct QueueSheet: View {
 
     private func steer(_ item: QueueItem) {
         Task {
-            if let err = await model.steerQueued(rpcId: item.rpcId) {
+            if let err = await model.steerQueued(itemId: item.id) {
                 notice = err
             } else {
                 notice = "已插队"
@@ -182,14 +190,14 @@ struct QueueSheet: View {
     private func commitEdit(_ item: QueueItem) {
         // 极端情况：编辑期间那一条已经被执行/取消 —— 队列里找不到同一个 rpcId。
         // 这时绝不能「按下标改」，否则会改到别人的那条上。
-        let stillThere = chat.queue.contains { $0.rpcId == item.rpcId }
+        let stillThere = chat.queue.contains { $0.id == item.id }
         guard stillThere else {
             notice = "这条已经不在队列里了（可能已经开始执行），改动没有保存"
             editing = nil
             return
         }
         Task {
-            if let err = await model.editQueued(rpcId: item.rpcId, newText: draft.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            if let err = await model.editQueued(itemId: item.id, newText: draft.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 notice = err
             } else {
                 notice = "已保存"

@@ -269,21 +269,21 @@ final class BridgeClient {
         try await getJSON("/v1/comfy")
     }
 
-    /// 队列写操作（编辑 / 删除 / 插队）
+    /// 队列写操作。参数结构照 DSH 的 zod schema：
+    ///   updateQueue({ sessionId, itemId, action: { kind, content? } })
     func updateQueue(
         sessionId: String,
-        target: String,
-        start: Int,
-        removedCount: Int,
-        inserted: [[String: Any]]
+        itemId: String,
+        kind: String,
+        text: String? = nil
     ) async throws -> [String: Any] {
-        try await postJSON("/v1/queue/update", json: [
+        var json: [String: Any] = [
             "sessionId": sessionId,
-            "target": target,
-            "start": start,
-            "removedCount": removedCount,
-            "inserted": inserted,
-        ])
+            "itemId": itemId,
+            "kind": kind,
+        ]
+        if let text { json["text"] = text }
+        return try await postJSON("/v1/queue/update", json: json)
     }
 
     func balance() async throws -> [String: Any] {

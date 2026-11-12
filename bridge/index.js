@@ -1517,10 +1517,19 @@ function applyBridge(ctx, config) {
     // 可用模型列表（附当前会话的选择）
     // 账户余额：走 DSH 自带的 accountController，不碰 API key
     // 队列写操作：转发给 sessionController.updateQueue。
-    // 语义已从 agent/inbox/spliced 事件反推：
-    //   编辑 = { target:"next-turn", start:该条位置, removedCount:1, inserted:[改后的消息] }
-    //   删除 = { target:"next-turn", start:该条位置, removedCount:1, inserted:[] }
-    //   插队 = 先 next-turn 移除，再 { target:"next-step", start:0, removedCount:0, inserted:[该条消息] }
+    //
+    // 参数结构是从 DSH 打包源码里读出来的（app.asar 内 zod schema）：
+    //   updateQueue({
+    //     sessionId: string,
+    //     itemId:    string,
+    //     action: { kind: "edit", content: [{type:"text",text}] }
+    //           | { kind: "remove" }
+    //           | { kind: "steer" }
+    //   }) -> { accepted: true }
+    //
+    // 之前七轮全失败，就是因为我按事件里的 {target,start,removedCount,inserted}
+    // 去猜 —— 而真正的参数是 action.kind，读不到它就报
+    // "Cannot read properties of undefined (reading 'kind')"。
     if (method === "POST" && pathname === "/v1/queue/update") {
       const body = await readJsonBody();
       const ctrlQ = sessionController || ctx.sessionController;
@@ -1529,70 +1538,37 @@ function applyBridge(ctx, config) {
         throw new HttpError(503, "not-ready", "updateQueue 不可用");
       }
       const sessionId = String(body.sessionId || "");
+      const itemId = String(body.itemId || "");
+      const kind = String(body.kind || "");
       if (!sessionId) throw new HttpError(400, "bad-request", "需要 sessionId");
-      const payload = {
-        sessionId,
-        target: String(body.target || "next-turn"),
-        start: Number(body.start ?? 0),
-        removedCount: Number(body.removedCount ?? 0),
-        inserted: Array.isArray(body.inserted) ? body.inserted : [],
-      };
-      // updateQueue 只收一个 request 对象，但真实字段名不确定
-      // （实测报 "Cannot read properties of undefined (reading 'kind')"，
-      //  说明少了 kind 之类的字段）。这里按几种常见形状依次尝试，
-      // 成功后把有效形状记进日志，之后就能固定下来。
-      const base = {
-        sessionId,
-        target: payload.target,
-        start: payload.start,
-        removedCount: payload.removedCount,
-        inserted: payload.inserted,
-      };
-      // 新推断：六种形状都报 "reading 'kind'"，它们的共同点是 target 传了字符串。
-      // 如果内部写的是 request.target.kind，字符串就取不到 .kind
-      // —— 正好报成 "Cannot read properties of undefined (reading 'kind')"。
-      // 所以 target 很可能是个 { kind: "next-turn" } 对象。
-      const targetObj = { kind: payload.target };
-      const attempts = [
-        { name: "target-obj", body: { ...base, target: targetObj } },
-        { name: "target-obj+session", body: { ...base, target: targetObj, session: { id: sessionId } } },
-        { name: "target-obj-kind-splice", body: { ...base, target: targetObj, kind: "splice" } },
-        { name: "kind-splice", body: { ...base, kind: "splice" } },
-        { name: "kind-inbox", body: { ...base, kind: "inbox" } },
-        { name: "kind-update", body: { ...base, kind: "update" } },
-        { name: "op-splice", body: { ...base, op: "splice" } },
-        { name: "plain", body: base },
-        { name: "nested", body: { sessionId, request: base } },
-      ];
-      let lastError = null;
-      for (const attempt of attempts) {
-        try {
-          const result = await svcQ.updateQueue(attempt.body);
-          logLine({
-            step: "queue.update/ok",
-            shape: attempt.name,
-            sessionId,
-            target: payload.target,
-            start: payload.start,
-            removedCount: payload.removedCount,
-            insertedCount: payload.inserted.length,
-          });
-          return sendJson(res, 200, { ok: true, shape: attempt.name, result: result ?? null }, ctxEnc);
-        } catch (error) {
-          lastError = error;
-          // 只记 message 定位不到位置。余额那次就是靠 stack 一句话看出
-          // platformClientHeaders（index.js:73）读 version 失败。
-          logLine({
-            step: "queue.update/try",
-            shape: attempt.name,
-            error: String(error?.message || error).slice(0, 160),
-            stack: String(error?.stack || "").split("\n").slice(0, 5).join(" | ").slice(0, 600),
-          });
-        }
+      if (!itemId) throw new HttpError(400, "bad-request", "需要 itemId");
+      if (!["edit", "remove", "steer"].includes(kind)) {
+        throw new HttpError(400, "bad-request", "kind 必须是 edit / remove / steer");
       }
-      const message = String(lastError?.message || lastError || "unknown");
-      logLine({ step: "queue.update", sessionId, ...base, error: message.slice(0, 300) });
-      throw new HttpError(500, "update-failed", message.slice(0, 200));
+      let action;
+      if (kind === "edit") {
+        const text = String(body.text || "");
+        if (!text.trim()) throw new HttpError(400, "bad-request", "edit 需要非空 text");
+        action = { kind: "edit", content: [{ type: "text", text }] };
+      } else {
+        action = { kind };
+      }
+      try {
+        const result = await svcQ.updateQueue({ sessionId, itemId, action });
+        logLine({ step: "queue.update/ok", sessionId, itemId, kind });
+        return sendJson(res, 200, { ok: true, result: result ?? null }, ctxEnc);
+      } catch (error) {
+        const message = String(error?.message || error);
+        logLine({
+          step: "queue.update",
+          sessionId,
+          itemId,
+          kind,
+          error: message.slice(0, 240),
+          stack: String(error?.stack || "").split("\n").slice(0, 4).join(" | ").slice(0, 400),
+        });
+        throw new HttpError(500, "update-failed", message.slice(0, 200));
+      }
     }
 
     if (method === "GET" && pathname === "/v1/balance") {

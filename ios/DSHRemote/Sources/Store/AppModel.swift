@@ -1429,72 +1429,43 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - 队列写操作（编辑 / 删除 / 插队）
+    //
+    // 参数照 DSH 的 zod schema：updateQueue({ sessionId, itemId, action: {kind, content} })
+    // itemId 用队列项的 id（agent/inbox/spliced 事件里 inserted[i].id）。
 
-    /// 编辑队列里某一条的内容。
-    /// 用 rpcId 定位（不按下标）：队列随时会变，按下标会改到别人那条上。
-    func editQueued(rpcId: String, newText: String) async -> String? {
+    func editQueued(itemId: String, newText: String) async -> String? {
         guard let client, let sid = selectedSessionId else { return "未连接" }
-        guard let index = chat.queue.firstIndex(where: { $0.rpcId == rpcId }) else {
+        guard chat.queue.contains(where: { $0.id == itemId }) else {
             return "这条已经不在队列里了"
         }
-        let item = chat.queue[index]
-        let inserted: [[String: Any]] = [[
-            "id": item.id,
-            "role": "user",
-            "content": [["type": "text", "text": newText]],
-            "source": ["kind": "user", "rpcId": item.rpcId],
-        ]]
         do {
-            _ = try await client.updateQueue(
-                sessionId: sid, target: "next-turn", start: index,
-                removedCount: 1, inserted: inserted
-            )
+            _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "edit", text: newText)
             return nil
         } catch {
             return error.localizedDescription
         }
     }
 
-    /// 从队列删除某一条
-    func removeQueued(rpcId: String) async -> String? {
+    func removeQueued(itemId: String) async -> String? {
         guard let client, let sid = selectedSessionId else { return "未连接" }
-        guard let index = chat.queue.firstIndex(where: { $0.rpcId == rpcId }) else {
+        guard chat.queue.contains(where: { $0.id == itemId }) else {
             return "这条已经不在队列里了"
         }
         do {
-            _ = try await client.updateQueue(
-                sessionId: sid, target: "next-turn", start: index,
-                removedCount: 1, inserted: []
-            )
+            _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "remove")
             return nil
         } catch {
             return error.localizedDescription
         }
     }
 
-    /// 把队列里某一条改成插队（立刻执行）
-    func steerQueued(rpcId: String) async -> String? {
+    func steerQueued(itemId: String) async -> String? {
         guard let client, let sid = selectedSessionId else { return "未连接" }
-        guard let index = chat.queue.firstIndex(where: { $0.rpcId == rpcId }) else {
+        guard chat.queue.contains(where: { $0.id == itemId }) else {
             return "这条已经不在队列里了"
         }
-        let item = chat.queue[index]
-        let inserted: [[String: Any]] = [[
-            "id": item.id,
-            "role": "user",
-            "content": [["type": "text", "text": item.text]],
-            "source": ["kind": "user", "rpcId": item.rpcId],
-        ]]
         do {
-            // 两步：先从 next-turn 摘掉，再插到 next-step
-            _ = try await client.updateQueue(
-                sessionId: sid, target: "next-turn", start: index,
-                removedCount: 1, inserted: []
-            )
-            _ = try await client.updateQueue(
-                sessionId: sid, target: "next-step", start: 0,
-                removedCount: 0, inserted: inserted
-            )
+            _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "steer")
             return nil
         } catch {
             return error.localizedDescription
