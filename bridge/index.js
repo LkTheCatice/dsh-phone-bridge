@@ -281,6 +281,25 @@ function applyBridge(ctx, config) {
   function onSessionEvent(session, event) {
     if (closed || !event || typeof event !== "object") return;
     noteFrameType(event.type);
+
+    // 只针对 agent/inbox/spliced 记录内容：
+    // 它是唯一可能承载「排队/插队」的事件（inbox = 收件箱，spliced = 拼接）。
+    // 记 data 的键和值，用来判断里面有 mode（queue/steer）、位置、文本之类。
+    if (event.type === "agent/inbox/spliced") {
+      try {
+        const d = event.data || {};
+        const shape = {};
+        for (const k of Object.keys(d).slice(0, 20)) {
+          try {
+            const v = d[k];
+            shape[k] = typeof v === "function"
+              ? "<fn>"
+              : (v && typeof v === "object" ? JSON.stringify(v).slice(0, 300) : String(v).slice(0, 160));
+          } catch { shape[k] = "<err>"; }
+        }
+        logLine({ step: "inbox.spliced", keys: Object.keys(d).slice(0, 20), shape });
+      } catch { /* 探测失败不影响主流程 */ }
+    }
     if (seenEvents.has(event)) return;
     seenEvents.add(event);
     try {
