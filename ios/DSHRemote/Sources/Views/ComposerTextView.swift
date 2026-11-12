@@ -32,7 +32,8 @@ struct ComposerTextView: UIViewRepresentable {
         // 内边距直接采用原 TextField 的 padding(.horizontal 12 / .vertical 9)：
         // 外层不再叠加 padding，光标起点与 placeholder 才能对齐，
         // 单行高度也与旧样式一致（行高 ~20 + 上下 18 = 38）。
-        view.textContainerInset = UIEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)
+        // 上下对称：文字从顶部排，只有上下内边距相等时，光标才会在视觉上居中
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         view.textContainer.lineFragmentPadding = 0
         view.returnKeyType = .default
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

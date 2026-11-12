@@ -7,7 +7,7 @@ struct ChatView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     /// 输入框高度（1~5 行自适应）
-    @State private var inputHeight: CGFloat = 36
+    @State private var inputHeight: CGFloat = 38
     /// 上传进度（已完成张数, 总张数），nil 表示没在上传
     @State private var uploadProgress: (done: Int, total: Int)?
     /// 已上传到电脑、等着随消息一起发出的附件（显示成 chip，不塞进输入框）
@@ -488,14 +488,16 @@ struct ChatView: View {
                             .foregroundStyle(.tertiary)
                             // 与 textContainerInset 对齐：左右 12 + 4（lineFragmentPadding 归零后的视觉留白）
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 9)
                             .allowsHitTesting(false)
                     }
                     ComposerTextView(
                         text: $draft,
                         focused: $focused,
                         onHeightChange: { h in
-                            inputHeight = min(max(h, 38), 138)   // 1 行 38（行高 20 + 上下内边距 18），5 行封顶
+                            // 不设下限：UITextView 的文字永远从顶部排，高度比内容多出来的部分会全落在底部，
+// 光标就偏上（用户实拍）。让高度精确等于内容高度，光标自然与文字对齐。
+                            inputHeight = min(max(h, 30), 140)
                         }
                     )
                     .frame(height: inputHeight)
