@@ -23,10 +23,10 @@ struct EntryDetailSheet: View {
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        // 完整渲染：表格按卡片式展开，不截行列
-                        // NSAttributedString → AttributedString 才能交给 SwiftUI 的 Text
-                        Text(AttributedString(MarkdownNS.render(entry.text, mode: .full)))
-                            .textSelection(.enabled)
+                        // 完整渲染：表格按卡片式展开，不截行列。
+                        // 必须走 UITextView —— SwiftUI 的 Text 不支持
+                        // NSParagraphStyle.tabStops，渲染出来是空白（用户实测）。
+                        AttributedTextView(content: MarkdownNS.render(entry.text, mode: .full))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }

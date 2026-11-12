@@ -367,12 +367,18 @@ enum MarkdownNS {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
                 out.append(makeRow(row, isHeader: false))
             }
-            if rows.count > limit {
+            if rows.count > limit || hiddenColumns > 0 {
+                var note = "\n"
+                if hiddenColumns > 0 { note += "（还有 \(hiddenColumns) 列未显示）" }
+                if rows.count > limit { note += "… 还有 \(rows.count - limit) 行未显示" }
+                // 提示紧跟在表格后面。放在 cell 的附件标签上会跑到整条消息末尾（用户实拍反馈）。
+                note += "\n▦ 表格已折叠，点按看完整版"
                 out.append(NSAttributedString(
-                    string: "\n… 还有 \(rows.count - limit) 行未显示",
+                    string: note,
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 11),
                         .foregroundColor: UIColor.tertiaryLabel,
+                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 3, lineSpacing: 1),
                     ]
                 ))
             }
