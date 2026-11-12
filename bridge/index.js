@@ -262,8 +262,25 @@ function applyBridge(ctx, config) {
     return full;
   }
 
+  // 帧类型统计：只统计「谁产生了什么类型的帧」，不存内容。
+  // 目的是回答「电脑端排队/插队时，桥到底收到什么事件」——
+  // 手机发消息才会触发 queue.probe，电脑端操作是黑盒。
+  const frameStats = new Map();
+  function noteFrameType(type) {
+    const k = String(type || "?");
+    frameStats.set(k, (frameStats.get(k) || 0) + 1);
+  }
+  const frameStatsTimer = setInterval(() => {
+    if (!frameStats.size) return;
+    const counts = [...frameStats.entries()].sort((a, b) => b[1] - a[1]);
+    frameStats.clear();
+    logLine({ step: "frame.stats", counts: counts.slice(0, 30) });
+  }, 30_000);
+  frameStatsTimer.unref?.();
+
   function onSessionEvent(session, event) {
     if (closed || !event || typeof event !== "object") return;
+    noteFrameType(event.type);
     if (seenEvents.has(event)) return;
     seenEvents.add(event);
     try {
