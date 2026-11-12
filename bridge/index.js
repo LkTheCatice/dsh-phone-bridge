@@ -1522,6 +1522,24 @@ function applyBridge(ctx, config) {
         }, ctxEnc);
       } catch (error) {
         const message = String(error?.message || error);
+        // 探测：getBalance 内部失败时，把栈和 account 对象的形状记下来。
+        // 当前症状：报 "Cannot read properties of undefined (reading 'version')"，
+        // 但用户在电脑上是登录状态 —— 说明它不是「没登录」，而是某个 client 没初始化。
+        try {
+          logLine({
+            step: "balance.error",
+            error: message.slice(0, 240),
+            stack: String(error?.stack || "").split("\n").slice(0, 4).join(" | ").slice(0, 400),
+            accountKeys: (() => {
+              try { return Object.keys(account || {}).slice(0, 24); } catch { return ["<无法枚举>"]; }
+            })(),
+            accountProto: (() => {
+              try {
+                return Object.getOwnPropertyNames(Object.getPrototypeOf(account) || {}).slice(0, 24);
+              } catch { return ["<无原型>"]; }
+            })(),
+          });
+        } catch { /* 探测失败不影响兜底 */ }
         logLine({ step: "balance", error: message.slice(0, 200) });
         // getBalance 内部会读账号客户端的状态；它没初始化时就是这类
         // "Cannot read properties of undefined (reading 'version')"，
