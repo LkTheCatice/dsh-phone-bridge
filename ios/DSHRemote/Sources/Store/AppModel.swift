@@ -1364,8 +1364,25 @@ final class AppModel: ObservableObject {
                 apply(seq: seq, frame: frame, isHistory: true)
             }
             // 只保留「已有条目里没有的」新条目，按 id 去重兜底
-            let fresh = (entriesStorage[sessionId] ?? []).filter { !existingIds.contains($0.id) }
-            entriesStorage[sessionId] = fresh + existing
+            // 只保留已有条目里没有的（按 id）；但 id 可能变 ——
+            // 用户刚发的消息本地是 local-xxx，服务端回显时换成正式 id，
+            // 这时按 id 去重会漏掉，那条会被当成「历史」插到最前面，
+            // 表现为「回答先于提问出现」（用户实拍）。
+            //
+            // 所以再做一次按文本的去重，最后**按 turn 排序**收口：
+            // 顺序由服务端轮次号决定，不依赖拼接顺序。
+            let existingTextTurns = Set(existing.map { "\($0.turn)|\($0.text.prefix(40))" })
+            let fresh = (entriesStorage[sessionId] ?? []).filter { item in
+                if existingIds.contains(item.id) { return false }
+                let key = "\(item.turn)|\(item.text.prefix(40))"
+                return !existingTextTurns.contains(key)
+            }
+            var merged = fresh + existing
+            merged.sort { a, b in
+                if a.turn != b.turn { return a.turn < b.turn }
+                return a.at < b.at
+            }
+            entriesStorage[sessionId] = merged
             syncCurrentEntries()
         } catch {
             trace("older-failed=\(error.localizedDescription.prefix(40))")
