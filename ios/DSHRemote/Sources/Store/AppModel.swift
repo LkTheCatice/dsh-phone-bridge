@@ -209,7 +209,9 @@ final class AppModel: ObservableObject {
     /// 外部 App 递过来的文件，等用户选会话后再发
     @Published var pendingIncoming: IncomingFile?
     /// ComfyUI 状态（聊天页顶部状态点）
-    @Published private(set) var comfy = ComfyStatus()
+    /// ComfyUI 状态搬到独立 store：它 8 秒轮询一次，
+    /// 留在 AppModel 里会让 ChatView（订阅整个 model）跟着重算。
+    let comfyStore = ComfyStore()
     /// 可选模型
     @Published private(set) var modelGroups: [ModelGroup] = []
     @Published private(set) var currentModel: ModelOption?
@@ -662,32 +664,13 @@ final class AppModel: ObservableObject {
         stallWatcher.setMark("apply:done")
     }
 
-    /// 轮询 ComfyUI 状态（聊天页顶部那个状态点）
-    private var comfyTask: Task<Void, Never>?
-
+    /// 轮询 ComfyUI 状态。实现搬到了 ComfyStore（它自己管 8 秒循环与去重），
+    /// 这里只把「怎么取数据」注入进去 —— 因为只有 AppModel 持有 client。
     func startComfyPolling() {
-        comfyTask?.cancel()
-        comfyTask = Task { [weak self] in
-            while !Task.isCancelled {
-                if let client = self?.client {
-                    if let raw = try? await client.comfyStatus() {
-                        self?.applyComfy(raw)
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
-            }
+        comfyStore.start { [weak self] in
+            guard let client = self?.client else { return nil }
+            return try? await client.comfyStatus()
         }
-    }
-
-    private func applyComfy(_ raw: [String: Any]) {
-        var status = ComfyStatus()
-        status.online = (raw["online"] as? Bool) ?? false
-        status.generating = (raw["generating"] as? Bool) ?? false
-        status.running = (raw["running"] as? NSNumber)?.intValue ?? 0
-        status.pending = (raw["pending"] as? NSNumber)?.intValue ?? 0
-        status.version = raw["version"] as? String
-        status.url = (raw["url"] as? String) ?? ""
-        comfy = status
     }
 
     /// 拉取可用模型列表（打开选择器时调用）
@@ -1430,46 +1413,18 @@ final class AppModel: ObservableObject {
     }
 
     /// 账户余额（设置页显示）
-    struct Wallet: Identifiable, Equatable {
-        let currency: String
-        let balance: String
-        var id: String { currency }
-        var isBonus: Bool = false
-    }
-
-    @Published private(set) var wallets: [Wallet] = []
-    @Published private(set) var walletsStatus: String = "idle"
-    /// 服务端给的失败原因（显示在设置页，便于判断是没登录还是网络问题）
-    @Published private(set) var walletsDetail: String?
-    /// 余额接口不可用时的兜底链接（DSH 的 token 查询不到时会给出 usage 页地址）
-    @Published private(set) var walletUsageUrl: String?
+    /// 钱包相关 4 个字段搬到 WalletStore（它们只在设置页用，
+    /// 不该参与 ChatView 的全量通知）。
+    let walletStore = WalletStore()
 
     func loadBalance() async {
         guard let client else { return }
-        walletsStatus = "loading"
+        walletStore.markLoading()
         do {
             let raw = try await client.balance()
-            let status = (raw["status"] as? String) ?? "unknown"
-            walletsStatus = status
-            walletsDetail = raw["detail"] as? String
-            func parse(_ key: String, bonus: Bool) -> [Wallet] {
-                (raw[key] as? [[String: Any]] ?? []).compactMap { item in
-                    guard let currency = item["currency"] as? String, !currency.isEmpty else { return nil }
-                    return Wallet(
-                        currency: currency,
-                        balance: (item["balance"] as? String) ?? "-",
-                        isBonus: bonus
-                    )
-                }
-            }
-            wallets = parse("wallets", bonus: false) + parse("bonuses", bonus: true)
-            // 余额接口取不到数字时，桥会附上 getState() 拿到的用量页地址
-            // （usageUrl）。之前漏了这一步，所以设置页只有状态没有链接。
-            walletUsageUrl = ((raw["links"] as? [String: Any])?["usageUrl"] as? String)
+            walletStore.apply(raw)
         } catch {
-            walletsStatus = "failed"
-            walletsDetail = error.localizedDescription
-            wallets = []
+            walletStore.markFailed(error.localizedDescription)
         }
     }
 

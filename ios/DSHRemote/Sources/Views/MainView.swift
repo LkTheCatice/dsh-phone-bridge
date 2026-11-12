@@ -10,6 +10,8 @@ struct MainView: View {
                 // ChatStore 单独注入：ChatView 只对「条目 / 流式心跳」高频更新重算，
                 // 不再因为 AppModel 上任何字段变化而整页重算
                 .environmentObject(model.chat)
+                .environmentObject(model.comfyStore)
+                .environmentObject(model.walletStore)
                 .tabItem { Label("对话", systemImage: "bubble.left.and.bubble.right") }
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }

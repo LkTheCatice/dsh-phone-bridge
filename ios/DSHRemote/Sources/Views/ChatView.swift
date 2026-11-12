@@ -812,15 +812,18 @@ struct BottomAnchorModifier: ViewModifier {
 /// 抽出来之后只有这一个小徽标重算。
 struct ComfyBadge: View {
     @EnvironmentObject private var model: AppModel
+    /// 直接订阅 ComfyStore：这个徽标 8 秒刷一次，只让它自己重算，
+    /// 不要再把 ChatView 拖进来（那样 composer/列表都会白算）。
+    @EnvironmentObject private var comfy: ComfyStore
 
     var body: some View {
         Menu {
-            Label(model.comfy.label, systemImage: "flame")
-            if let version = model.comfy.version {
+            Label(comfy.status.label, systemImage: "flame")
+            if let version = comfy.status.version {
                 Text("ComfyUI v\(version)")
             }
-            if !model.comfy.url.isEmpty {
-                Text(model.comfy.url)
+            if !comfy.status.url.isEmpty {
+                Text(comfy.status.url)
             }
             Button("刷新状态") { model.startComfyPolling() }
         } label: {
@@ -836,16 +839,16 @@ struct ComfyBadge: View {
     }
 
     private var color: Color {
-        if !model.comfy.online { return .gray }
-        return model.comfy.generating ? .orange : .green
+        if !comfy.status.online { return .gray }
+        return comfy.status.generating ? .orange : .green
     }
 
     /// 必须带「画图」前缀：光写「离线」会和旁边的连接状态混在一起，
     /// 让人以为整个 App 掉线（其实只是画图服务没开）。
     private var short: String {
-        if !model.comfy.online { return "画图离线" }
-        if model.comfy.generating {
-            return model.comfy.pending > 0 ? "画图中 \(model.comfy.pending)" : "画图中"
+        if !comfy.status.online { return "画图离线" }
+        if comfy.status.generating {
+            return comfy.status.pending > 0 ? "画图中 \(comfy.status.pending)" : "画图中"
         }
         return "画图空闲"
     }

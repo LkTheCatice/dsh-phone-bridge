@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var wallet: WalletStore
     @State private var confirmingForget = false
 
     var body: some View {
@@ -57,19 +58,19 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    if model.wallets.isEmpty {
+                    if wallet.wallets.isEmpty {
                         HStack(spacing: 8) {
-                            if model.walletsStatus == "loading" {
+                            if wallet.status == "loading" {
                                 ProgressView().controlSize(.mini)
                                 Text("读取中…").font(.caption).foregroundStyle(.secondary)
-                            } else if model.walletsStatus == "unavailable" || model.walletsStatus == "idle" {
+                            } else if wallet.status == "unavailable" || wallet.status == "idle" {
                                 Text("这台电脑没启用账号服务").font(.caption).foregroundStyle(.secondary)
-                            } else if model.walletsStatus == "not-signed-in" {
+                            } else if wallet.status == "not-signed-in" {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("电脑上的 DSH 还没登录 DeepSeek 账号").font(.caption)
                                     Text("登录后回来点「刷新余额」").font(.caption2).foregroundStyle(.secondary)
                                 }
-                            } else if model.walletsStatus == "credential-stored" {
+                            } else if wallet.status == "credential-stored" {
                                 // 凭据在（已登录），但 DSH 的余额接口内部拿不到数字
                                 // （platformClient 未初始化）。不谎报「没登录」，
                                 // 而是给状态 + 网页查询入口。
@@ -77,14 +78,14 @@ struct SettingsView: View {
                                     Text("已登录（凭据已存储）").font(.caption)
                                     Text("这台 DSH 的余额接口暂时取不到数字")
                                         .font(.caption2).foregroundStyle(.secondary)
-                                    if let url = model.walletUsageUrl, let dest = URL(string: url) {
+                                    if let url = wallet.usageUrl, let dest = URL(string: url) {
                                         Link("打开 DeepSeek 用量页", destination: dest).font(.caption)
                                     }
                                 }
-                            } else if model.walletsStatus == "failed" {
+                            } else if wallet.status == "failed" {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("读取失败").font(.caption)
-                                    if let detail = model.walletsDetail, !detail.isEmpty {
+                                    if let detail = wallet.detail, !detail.isEmpty {
                                         Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
                                     }
                                 }
@@ -93,7 +94,7 @@ struct SettingsView: View {
                             }
                         }
                     } else {
-                        ForEach(model.wallets) { wallet in
+                        ForEach(wallet.wallets) { wallet in
                             LabeledContent(
                                 wallet.isBonus ? "赠送额度（\(wallet.currency)）" : "余额（\(wallet.currency)）"
                             ) {
@@ -142,7 +143,7 @@ struct SettingsView: View {
             .navigationTitle("设置")
             .task {
                 // 进设置页拉一次，不做轮询
-                if model.walletsStatus == "idle" { await model.loadBalance() }
+                if wallet.status == "idle" { await model.loadBalance() }
             }
             .refreshable { await model.loadBalance() }
             .confirmationDialog("确定要删除本地配对信息吗？", isPresented: $confirmingForget, titleVisibility: .visible) {
