@@ -81,6 +81,8 @@ struct ChatView: View {
     @State private var scrollRequest = 0
     /// 贴底锚点：nil = 暂停自动贴底（加载更早消息期间用）
     @State private var scrollAnchor: UnitPoint? = .bottom
+    /// 上次 tick 时的首条 id：用来区分「插入历史」和「来了新消息」
+    @State private var lastFirstIdForTick: String?
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
 
@@ -157,6 +159,14 @@ struct ChatView: View {
                     }
                 )
                 .onChange(of: chat.tick) { _ in
+                    // 区分「往上加载历史」和「真的来了新消息」：
+                    // 前者会把历史插到头部，首条 id 会变 —— 那种情况不能算
+                    // 「有新消息」（用户反馈：没新消息也会冒出「新消息」按钮）。
+                    let firstId = entries.first?.id
+                    if firstId != lastFirstIdForTick {
+                        lastFirstIdForTick = firstId
+                        return
+                    }
                     if jump.atBottom {
                         // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
                         let now = Date()
