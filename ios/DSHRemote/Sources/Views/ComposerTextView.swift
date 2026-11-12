@@ -29,7 +29,8 @@ struct ComposerTextView: UIViewRepresentable {
         view.font = .systemFont(ofSize: 17)
         view.backgroundColor = .clear
         view.isScrollEnabled = false          // 高度由内容决定，超过上限由外层限高
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
+        // 上下 3pt：原来给 8pt，叠加外层 padding 后单行高度比原 TextField 高了十几 pt
+        view.textContainerInset = UIEdgeInsets(top: 3, left: 4, bottom: 3, right: 4)
         view.textContainer.lineFragmentPadding = 0
         view.returnKeyType = .default
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

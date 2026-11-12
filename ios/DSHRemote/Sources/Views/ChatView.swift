@@ -487,20 +487,20 @@ struct ChatView: View {
                         Text("让它跑点什么…")
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 17)
+                            .padding(.vertical, 13)
                             .allowsHitTesting(false)
                     }
                     ComposerTextView(
                         text: $draft,
                         focused: $focused,
                         onHeightChange: { h in
-                            inputHeight = min(max(h, 36), 132)   // 1 行 ~36，最多 5 行 ~132
+                            inputHeight = min(max(h, 26), 118)   // 1 行约 26，最多 5 行约 118
                         }
                     )
                     .frame(height: inputHeight)
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 9)
+                .padding(.vertical, 6)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
 
                 Button(action: submit) {
