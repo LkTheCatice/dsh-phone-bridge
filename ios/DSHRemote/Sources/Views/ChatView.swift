@@ -554,6 +554,10 @@ struct ChatView: View {
         model.recordSubmitEvent()
         model.traceFollow("tap=send")
         let text = draft
+        // 这条会不会排队：当前正在生成、且选的是「排队」模式。
+        // 以前手机端发完就当「已发出」，如果实际在排队，界面上完全没有区别 ——
+        // 电脑端却明明显示「排队中」，两边对不上。
+        let willQueue = chat.streaming && model.sendMode == .queue
         // 附件和文字合并成一条消息：附件路径放后面，文字保持原样在前面
         let attachmentLines = attachments.map { "[附件] \($0)" }.joined(separator: "\n")
         let payload = attachmentLines.isEmpty
@@ -570,6 +574,11 @@ struct ChatView: View {
         if jump.hasNewBelow { jump.hasNewBelow = false }
         focused = false
         sending = true
+        if willQueue {
+            // 排队的确认：把「已在队列里等着」这件事说出来，
+            // 而不是让它和「已发送并开始执行」看起来一模一样。
+            model.showToast("已排队 · 等当前轮跑完再执行")
+        }
         let outgoing = payload
         // 「按下发送后，主线程多久才轮到下一个任务」。
         //
