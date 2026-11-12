@@ -351,6 +351,12 @@ final class AppModel: ObservableObject {
         case .background:
             // 主动停掉流，避免后台被系统拒绝后再带着一堆错误重连
             streamTask?.cancel()
+            // 但状态必须一起改：之前只取消流、phase 仍留在 .connected，
+            // 于是后台期间界面写着「已连接」，实际一个帧都收不到
+            // （用户实测：「显示已连接但收不到消息」）。
+            if phase == .connected { phase = .disconnected }
+            // 回前台的头几秒不弹断线横幅 —— 那是误报
+            suppressDisconnect = true
         case .active:
             guard pairing != nil else { return }
             Task { [weak self] in
