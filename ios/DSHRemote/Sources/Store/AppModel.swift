@@ -677,6 +677,16 @@ final class AppModel: ObservableObject {
                 || text.hasPrefix("Elapsed since")
                 || text.contains("Current DSH file policy")
                 || text.contains("Approval prompts are disabled in this session")
+                // 后台任务的完成通知也是 user/message：
+                //   background job pwsh-… (pwsh: …) finished [status: completed, exit code: 1].
+                //   Read its output with job_output.
+                // 以前会整段显示成一个「我」的气泡（用户实拍 23:25）。桥已经过滤，
+                // 这里再挡一次：桥要重启 DSH 才换新代码，App 不能指望它。
+                || text.hasPrefix("background job ")
+                || text.contains("Read its output with job_output")
+                || text.contains("[status: completed, exit code:")
+                || text.contains("[status: failed, exit code:")
+                || text.hasPrefix("agent/inbox")
             guard !injected else { return }
             // 每来一条真正的用户消息就开新一段回答：插队（next-step）就是靠这个
             // 把「插队那条的输出」从上一个气泡里分出来，落到自己下面。

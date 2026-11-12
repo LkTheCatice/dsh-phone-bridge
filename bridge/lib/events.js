@@ -216,7 +216,16 @@ export function normalizeEvent(session, event) {
         // 4. 后台任务的命令回显：我起 background job 时，整段 PowerShell
         //    脚本（几百行）会被当成 user/message 推进来，手机上就是满屏代码
         //    （用户实拍）。特征很明显：`$script = @'` / `background job pwsh-…`。
-        /background job pwsh-|\$script\s*=\s*@'|\$env:PYTHONIOENCODING/i.test(text);
+        /background job pwsh-|\$script\s*=\s*@'|\$env:PYTHONIOENCODING/i.test(text) ||
+        // 5. 后台任务的**完成通知**：`background job pwsh-… (pwsh: …) finished
+        //    [status: completed, exit code: 1]. Read its output with job_output.`
+        //    这条也是 user/message，手机上会显示成一个「我」的气泡，整段是英文命令行
+        //    （用户实拍 23:25 的截图）。它只在任务结束时出现一次，所以以前没被发现。
+        /^background job\s+\S+/i.test(text.trim()) ||
+        /Read its output with job_output/i.test(text) ||
+        /\[status:\s*(completed|failed|killed|cancelled|canceled)[^\]]*exit code:\s*-?\d+\]/i.test(text) ||
+        // 6. 排队/插队/取消这类 inbox 回执，DSH 偶尔也会以 user/message 形式送进来
+        /^(agent\/inbox|queue)[\s/:]/i.test(text.trim());
       if (!injected) {
         frames.push({ ...base, type: "user.message", turn, text: clip(text, TEXT_LIMIT) });
       }
