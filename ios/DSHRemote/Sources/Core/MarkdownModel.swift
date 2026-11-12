@@ -198,6 +198,8 @@ enum InlineStyle: Equatable {
     case bold
     case italic
     case code
+    /// 链接：文本 + 目标地址（渲染层设 NSAttributedString.Key.link，UITextView 原生可点）
+    case link(String)
 }
 
 struct InlineSegment: Equatable {
@@ -249,6 +251,19 @@ enum InlineParser {
                 buffer.append("*")
                 buffer.append("*")
                 i += 2
+                continue
+            }
+
+            // [文本](链接)
+            if c == "[" {
+                if let (label, url, next) = parseLink(chars, from: i) {
+                    flush()
+                    out.append(InlineSegment(text: label, style: .link(url)))
+                    i = next
+                    continue
+                }
+                buffer.append(c)
+                i += 1
                 continue
             }
 
@@ -312,5 +327,32 @@ enum InlineParser {
             j += 1
         }
         return nil
+    }
+
+    /// 解析 `[文本](地址)`，返回 (文本, 地址, 下一个位置)。
+    /// 找不到闭合括号就返回 nil（保持字面）。
+    private static func parseLink(
+        _ chars: [Character], from start: Int
+    ) -> (String, String, Int)? {
+        var j = start + 1
+        var label = ""
+        while j < chars.count, chars[j] != "]" {
+            if chars[j] == "\n" { return nil }
+            label.append(chars[j])
+            j += 1
+        }
+        guard j + 1 < chars.count, chars[j] == "]", chars[j + 1] == "(" else { return nil }
+        var k = j + 2
+        var url = ""
+        while k < chars.count, chars[k] != ")" {
+            if chars[k] == "\n" { return nil }
+            url.append(chars[k])
+            k += 1
+        }
+        guard k < chars.count, chars[k] == ")" else { return nil }
+        let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
+        let trimmedURL = url.trimmingCharacters(in: .whitespaces)
+        guard !trimmedLabel.isEmpty, !trimmedURL.isEmpty else { return nil }
+        return (trimmedLabel, trimmedURL, k + 1)
     }
 }

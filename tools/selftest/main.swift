@@ -334,6 +334,45 @@ let tableThenText = """
 let tt = MarkdownParser.parse(tableThenText)
 check(tt.count >= 2, "表格+段落应至少 2 个 block，实际 \(tt.count)")
 
+// MARK: - 10. 链接（用户截图：markdown 链接原样露出）
+
+section("InlineParser 链接")
+
+let linkCases: [(String, String)] = [
+    ("[dist/DSHRemote.ipa](phone-dsh/dist/x.ipa)", "dist/DSHRemote.ipa"),
+    ("见 [文档](https://example.com) 说明", "见 文档 说明"),
+    ("[未闭合](没有右括号", "[未闭合](没有右括号"),   // 不完整就保持字面
+    ("[只有标签]", "[只有标签]"),
+    ("[](空标签)", "[](空标签)"),                     // 空标签不解析
+    ("前[中](u)后", "前中后"),
+    ("[多个](a)和[b](c)", "多个和b"),
+]
+for (input, expect) in linkCases {
+    let got = InlineParser.segments(input).map(\.text).joined()
+    check(got == expect, "链接用例：输入「\(input)」期望「\(expect)」实际「\(got)」")
+}
+
+// 样式判定：链接必须带出 url
+let segs = InlineParser.segments("[文档](https://example.com/x)")
+check(segs.count == 1, "单个链接应只有 1 段，实际 \(segs.count)")
+if case let .link(url) = segs.first?.style {
+    check(url == "https://example.com/x", "链接地址解析错误：\(url)")
+} else {
+    check(false, "链接未被识别成 .link 样式")
+}
+// 链接与其它样式混排
+// 注意：标记之间的空格会成为独立的 plain 段，计数时要排除纯空白段
+let mixed = InlineParser.segments("**粗** [链](u) `码`")
+let meaningful = mixed.filter { seg in
+    if case .plain = seg.style {
+        return !seg.text.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+    return true
+}
+check(meaningful.count == 3, "混排应有 3 个有效段，实际 \(meaningful.count)（总段数 \(mixed.count)）")
+check(meaningful.contains { if case .link = $0.style { return true }; return false }, "混排里没有 link")
+print("  \(linkCases.count) 条用例 + 样式/混排断言")
+
 // MARK: - 汇总
 
 print("\n════════════════════════════════")

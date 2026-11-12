@@ -281,6 +281,13 @@ enum MarkdownNS {
                     ofSize: max(10, base.pointSize - 1), weight: .regular
                 )
                 attributes[.backgroundColor] = UIColor.secondarySystemFill
+            case let .link(url):
+                // UITextView 对 .link 属性原生支持点击（isSelectable = true 即可）
+                attributes[.foregroundColor] = UIColor.tintColor
+                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                if let target = URL(string: url) {
+                    attributes[.link] = target
+                }
             }
             out.append(NSAttributedString(string: segment.text, attributes: attributes))
         }
