@@ -1572,10 +1572,13 @@ function applyBridge(ctx, config) {
           return sendJson(res, 200, { ok: true, shape: attempt.name, result: result ?? null }, ctxEnc);
         } catch (error) {
           lastError = error;
+          // 只记 message 定位不到位置。余额那次就是靠 stack 一句话看出
+          // platformClientHeaders（index.js:73）读 version 失败。
           logLine({
             step: "queue.update/try",
             shape: attempt.name,
             error: String(error?.message || error).slice(0, 160),
+            stack: String(error?.stack || "").split("\n").slice(0, 5).join(" | ").slice(0, 600),
           });
         }
       }
