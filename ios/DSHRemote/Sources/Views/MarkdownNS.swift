@@ -14,6 +14,10 @@ enum MarkdownNS {
 
     /// 富文本缓存。**必须设上限**：一条长回答的富文本可能几 MB，
     /// NSCache 不设限时只靠系统内存压力回收，长时间挂机会一路涨到上百 MB。
+    /// 渲染模式：列表里用 compact（表格截断以保滚动性能），
+    /// 详情页用 full（表格完整展开）。
+    enum Mode { case compact, full }
+
     private static let cache: NSCache<NSString, NSAttributedString> = {
         let c = NSCache<NSString, NSAttributedString>()
         c.countLimit = 120                 // 最多 120 条消息的富文本
@@ -21,10 +25,11 @@ enum MarkdownNS {
         return c
     }()
 
-    static func render(_ text: String) -> NSAttributedString {
-        if let hit = cache.object(forKey: text as NSString) { return hit }
+    static func render(_ text: String, mode: Mode = .compact) -> NSAttributedString {
+        let cacheKey = (mode == .full ? "full|" : "compact|") + text
+        if let hit = cache.object(forKey: cacheKey as NSString) { return hit }
         let blocks = MarkdownCache.blocksSync(for: text)
-        let built = build(blocks)
+        let built = build(blocks, mode: mode)
         // 缓存不可变副本：可变对象被别处改动会污染缓存
         let frozen = NSAttributedString(attributedString: built)
         // cost 用「字符数 × 8」近似 attributed string 的实际占用（字符 + 属性表）
@@ -32,7 +37,7 @@ enum MarkdownNS {
         return frozen
     }
 
-    static func build(_ blocks: [Block]) -> NSAttributedString {
+    static func build(_ blocks: [Block], mode: Mode = .compact) -> NSAttributedString {
         let out = NSMutableAttributedString()
         for (index, block) in blocks.enumerated() {
             // 段与段之间：用段落样式给「段后距」，而不是靠空行撑 ——
@@ -40,7 +45,7 @@ enum MarkdownNS {
             if index > 0 {
                 out.append(NSAttributedString(string: "\n"))
             }
-            out.append(renderBlock(block, isFirst: index == 0))
+            out.append(renderBlock(block, isFirst: index == 0, mode: mode))
         }
         return out
     }
@@ -69,7 +74,7 @@ enum MarkdownNS {
 
     // MARK: - 块级
 
-    private static func renderBlock(_ block: Block, isFirst: Bool = false) -> NSAttributedString {
+    private static func renderBlock(_ block: Block, isFirst: Bool = false, mode: Mode = .compact) -> NSAttributedString {
         // 首段不需要「段前距」，否则顶部会空一块
         let before: CGFloat = isFirst ? 0 : 10
 
@@ -231,6 +236,50 @@ enum MarkdownNS {
                         || (u.value >= 0xFFE0 && u.value <= 0xFFE6)
                     return acc + (wide ? 2 : 1)
                 }
+            }
+
+            // full 模式（详情页）不截断：行列全展开，单元格不压缩
+            if mode == .full {
+                let out = NSMutableAttributedString()
+                for (rowIndex, row) in rows.enumerated() {
+                    let title = row.first ?? ""
+                    if !title.isEmpty {
+                        let head = NSMutableAttributedString(
+                            string: "▸ ",
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+                                .foregroundColor: UIColor.secondaryLabel,
+                            ]
+                        )
+                        head.append(inline(title, base: .systemFont(ofSize: 13, weight: .semibold)))
+                        head.addAttribute(
+                            .paragraphStyle,
+                            value: Self.style(spacingAfter: 2, spacingBefore: rowIndex == 0 ? before : 8, lineSpacing: 2, headIndent: 14, firstLineIndent: 2),
+                            range: NSRange(location: 0, length: head.length)
+                        )
+                        out.append(head)
+                    }
+                    for column in 1..<max(row.count, 1) where column < row.count {
+                        let name = column < headers.count ? headers[column] : "列\(column + 1)"
+                        let line = NSMutableAttributedString(
+                            string: "\(name)：",
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 12),
+                                .foregroundColor: UIColor.tertiaryLabel,
+                            ]
+                        )
+                        line.append(inline(row[column], base: .systemFont(ofSize: 13)))
+                        line.addAttribute(
+                            .paragraphStyle,
+                            value: Self.style(spacingAfter: 3, spacingBefore: 0, lineSpacing: 2, headIndent: 16, firstLineIndent: 16),
+                            range: NSRange(location: 0, length: line.length)
+                        )
+                        out.append(line)
+                        out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 2)]))
+                    }
+                    out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 4)]))
+                }
+                return out
             }
 
             let limit = 10

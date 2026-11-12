@@ -241,6 +241,13 @@ final class MessageCell: UICollectionViewCell {
             attachmentLabel.text = "📎 " + parts.joined(separator: " · ") + "，点按查看"
             attachmentLabel.isHidden = false
         }
+
+        // 表格被折叠时给个入口（列表里为性能截断，完整版在详情页）
+        if Self.hasTruncatedTable(entry.text) {
+            attachmentLabel.text = (attachmentLabel.text.map { $0 + "\n" } ?? "") + "▦ 表格已折叠，点按看完整版"
+            attachmentLabel.numberOfLines = 2
+            attachmentLabel.isHidden = false
+        }
     }
 
     override func preferredLayoutAttributesFitting(
@@ -268,6 +275,17 @@ final class MessageCell: UICollectionViewCell {
         var attributes = layoutAttributes
         attributes.size.height = height
         return attributes
+    }
+
+    /// 判断这条消息的表格是否会在列表里被折叠（行 > 10 或列 > 5）
+    private static func hasTruncatedTable(_ text: String) -> Bool {
+        guard text.contains("|") else { return false }
+        for block in MarkdownCache.blocksSync(for: text) {
+            if case let .table(headers, rows) = block {
+                if rows.count > 10 || headers.count > 5 { return true }
+            }
+        }
+        return false
     }
 
     /// 高度缓存用「id + 内容长度 + 附件数」作 key：内容一变就不复用旧高度。

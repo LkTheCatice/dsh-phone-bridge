@@ -63,6 +63,8 @@ struct ChatView: View {
     /// 首屏/跳转时会把可见范围整体测量一遍（真机实测 20 条就能卡 19 秒）。
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
 
+    /// 正在查看完整内容的条目（表格折叠时说这里看全）
+    @State private var detailEntry: ChatEntry?
     /// 正在查看附件的条目（附件面板 sheet）
     @State private var attachmentEntry: ChatEntry?
     /// 每次 +1 就请求列表滚到底（由 ChatList 消费）
@@ -120,7 +122,8 @@ struct ChatView: View {
                     },
                     scrollRequest: scrollRequest,
                     onTapEntry: { id in
-                        expandedEntryId = (expandedEntryId == id) ? nil : id
+                        // 点消息看完整内容：列表里的表格是截断的，完整版在这里
+                        detailEntry = visibleEntries.first { $0.id == id }
                     },
                     onTapAttachments: { id in
                         attachmentEntry = visibleEntries.first { $0.id == id }
@@ -321,6 +324,9 @@ struct ChatView: View {
         }
         .sheet(item: $attachmentEntry) { item in
             AttachmentSheet(entry: item)
+        }
+        .sheet(item: $detailEntry) { item in
+            EntryDetailSheet(entry: item)
         }
     }
 
