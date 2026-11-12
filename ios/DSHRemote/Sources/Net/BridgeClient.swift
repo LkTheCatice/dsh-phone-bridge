@@ -138,7 +138,8 @@ final class BridgeClient {
         method: String,
         path: String,
         query: [(String, String)] = [],
-        body: Data? = nil
+        body: Data? = nil,
+        isRetry: Bool = false
     ) async throws -> (Data, [String: String]) {
         let (request, aad) = try makeRequest(method: method, path: path, query: query, body: body)
         let (data, response) = try await urlSession.data(for: request)
@@ -146,9 +147,22 @@ final class BridgeClient {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             let obj = (try? JSONSerialization.jsonObject(with: plain)) as? [String: Any]
+            let code = (obj?["error"] as? String) ?? "http-\(status)"
+
+            // 桥重启后握手态被清空，手机却还显示「已连接」：
+            // 所有业务请求都会 401 handshake-required，但 health 仍是 200，
+            // 所以上层看不出掉线（实测：设置页显示已连接、发消息却 401）。
+            // 这里自动重新握手再重试一次；只重试一次，避免死循环。
+            if status == 401, code == "handshake-required", !isRetry {
+                try await handshake()
+                return try await sendWithHeaders(
+                    method: method, path: path, query: query, body: body, isRetry: true
+                )
+            }
+
             throw BridgeServerError(
                 status: status,
-                code: (obj?["error"] as? String) ?? "http-\(status)",
+                code: code,
                 message: (obj?["message"] as? String) ?? String(data: plain, encoding: .utf8) ?? ""
             )
         }
