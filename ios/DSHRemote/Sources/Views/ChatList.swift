@@ -17,6 +17,8 @@ struct ChatList: UIViewRepresentable {
     let onBottomChanged: (Bool) -> Void
     /// 需要「滚到底」时由外部改这个 token（每次变化触发一次滚动）
     let scrollRequest: Int
+    /// 滚到顶部附近时回调，加载更早的消息
+    let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
     let onTapEntry: (String) -> Void
     /// 点击「📎 附件」提示行（打开媒体面板）
@@ -121,11 +123,35 @@ struct ChatList: UIViewRepresentable {
             for entry in entries where seen.insert(entry.id).inserted {
                 unique.append(entry)
             }
+
+            // 判断这次是不是「在顶部插入了更早的消息」：
+            // 首条 id 变了、而且这个 id 之前没见过 —— 那就是往头部插。
+            let oldIds = Set(lookup.keys)
+            let insertedAtTop: Bool = {
+                guard let firstNew = unique.first?.id else { return false }
+                return !oldIds.isEmpty && !oldIds.contains(firstNew)
+            }()
+
+            let cv = collectionView
+            let beforeHeight = cv?.contentSize.height ?? 0
+            let beforeOffset = cv?.contentOffset.y ?? 0
+
             lookup = Dictionary(unique.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             snapshot.appendSections(["main"])
             snapshot.appendItems(unique.map(\.id), toSection: "main")
             dataSource.apply(snapshot, animatingDifferences: false)
+
+            // QQ 式补偿：往头部插入内容后，UICollectionView 会把偏移量
+            // 拽回顶部附近（看起来像「回到底部」或「跳了一下」）。
+            // 这里把新增的高度加回到 contentOffset，画面保持不动。
+            if insertedAtTop, let cv, beforeHeight > 0 {
+                cv.layoutIfNeeded()
+                let delta = cv.contentSize.height - beforeHeight
+                if delta > 0 {
+                    cv.contentOffset.y = beforeOffset + delta
+                }
+            }
         }
 
         func handleScrollRequest(_ token: Int) {
@@ -147,10 +173,20 @@ struct ChatList: UIViewRepresentable {
 
         // MARK: UIScrollViewDelegate（通过 collectionView.delegate 转发）
 
+        /// 顶部触发防抖：靠近才触发一次，离开后复位
+        private var olderArmed = true
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let height = scrollView.contentSize.height
             let offset = scrollView.contentOffset.y
             let viewport = scrollView.bounds.height
+            // 顶部 90pt 内触发；离开 200pt 后重新武装
+            if offset < 90, olderArmed {
+                olderArmed = false
+                parent.onLoadOlder()
+            } else if offset > 200 {
+                olderArmed = true
+            }
             guard height > viewport else { report(bottom: true); return }
             let distance = height - (offset + viewport)
             // 滞后：靠近底部 40pt 内算在底部，离开 200pt 才算离开

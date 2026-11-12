@@ -79,6 +79,8 @@ struct ChatView: View {
     @State private var attachmentEntry: ChatEntry?
     /// 每次 +1 就请求列表滚到底（由 ChatList 消费）
     @State private var scrollRequest = 0
+    /// 贴底锚点：nil = 暂停自动贴底（加载更早消息期间用）
+    @State private var scrollAnchor: UnitPoint? = .bottom
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
 
@@ -130,6 +132,11 @@ struct ChatView: View {
                         if bottom, jump.hasNewBelow { jump.hasNewBelow = false }
                     },
                     scrollRequest: scrollRequest,
+                    onLoadOlder: {
+                        if let sid = model.selectedSessionId {
+                            Task { await model.loadOlder(sid) }
+                        }
+                    },
                     onTapEntry: { id in
                         // 点消息看完整内容：列表里的表格是截断的，完整版在这里
                         detailEntry = visibleEntries.first { $0.id == id }
@@ -803,10 +810,18 @@ struct ChatView: View {
 /// （20 条 markdown 气泡 = 上百个 Text），真机实测一次 43 秒。
 /// iOS 16 没有这个 API，只能退化为原路径。
 struct BottomAnchorModifier: ViewModifier {
+    /// 传 nil 表示「内容增长时不要自动贴底」。
+    ///
+    /// 为什么需要它：加载更早的消息时，历史帧插到列表顶部 ——
+    /// 内容一增长，`.defaultScrollAnchor(.bottom)` 立刻把视图拽回底部
+    /// （用户实拍：上拉后立马回到最底，而且消息还没插进去就被打断）。
+    /// 所以加载期间必须临时关掉贴底。
+    var anchor: UnitPoint? = .bottom
+
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 17.0, *) {
-            content.defaultScrollAnchor(.bottom)
+            content.defaultScrollAnchor(anchor)
         } else {
             content
         }
