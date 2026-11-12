@@ -72,6 +72,9 @@ struct ChatEntry: Identifiable, Hashable {
     var ok: Bool? = nil
     /// 属于哪一轮，折叠时按它筛
     var turn: Int = 0
+    /// 这条是本地乐观插入、还没被服务端确认的消息（排队中）。
+    /// 显示上要明确标出来，否则用户会以为它已经执行了。
+    var queued: Bool = false
     /// collapsedSteps 里包着的原始条目
     var folded: [ChatEntry] = []
     /// 时间标签：只有和上一条隔了 5 分钟以上才填，nil 表示不显示

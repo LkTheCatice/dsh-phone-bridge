@@ -607,6 +607,7 @@ final class AppModel: ObservableObject {
             if let idx = entries[sid]?.lastIndex(where: { $0.id.hasPrefix("local-") && $0.text == text }) {
                 var item = entries[sid]![idx]
                 item.running = false
+                item.queued = false
                 entries[sid]![idx] = item
                 return
             }
@@ -1103,7 +1104,7 @@ final class AppModel: ObservableObject {
         // local- 前缀标记「这条是我本地乐观插入的」：服务端回显时要替换它，
         // 而不是再插一条。靠 id 前缀识别比靠「文本 + 15 秒时间窗」可靠 ——
         // 排队场景下服务端可能要等几十秒才回显，时间窗一过就变成两条重复。
-        append(sid, ChatEntry(id: "local-\(UUID().uuidString)", kind: .user, text: trimmed, at: Date()))
+        append(sid, ChatEntry(id: "local-\(UUID().uuidString)", kind: .user, text: trimmed, at: Date(), queued: true))
         let t3 = CFAbsoluteTimeGetCurrent()
         trace("s2-append=\(Int((t3 - t2) * 1000))ms n=\(entriesStorage[sid]?.count ?? -1)")
         do {

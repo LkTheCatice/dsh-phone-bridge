@@ -444,7 +444,10 @@ enum MessageRender {
 
     private static func prefix(for entry: ChatEntry) -> String? {
         switch entry.kind {
-        case .user: return "▍我\n"
+        case .user:
+            // 排队中：明确标出来。否则本地乐观插入的消息看起来和「已执行」一样，
+            // 用户会以为它已经开始跑了（实测反馈）。
+            return entry.queued ? "▍我 · 排队中\n" : "▍我\n"
         case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
         case .thinking: return "思考\n"
         case .toolCall: return "> "
