@@ -1655,6 +1655,27 @@ function applyBridge(ctx, config) {
           }
         }
 
+        // 第三层：队列信息是否藏在事件日志里
+        // 前两轮确认：控制器上没有队列接口，session 上也没有 queue 字段。
+        // session.log 有近万条事件 —— 排队的痕迹最可能在这里（比如 xxx/queued）。
+        try {
+          const log = session?.log;
+          if (Array.isArray(log)) {
+            const types = {};
+            for (const e of log) {
+              const t = String(e?.type || "?");
+              types[t] = (types[t] || 0) + 1;
+            }
+            probe.logTypes = Object.entries(types)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 40);
+            probe.queueishTop = probe.logTypes.filter(([t]) => /queue|pending|wait|enqueue|steer/i.test(t));
+          }
+          probe.streamsShape = describe(ctrl?.controlState?.streams);
+        } catch (e) {
+          probe.logProbeError = String(e?.message || e).slice(0, 160);
+        }
+
         logLine(probe);
       } catch (e) {
         logLine({ step: "queue.probe/failed", error: String(e?.message || e).slice(0, 200) });
