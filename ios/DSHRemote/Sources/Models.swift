@@ -183,24 +183,3 @@ struct IncomingFile: Identifiable {
     }
 }
 
-struct FsEntry: Identifiable, Hashable {
-    let id: String
-    var name: String
-    var dir: Bool
-    var size: Int?
-    var fullPath: String
-
-    static func parse(_ dict: [String: Any], parent: String) -> FsEntry? {
-        guard let name = dict["name"] as? String else { return nil }
-        let joined = parent.hasSuffix("/") || parent.hasSuffix("\\")
-            ? parent + name
-            : parent + "/" + name
-        return FsEntry(
-            id: joined,
-            name: name,
-            dir: (dict["dir"] as? Bool) ?? false,
-            size: (dict["size"] as? NSNumber)?.intValue,
-            fullPath: joined
-        )
-    }
-}

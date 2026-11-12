@@ -1406,25 +1406,8 @@ final class AppModel: ObservableObject {
 
     // MARK: - 文件
 
-    func listFiles(path: String) async throws -> [FsEntry] {
-        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
-        let result = try await client.listFiles(path: path)
-        let resolved = (result["path"] as? String) ?? path
-        let rows = (result["entries"] as? [[String: Any]]) ?? []
-        return rows.compactMap { FsEntry.parse($0, parent: resolved) }
-    }
 
-    @discardableResult
-    func mkdir(path: String) async throws -> [String: Any] {
-        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
-        return try await client.mkdir(path: path)
-    }
 
-    @discardableResult
-    func deleteFile(path: String, recursive: Bool = false) async throws -> [String: Any] {
-        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
-        return try await client.delete(path: path, recursive: recursive)
-    }
 
     /// 回前台后的宽限期：期间不显示断线横幅。
     /// 从后台切回来时连接还没恢复，立即弹「未连接」其实是误报。

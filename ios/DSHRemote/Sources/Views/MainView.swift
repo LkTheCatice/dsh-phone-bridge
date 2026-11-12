@@ -8,8 +8,6 @@ struct MainView: View {
         TabView {
             ChatView()
                 .tabItem { Label("对话", systemImage: "bubble.left.and.bubble.right") }
-            FilesView()
-                .tabItem { Label("文件", systemImage: "folder") }
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
         }
