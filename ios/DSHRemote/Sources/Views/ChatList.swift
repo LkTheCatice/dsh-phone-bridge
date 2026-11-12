@@ -365,6 +365,11 @@ enum MessageRender {
             let color: UIColor = (entry.kind == .user) ? .tintColor : .tertiaryLabel
             let paragraph = NSMutableParagraphStyle()
             paragraph.paragraphSpacing = 2
+            if entry.kind == .user {
+                // 和正文用同一个缩进，否则前缀会贴在左边而正文在右边
+                paragraph.headIndent = 56
+                paragraph.firstLineHeadIndent = 56
+            }
             out.append(NSAttributedString(
                 string: prefix,
                 attributes: [
@@ -415,6 +420,14 @@ enum MessageRender {
         default:
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 4
+            if entry.kind == .user {
+                // 用户消息靠右：像聊天软件那样整体右移，
+                // 但**文字仍左对齐**（中文整段右对齐会难读）。
+                // 用 headIndent 而不是 alignment = .right 就是这个原因。
+                paragraph.headIndent = 56
+                paragraph.firstLineHeadIndent = 56
+                paragraph.paragraphSpacing = 3
+            }
             body = NSAttributedString(
                 string: entry.text,
                 attributes: [
