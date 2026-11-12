@@ -489,7 +489,11 @@ function applyBridge(ctx, config) {
 
   /** ffmpeg 可执行文件位置（winget / 手动放置 / PATH 三处找） */
   const FFMPEG_CANDIDATES = [
+    // 显式指定优先（换机器时不用改代码）
+    process.env.DSH_FFMPEG || "",
     "D:\\tools\\ffmpeg\\ffmpeg.exe",
+    // 本机实际的 ffmpeg（E:\AI\ffmpeg，9.0.2 完整版）
+    "E:\\AI\\ffmpeg\\ffmpeg.exe",
     path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
   ];
 
