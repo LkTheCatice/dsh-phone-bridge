@@ -97,32 +97,18 @@ struct QueueSheet: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 18) {
-                Button {
-                    beginEdit(item)
-                } label: {
-                    Label("编辑", systemImage: "pencil")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
-
-                Button {
-                    remove(item)
-                } label: {
-                    Label("删除", systemImage: "trash")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.red.opacity(0.85))
-
-                Button {
-                    steer(item)
-                } label: {
-                    Label("插队", systemImage: "arrow.up.to.line")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
+            // 写操作（编辑/删除/插队）走不通：DSH 的 commands.updateQueue 内部
+            // 依赖未初始化的状态，六种 request 形状全部报
+            // "Cannot read properties of undefined (reading 'kind')" ——
+            // 和余额接口的 getBalance() 是同一类问题（方法在、依赖不在）。
+            // 与其留三个点了会报 500 的按钮，不如直接说清楚。
+            HStack(spacing: 5) {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 10))
+                Text("编辑 / 删除 / 插队 请在电脑上操作")
+                    .font(.caption2)
             }
+            .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 7)
         .listRowSeparator(.hidden)
