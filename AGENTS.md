@@ -102,3 +102,56 @@ print("最终深度:", depth)                    # 必须是 0
 | tag | 说明 |
 |---|---|
 | `legacy-ok` | 2026-11-12 03:00 的可用版本（markdown 可关、纯文本默认、功能完整） |
+
+## 7. 接口不确定就逆向，别猜（2026-11-12 的教训）
+
+为了调通 DSH 的 `sessionController.updateQueue`，我**猜了七轮**参数形状：
+
+```
+第 1 轮  { target, start, removedCount, inserted }        → 失败
+第 2 轮  加 kind: "splice" / "inbox" / "update"           → 失败
+第 3 轮  加 op: "splice"                                   → 失败
+第 4 轮  { sessionId, request: {...} }                     → 失败
+第 5 轮  target 改成 { kind: "next-turn" } 对象            → 失败
+```
+
+每轮都报同一句：`Cannot read properties of undefined (reading 'kind')`。
+中间还让用户重启了 DSH 五六次、点了十几次按钮。
+
+**真相**：直接读 `app.asar` 里的 zod schema，3 分钟就看到：
+
+```js
+updateQueue({
+  sessionId: string,
+  itemId:    string,
+  action: { kind: "edit", content: [{type:"text",text}] }
+        | { kind: "remove" }
+        | { kind: "steer" }
+})
+```
+
+那个 `reading 'kind'` 就是在读 `action.kind` —— 我**从未传过 `action`**，
+一直按事件里的 `{target,start,removedCount,inserted}` 在猜，
+而那是**事件的结构**，不是 API 的参数。
+
+### 规则
+
+接口不确定时（DSH、任何打包过的依赖）：
+
+1. **直接在包里搜符号名**。asar 是明文拼接，Python 二进制搜索即可定位：
+   ```python
+   data = open(asar, "rb").read()
+   for m in re.finditer(b"updateQueue", data):
+       print(data[m.start()-600:m.start()+900].decode("utf-8","ignore"))
+   ```
+2. 找到 **zod schema / 类型定义 / 函数体**，照着返回值写调用。
+3. 只有在包是加密/混淆、且搜不到时才考虑试探，而且**一次只试一种**。
+
+**成本对比**：猜测七轮 ≈ 两小时 + 用户十几次点击；读源码 3 分钟。
+
+### 同类参照
+
+- 余额接口 `getBalance()` 报 `reading 'version'` —— 也是靠 **stack 里的
+  `platformClientHeaders（index.js:73）`** 一句话定位，而不是猜。
+- 后续任何「方法存在但调用报 undefined」的情况，先看 **stack**，
+  再进包里搜那个函数。
