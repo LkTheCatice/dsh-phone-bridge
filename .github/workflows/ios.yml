@@ -1,20 +1,19 @@
 name: DSHRemote unsigned IPA
 
-# 只手动触发，不再跟随 push。
+# Manual trigger only — no longer runs on push.
 #
-# 原因（2026-11-12 血的教训）：
-# 之前配了 on: push paths: ios/**，意味着每次改代码 push 都会烧一次
-# macOS runner 额度。那天为了验证一个改动 push 了 8 次，把额度烧穿 ——
-# 之后所有 run 都是 2 秒失败 / 直接被取消，日志 blob 也没了，
-# 结果「自己触发的 Codemagic 在排队，没注意到的 GH Actions 在烧额度」，
-# 白了快一个小时。
+# 2026-11-12 lesson: `on: push paths: ios/**` fired a macOS runner for every
+# push. Eight pushes that evening burned through the quota; after that every
+# run was either a 2-second failure or cancelled outright, with log blobs
+# already gone. Net effect: the Codemagic build we were watching sat in the
+# queue while this workflow quietly drained the GitHub quota.
 #
-# 现在的分工：Codemagic 负责日常构建（它是主力），
-# GH Actions 只作为手动备选 —— 需要时在网页上点 "Run workflow"。
+# Division of labour now: Codemagic is the primary builder. This workflow is a
+# manual fallback — click "Run workflow" in the Actions tab when needed.
 on:
   workflow_dispatch:
 
-# 同一分支只留最新一次，避免排队堆叠
+# Keep at most one run per branch so failed attempts don't pile up.
 concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
@@ -40,10 +39,9 @@ jobs:
       - name: Build (no code signing)
         working-directory: ios/DSHRemote
         run: |
-          # 把 commit 短 sha 与 run 号写进 Info.plist，App 启动时上报，
-          # 日志里就能看到手机上跑的到底是哪一版
-          # tee 到文件：失败时把完整编译输出作为 artifact 上传，
-          # 否则 gh 的日志 blob 过期后完全取不到报错（2026-11-12 因此白查了四轮）
+          # Stamp commit sha + run number into Info.plist so the app reports
+          # which build it is; tee to build.log so a failure can still be
+          # inspected as an artifact (gh log blobs expire).
           set -o pipefail
           xcodebuild \
             -project DSHRemote.xcodeproj \
