@@ -306,7 +306,7 @@ function applyBridge(ctx, config) {
             text: text.slice(0, 400),
           };
         });
-        broadcast({
+        const frame = {
           type: "queue.changed",
           sessionId: sessionIdOf(session, d),
           target: String(d.target || ""),
@@ -314,6 +314,18 @@ function applyBridge(ctx, config) {
           removed: Number(d.removedCount || 0),
           outcome: String(d.outcome || ""),
           items,
+        };
+        broadcast(frame);
+        // 确认帧真的发出去了：手机队列区一直是空的，
+        // 需要区分「没广播」和「广播了但手机没处理」。
+        logLine({
+          step: "queue.changed/sent",
+          clientCount: streamClients.size,
+          sessionId: frame.sessionId,
+          target: frame.target,
+          start: frame.start,
+          removed: frame.removed,
+          itemCount: items.length,
         });
       } catch (e) {
         logLine({ step: "queue.changed/failed", error: String(e?.message || e).slice(0, 160) });
