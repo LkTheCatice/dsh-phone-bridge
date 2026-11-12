@@ -39,12 +39,20 @@ final class WalletStore: ObservableObject {
                 guard let currency = item["currency"] as? String, !currency.isEmpty else { return nil }
                 return Wallet(
                     currency: currency,
-                    balance: (item["balance"] as? String) ?? "-",
+                    // 保留两位小数：DSH 返回的是原始字符串（"2.4323527000000000"）
+                    balance: Self.formatMoney(item["balance"]),
                     isBonus: bonus
                 )
             }
         }
-        wallets = parse("wallets", bonus: false) + parse("bonuses", bonus: true)
+        // 去重：DSH 会返回两条同币种的余额（用户实拍两行「余额（CNY）」）
+        var seen = Set<String>()
+        wallets = (parse("wallets", bonus: false) + parse("bonuses", bonus: true)).filter { w in
+            let key = "\(w.isBonus)-\(w.currency)"
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
+        }
     }
 
     /// 金额统一保留两位小数。
