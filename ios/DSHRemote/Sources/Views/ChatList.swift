@@ -182,6 +182,11 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private let textView = UITextView()
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
+    /// 气泡背景：垫在文字下面，靠圆角 + 底色区分消息与消息之间
+    /// （用户反馈「分割不是很明显」—— 之前只有 ▍我 / ▍AI 前缀）。
+    private let bubble = UIView()
+    private var bubbleTop: NSLayoutConstraint?
+    private var bubbleBottom: NSLayoutConstraint?
     private var onTapAttachments: (() -> Void)?
     /// 点开链接 / 折叠提示（由 ChatView 决定行为）
     private var onOpenLink: ((URL) -> Void)?
@@ -214,6 +219,12 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             UITapGestureRecognizer(target: self, action: #selector(handleTapAttachments))
         )
 
+        bubble.translatesAutoresizingMaskIntoConstraints = false
+        bubble.layer.cornerRadius = 14
+        bubble.layer.cornerCurve = .continuous
+        bubble.backgroundColor = .clear
+        contentView.addSubview(bubble)
+
         let stack = UIStackView(arrangedSubviews: [textView, attachmentLabel])
         stack.axis = .vertical
         stack.spacing = 4
@@ -226,6 +237,15 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+        ])
+        // 气泡比文字各方向外扩 10pt（左右）/ 6pt（上下）
+        bubbleTop = bubble.topAnchor.constraint(equalTo: stack.topAnchor, constant: -6)
+        bubbleBottom = bubble.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: 6)
+        NSLayoutConstraint.activate([
+            bubbleTop!,
+            bubbleBottom!,
+            bubble.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: -10),
+            bubble.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: 10),
         ])
     }
 
@@ -290,6 +310,16 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         leadingConstraint?.constant = (entry.kind == .user) ? 56 : 0
         textView.attributedText = MessageRender.attributed(entry)
         self.onTapAttachments = onTapAttachments
+
+        // 气泡配色：用户 = 淡主题色，助手 = 淡灰，系统/工具行不画气泡
+        switch entry.kind {
+        case .user:
+            bubble.backgroundColor = UIColor.tintColor.withAlphaComponent(0.11)
+        case .assistant:
+            bubble.backgroundColor = UIColor.secondarySystemBackground
+        default:
+            bubble.backgroundColor = .clear
+        }
 
         // 附件提示：只在真的有媒体时占位（用 MediaRefScan，纯 Foundation，已单测）
         let refs = MediaRefCache.refs(for: entry.text)
