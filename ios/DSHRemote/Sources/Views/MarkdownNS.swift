@@ -235,8 +235,19 @@ enum MarkdownNS {
 
             let limit = 10
             let shownRows = Array(rows.prefix(limit))
-            // 单格最多留 14 个字符宽，避免一格挤爆整行
-            func clampCell(_ s: String, maxWidth: Int = 14) -> String {
+
+            // 手机竖屏、11.5pt 等宽字体下大约能放 46 个字符宽。
+            // **必须限总宽**：只限单格宽度的话，5 列 × 14 + 间距 ≈ 78 字符，
+            // 超出的部分会被强行折行，竖线立刻错位（用户问的就是这个）。
+            let availableChars = 46
+            let gutterChars = 2
+            let maxColumnsShown = 5
+            let columnCount = min(maxColumns, maxColumnsShown)
+            let hiddenColumns = maxColumns - columnCount
+            let gutterTotal = (columnCount - 1) * gutterChars
+            let contentBudget = max(8, availableChars - gutterTotal)
+
+            func clampCell(_ s: String, maxWidth: Int) -> String {
                 let stripped = InlineParser.stripResidual(s)
                 if displayWidth(stripped) <= maxWidth { return stripped }
                 var out = ""
@@ -250,21 +261,29 @@ enum MarkdownNS {
                 return out + "…"
             }
 
+            // 第一遍：算每列的自然宽度（单列上限先放 16）
             let table = [headers] + shownRows
-            var columnWidths = [Int](repeating: 0, count: maxColumns)
+            var natural = [Int](repeating: 0, count: columnCount)
             for row in table {
-                for (i, cell) in row.enumerated() where i < maxColumns {
-                    columnWidths[i] = max(columnWidths[i], displayWidth(clampCell(cell)))
+                for (i, cell) in row.enumerated() where i < columnCount {
+                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: 16)))
                 }
+            }
+
+            // 第二遍：超宽就按比例压缩，内容短的列保持短，只压长的
+            let naturalTotal = natural.reduce(0, +)
+            var columnWidths = natural
+            if naturalTotal > contentBudget, naturalTotal > 0 {
+                let scale = Double(contentBudget) / Double(naturalTotal)
+                columnWidths = natural.map { max(4, Int((Double($0) * scale).rounded(.down))) }
             }
 
             // 12pt 等宽字体单个字符约 7.2pt
             let charWidth: CGFloat = 7.2
-            let gutter = 2   // 列间留 2 个字符宽
             var stops: [NSTextTab] = []
             var location: CGFloat = 0
-            for i in 1..<maxColumns {
-                location += CGFloat(columnWidths[i - 1] + gutter) * charWidth
+            for i in 1..<columnCount {
+                location += CGFloat(columnWidths[i - 1] + gutterChars) * charWidth
                 stops.append(NSTextTab(textAlignment: .left, location: location))
             }
 
@@ -276,11 +295,11 @@ enum MarkdownNS {
                 style.headIndent = 0
                 let base = UIFont.monospacedSystemFont(ofSize: 11.5, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
-                for column in 0..<maxColumns {
+                for column in 0..<columnCount {
                     if column > 0 {
                         line.append(NSAttributedString(string: "\t", attributes: [.font: base]))
                     }
-                    let text = column < row.count ? clampCell(row[column]) : ""
+                    let text = column < row.count ? clampCell(row[column], maxWidth: columnWidths[column]) : ""
                     line.append(NSAttributedString(string: text, attributes: [
                         .font: base,
                         .foregroundColor: isHeader ? UIColor.label : UIColor.secondaryLabel,
