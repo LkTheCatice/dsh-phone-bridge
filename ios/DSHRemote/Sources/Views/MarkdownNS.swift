@@ -16,7 +16,11 @@ enum MarkdownNS {
     /// NSCache 不设限时只靠系统内存压力回收，长时间挂机会一路涨到上百 MB。
     /// 渲染模式：列表里用 compact（表格截断以保滚动性能），
     /// 详情页用 full（表格完整展开）。
-    enum Mode { case compact, full }
+    enum Mode {
+        case compact      // 列表：表格截断以保滚动性能
+        case full         // 详情页：完整渲染
+        case tablesOnly   // 详情页：只渲染表格（用户点「看完整版」通常只想看表）
+    }
 
     private static let cache: NSCache<NSString, NSAttributedString> = {
         let c = NSCache<NSString, NSAttributedString>()
@@ -25,8 +29,16 @@ enum MarkdownNS {
         return c
     }()
 
+    private static func cachePrefix(_ mode: Mode) -> String {
+        switch mode {
+        case .compact: return "compact|"
+        case .full: return "full|"
+        case .tablesOnly: return "tables|"
+        }
+    }
+
     static func render(_ text: String, mode: Mode = .compact) -> NSAttributedString {
-        let cacheKey = (mode == .full ? "full|" : "compact|") + text
+        let cacheKey = cachePrefix(mode) + text
         if let hit = cache.object(forKey: cacheKey as NSString) { return hit }
         let blocks = MarkdownCache.blocksSync(for: text)
         let built = build(blocks, mode: mode)
@@ -39,7 +51,14 @@ enum MarkdownNS {
 
     static func build(_ blocks: [Block], mode: Mode = .compact) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        for (index, block) in blocks.enumerated() {
+        let visible: [Block]
+        if mode == .tablesOnly {
+            visible = blocks.filter { if case .table = $0 { return true }; return false }
+        } else {
+            visible = blocks
+        }
+        if visible.isEmpty { return NSAttributedString(string: "（这条消息里没有表格）") }
+        for (index, block) in visible.enumerated() {
             // 段与段之间：用段落样式给「段后距」，而不是靠空行撑 ——
             // 空行会随字号放大成一大片空白，看起来又松又散（可读性下降的主因）。
             if index > 0 {
@@ -221,7 +240,7 @@ enum MarkdownNS {
             // 现在列表与详情页共用同一套 tabStops 实现，只有预算不同：
             // 列表收紧（10 行 / 5 列 / 46 字符宽）保滚动性能；
             // 详情页放宽（200 行 / 8 列 / 90 字符宽 + 更小字号）看完整内容。
-            let isFull = (mode == .full)
+            let isFull = (mode != .compact)   // full 与 tablesOnly 都按完整宽度渲染
             let rowLimit = isFull ? 200 : 10
             let columnLimit = isFull ? 8 : 5
             let availableChars = isFull ? 400 : 46   // 详情页不压缩：宽度由外层横向滚动承载

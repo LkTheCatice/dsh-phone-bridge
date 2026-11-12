@@ -13,9 +13,19 @@ struct EntryDetailSheet: View {
     let entry: ChatEntry
     @Environment(\.dismiss) private var dismiss
     @State private var showRaw = false
+    /// 有表格时默认只看表格（「看完整版」的目的通常是看表），可切到全文
+    @State private var tablesOnly = true
 
     /// 表格需要的宽度（nil 表示不需要横向滚动）
     private var tableWidth: CGFloat? { MarkdownNS.requiredTableWidth(for: entry.text) }
+
+    /// 这条消息里有没有表格
+    private var hasTable: Bool {
+        MarkdownCache.blocksSync(for: entry.text).contains {
+            if case .table = $0 { return true }
+            return false
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -32,8 +42,14 @@ struct EntryDetailSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if isMarkdownKind {
-                        Button(showRaw ? "渲染" : "原文") { showRaw.toggle() }
-                            .font(.footnote)
+                        HStack(spacing: 10) {
+                            if hasTable, !showRaw {
+                                Button(tablesOnly ? "全文" : "表格") { tablesOnly.toggle() }
+                                    .font(.footnote)
+                            }
+                            Button(showRaw ? "渲染" : "原文") { showRaw.toggle() }
+                                .font(.footnote)
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -69,7 +85,9 @@ struct EntryDetailSheet: View {
         switch entry.kind {
         case .toolCall, .toolResult: return "运行详情"
         case .collapsedSteps: return "本轮过程"
-        default: return showRaw ? "原文" : "完整内容"
+        default:
+            if showRaw { return "原文" }
+            return (hasTable && tablesOnly) ? "表格" : "完整内容"
         }
     }
 
@@ -85,8 +103,13 @@ struct EntryDetailSheet: View {
         } else {
             // 必须走 UITextView：SwiftUI 的 Text 不支持 NSParagraphStyle.tabStops
             // （表格列对齐靠它），渲染出来会是一片空白。
-            AttributedTextView(content: MarkdownNS.render(entry.text, mode: .full))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            AttributedTextView(
+                content: MarkdownNS.render(
+                    entry.text,
+                    mode: (hasTable && tablesOnly) ? .tablesOnly : .full
+                )
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
