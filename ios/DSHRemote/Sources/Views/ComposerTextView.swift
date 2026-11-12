@@ -45,25 +45,37 @@ struct ComposerTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        let coordinator = context.coordinator
 
-        // 中文输入法组合中：**不要碰 text**，否则会把拼音组合态打断
+        // ① 只在「外部主动设置」时写回文本。
+        //    两个条件缺一不可：
+        //    - 编辑中（有 marked text）绝对不碰，否则打断中文输入法的组合态
+        //    - 外部值必须既不同于视图内容、又不同于 lastSyncedText，
+        //      否则就是「用户刚打的字」被滞后的 @State 旧值覆盖（实测打不进去）
         let composing = view.markedTextRange != nil
-        if !composing, view.text != text {
+        if !composing,
+           view.text != text,
+           text != coordinator.lastSyncedText {
             view.text = text
-            context.coordinator.reportHeight()
+            coordinator.lastSyncedText = text
+            coordinator.reportHeight()
         }
 
-        // focus 同步（键盘出现/消失时 SwiftUI 不会重建这个 view，所以是安全的）
+        // ② 只做 become，**从不 resign**。
+        //    @FocusState 的双向同步有时序延迟：按键触发 body 重算时
+        //    focused.wrappedValue 可能还是 false，走进"失焦"分支就会把键盘收掉
+        //    —— 这正是"一按键输入框就往下掉"的真凶。
         if focused.wrappedValue, !view.isFirstResponder {
             view.becomeFirstResponder()
-        } else if !focused.wrappedValue, view.isFirstResponder {
-            view.resignFirstResponder()
         }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextView
         weak var textView: UITextView?
+        /// 最后一次由用户输入产生、并已同步给外部的文本。
+        /// 用来区分「外部主动设置」与「用户正在输入」。
+        var lastSyncedText: String = ""
 
         init(_ parent: ComposerTextView) {
             self.parent = parent
@@ -71,6 +83,7 @@ struct ComposerTextView: UIViewRepresentable {
 
         func textViewDidChange(_ view: UITextView) {
             // 组合中也同步给外面（让发送按钮的禁用状态跟随），但绝不回写 text
+            lastSyncedText = view.text
             parent.text = view.text
             reportHeight()
         }
