@@ -259,9 +259,13 @@ enum MarkdownNS {
             let gutterTotal = (columnCount - 1) * gutterChars
             let contentBudget = max(8, availableChars - gutterTotal)
 
+            // 任一单元格被截断 → 需要给「点开看完整版」的入口
+            var didTruncateCells = false
+
             func clampCell(_ s: String, maxWidth: Int) -> String {
                 let stripped = InlineParser.stripResidual(s)
                 if displayWidth(stripped) <= maxWidth { return stripped }
+                didTruncateCells = true
                 var out = ""
                 var w = 0
                 for ch in stripped {
@@ -325,11 +329,16 @@ enum MarkdownNS {
                 out.append(makeRow(row, isHeader: false))
             }
 
-            // 折叠提示只在列表（compact）里出现；详情页本身就是完整内容
-            if !isFull, rows.count > rowLimit || hiddenColumns > 0 {
+            // 折叠提示只在列表（compact）里出现；详情页本身就是完整内容。
+            // 注意：除了「行/列超限」，**单元格被压窄截断**也算被省略（用户实拍：
+            // 4 列 8 行的表里 13.3… / 1.24… 被截断，却没有入口点开）。
+            if !isFull, rows.count > rowLimit || hiddenColumns > 0 || didTruncateCells {
                 var note = "\n"
                 if hiddenColumns > 0 { note += "（还有 \(hiddenColumns) 列未显示）" }
                 if rows.count > rowLimit { note += "… 还有 \(rows.count - rowLimit) 行未显示" }
+                if hiddenColumns == 0, rows.count <= rowLimit, didTruncateCells {
+                    note += "（部分单元格内容已省略）"
+                }
                 out.append(NSAttributedString(
                     string: note,
                     attributes: [
