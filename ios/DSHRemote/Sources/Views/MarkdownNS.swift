@@ -145,6 +145,9 @@ enum MarkdownNS {
                 spacingAfter: 2, spacingBefore: before, lineSpacing: 1.5,
                 headIndent: 10, tailIndent: -10
             )
+            // 代码块**不折行**：折行会把缩进、ASCII 图、对齐的输出全打散。
+            // 超长行在末尾截断成 …，详情页（外层有横向 ScrollView）可以左右拖看全文。
+            style.lineBreakMode = .byTruncatingTail
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
                 let tag = NSAttributedString(
