@@ -317,7 +317,11 @@ enum MarkdownNS {
             func makeRow(_ row: [String], isHeader: Bool) -> NSAttributedString {
                 let style = NSMutableParagraphStyle()
                 style.tabStops = stops
-                style.lineSpacing = isHeader ? 2 : 3
+                // lineSpacing 必须 0：表格现在有整段底色（当边框用），
+            // 行距一留空隙，底色就会被切成一条条（和代码块同一类问题）。
+            // 行高改由 lineHeightMultiple 撑。
+            style.lineSpacing = 0
+            style.lineHeightMultiple = isHeader ? 1.42 : 1.36
                 style.paragraphSpacing = isHeader ? 5 : 3
                 let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
@@ -376,6 +380,14 @@ enum MarkdownNS {
                     out.append(hint)
                 }
             }
+            // 给表格加个框：TextKit 没有表格边框 API（NSTextTable 是 AppKit 专属），
+            // 所以用整段底色模拟 —— 和代码块同一套做法。
+            // 注意 lineSpacing 必须是 0，否则按行绘制的背景会被行距切成一条条。
+            out.addAttribute(
+                .backgroundColor,
+                value: UIColor.secondarySystemFill.withAlphaComponent(0.55),
+                range: NSRange(location: 0, length: out.length)
+            )
             return out
         }
 
