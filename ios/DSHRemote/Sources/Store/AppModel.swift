@@ -361,16 +361,28 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             var attempt = 0
             while !Task.isCancelled {
-                guard let client = self.client else { return }
+                // 追踪：SSE 从 06:35 之后就再没连上过，但 health 一直正常，
+                // 手机以为自己是连着的。要看清是哪一步退出了循环。
+                self.trace("stream.attempt=\(attempt)")
+                guard let client = self.client else {
+                    self.trace("stream.exit:no-client")
+                    return
+                }
                 let since = self.lastSeq
+                self.trace("stream.connecting since=\(since)")
                 do {
                     try await EventStream.run(client: client, since: since) { [weak self] seq, frame in
                         Task { @MainActor in self?.apply(seq: seq, frame: frame) }
                     }
                 } catch {
-                    if Task.isCancelled { return }
+                    if Task.isCancelled {
+                        self.trace("stream.exit:cancelled")
+                        return
+                    }
+                    self.trace("stream.error=\(error.localizedDescription.prefix(60))")
                     self.phase = .failed(error.localizedDescription)
                 }
+                self.trace("stream.ended attempt=\(attempt)")
                 if Task.isCancelled { return }
                 attempt += 1
                 let delay = min(pow(2.0, Double(attempt)), 15.0)
