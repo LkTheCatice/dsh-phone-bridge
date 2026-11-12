@@ -285,6 +285,55 @@ check(!hugeBlocks.isEmpty, "超大文本解析为空")
 
 print("  缓存命中/隔离/空串/超大 共 6 条断言")
 
+// MARK: - 9. 真实消息回归（用户截图暴露的问题）
+
+section("表格 + 行内粗体（截图里的实际内容）")
+
+let realSample = """
+## ⚠️ 这一版有个前提：**桥要重启才生效**
+
+| 改之前 | 改之后 |
+|---|---|
+| 传输 | 原图**十几 MB**，1MB 分块拉 |
+| 解码 | 手机解 2800×6000 |
+"""
+let realBlocks = MarkdownParser.parse(realSample)
+var foundTable = false
+var foundHeading = false
+for b in realBlocks {
+    if case .table = b { foundTable = true }
+    if case .heading = b { foundHeading = true }
+}
+check(foundHeading, "标题未识别成 heading")
+check(foundTable, "表格未识别成 table（截图里显示成了带 | 的纯文本）")
+
+// 表格单元格里的行内标记必须被清理（截图里 **十几 MB** 的星号还在）
+if case let .table(headers, rows) = realBlocks.first(where: { if case .table = $0 { return true }; return false }) ?? .divider {
+    // 分工：MarkdownParser 只负责切分，**保留原始标记**；
+    // 清理行内标记是渲染层（MarkdownNS → InlineParser）的职责。
+    // 所以这里验证的是「渲染层拿到单元格内容后能清干净」，而不是要求 parser 输出无标记。
+    let cells = headers + rows.flatMap { $0 }
+    for cell in cells {
+        let cleaned = InlineParser.segments(cell).map(\.text).joined()
+        check(!cleaned.contains("**"), "InlineParser 未清掉单元格里的 **：\(cell)")
+        check(!cleaned.contains("`"), "InlineParser 未清掉单元格里的反引号：\(cell)")
+    }
+    print("  表格 headers=\(headers.count) rows=\(rows.count)")
+} else {
+    print("  未取到表格，跳过单元格断言")
+}
+
+// 表格后面紧跟段落时也要正确切分
+let tableThenText = """
+| a | b |
+|---|---|
+| 1 | 2 |
+
+后面一段普通文字
+"""
+let tt = MarkdownParser.parse(tableThenText)
+check(tt.count >= 2, "表格+段落应至少 2 个 block，实际 \(tt.count)")
+
 // MARK: - 汇总
 
 print("\n════════════════════════════════")

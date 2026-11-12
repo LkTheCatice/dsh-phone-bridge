@@ -206,20 +206,38 @@ enum MarkdownNS {
             )
 
         case let .table(headers, rows):
-            // 表格：等宽 + 稍紧行距，表头加粗
+            // 表格：等宽 + 稍紧行距；**单元格内容也要走行内解析** ——
+            // 之前这里直接拼原始字符串，导致 `**粗体**` 的星号原样显示（用户截图确认）。
             let style = Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 2)
+
+            func cellRow(_ cells: [String], weight: UIFont.Weight) -> NSAttributedString {
+                let row = NSMutableAttributedString()
+                let base = UIFont.monospacedSystemFont(ofSize: 12, weight: weight)
+                for (i, cell) in cells.enumerated() {
+                    if i > 0 {
+                        row.append(NSAttributedString(
+                            string: "  │  ",
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 10),
+                                .foregroundColor: UIColor.tertiaryLabel,
+                            ]
+                        ))
+                    }
+                    row.append(inline(cell, base: base))
+                }
+                row.addAttribute(
+                    .paragraphStyle,
+                    value: style,
+                    range: NSRange(location: 0, length: row.length)
+                )
+                return row
+            }
+
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
+                out.append(cellRow(headers, weight: .semibold))
                 out.append(NSAttributedString(
-                    string: headers.joined(separator: "  │  ") + "\n",
-                    attributes: [
-                        .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .semibold),
-                        .foregroundColor: UIColor.label,
-                        .paragraphStyle: style,
-                    ]
-                ))
-                out.append(NSAttributedString(
-                    string: String(repeating: "─", count: max(8, headers.count * 8)) + "\n",
+                    string: "\n" + String(repeating: "─", count: max(8, headers.count * 8)) + "\n",
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 9),
                         .foregroundColor: UIColor.tertiaryLabel,
@@ -228,15 +246,8 @@ enum MarkdownNS {
                 ))
             }
             for (i, row) in rows.enumerated() {
-                out.append(NSAttributedString(
-                    string: row.joined(separator: "  │  "),
-                    attributes: [
-                        .font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
-                        .foregroundColor: UIColor.label,
-                        .paragraphStyle: style,
-                    ]
-                ))
-                if i < rows.count - 1 { out.append(NSAttributedString(string: "\n")) }
+                if i > 0 { out.append(NSAttributedString(string: "\n")) }
+                out.append(cellRow(row, weight: .regular))
             }
             return out
         }
