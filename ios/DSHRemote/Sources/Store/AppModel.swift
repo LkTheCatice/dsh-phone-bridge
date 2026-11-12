@@ -556,6 +556,22 @@ final class AppModel: ObservableObject {
                 }
             }
 
+        case "queue.changed":
+            // 队列变更（电脑端排队/插队/改内容也会到达这里 —— 两边看到同一份队列）
+            let target = (frame["target"] as? String) ?? ""
+            // JSON 解出来可能是 NSNumber，直接 as? Int 会拿不到
+            let start = (frame["start"] as? NSNumber)?.intValue ?? 0
+            let removed = (frame["removed"] as? NSNumber)?.intValue ?? 0
+            let rawItems = (frame["items"] as? [[String: Any]]) ?? []
+            let items = rawItems.map { row in
+                QueueItem(
+                    id: (row["id"] as? String) ?? "",
+                    rpcId: (row["rpcId"] as? String) ?? "",
+                    text: (row["text"] as? String) ?? ""
+                )
+            }
+            chat.applyQueueChange(target: target, start: start, removed: removed, items: items)
+
         case "user.message":
             let text = (frame["text"] as? String) ?? ""
             // 双保险：服务端已过滤 DSH 注入的时间/运行时上下文，历史帧再挡一次

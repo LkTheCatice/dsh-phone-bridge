@@ -282,23 +282,42 @@ function applyBridge(ctx, config) {
     if (closed || !event || typeof event !== "object") return;
     noteFrameType(event.type);
 
-    // 只针对 agent/inbox/spliced 记录内容：
-    // 它是唯一可能承载「排队/插队」的事件（inbox = 收件箱，spliced = 拼接）。
-    // 记 data 的键和值，用来判断里面有 mode（queue/steer）、位置、文本之类。
+    // 队列事件 → 手机帧。
+    //
+    // 实测（2026-11-12）确认 agent/inbox/spliced 就是队列操作，语义是：
+    //   target=next-turn + inserted=[消息]            → 排队
+    //   target=next-turn + removedCount>0 + inserted  → 修改内容（同一 rpcId 替换）
+    //   target=next-turn + removedCount>0 + inserted=[] → 取出/取消
+    //   target=next-step + inserted=[消息]            → 插队（立即执行）
+    // 一次事件 = target + start（位置）+ removedCount + inserted，原子操作。
+    //
+    // 手机端据此自己维护一份队列：排队就加、移除就删、改内容就替换。
     if (event.type === "agent/inbox/spliced") {
       try {
         const d = event.data || {};
-        const shape = {};
-        for (const k of Object.keys(d).slice(0, 20)) {
-          try {
-            const v = d[k];
-            shape[k] = typeof v === "function"
-              ? "<fn>"
-              : (v && typeof v === "object" ? JSON.stringify(v).slice(0, 300) : String(v).slice(0, 160));
-          } catch { shape[k] = "<err>"; }
-        }
-        logLine({ step: "inbox.spliced", keys: Object.keys(d).slice(0, 20), shape });
-      } catch { /* 探测失败不影响主流程 */ }
+        const items = (Array.isArray(d.inserted) ? d.inserted : []).map((it) => {
+          const content = Array.isArray(it?.content) ? it.content : [];
+          const text = content
+            .map((c) => (c && typeof c === "object" && c.type === "text" ? String(c.text || "") : ""))
+            .join("");
+          return {
+            id: String(it?.id || ""),
+            rpcId: String(it?.source?.rpcId || ""),
+            text: text.slice(0, 400),
+          };
+        });
+        broadcast({
+          type: "queue.changed",
+          sessionId: sessionIdOf(session, d),
+          target: String(d.target || ""),
+          start: Number(d.start || 0),
+          removed: Number(d.removedCount || 0),
+          outcome: String(d.outcome || ""),
+          items,
+        });
+      } catch (e) {
+        logLine({ step: "queue.changed/failed", error: String(e?.message || e).slice(0, 160) });
+      }
     }
     if (seenEvents.has(event)) return;
     seenEvents.add(event);

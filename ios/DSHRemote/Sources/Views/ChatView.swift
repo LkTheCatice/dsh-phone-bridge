@@ -428,6 +428,36 @@ struct ChatView: View {
             // SwiftUI 会在结构变化时重建整个子树，TextField 跟着重建，
             // 正在组合的拼音就被打断 —— 表现就是「选完图后第一个字母不进拼音」。
             // 改成恒定结构 + 用高度和透明度控制，视图树不变，输入法状态就不会丢。
+            // 队列：电脑端排的队也在这一份里（两边读同一份 queue.changed）
+            if !chat.queue.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                            .font(.system(size: 11))
+                        Text("队列 \(chat.queue.count) 条")
+                            .font(.caption.weight(.medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(.secondary)
+                    ForEach(chat.queue.prefix(3)) { item in
+                        Text(item.text)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    if chat.queue.count > 3 {
+                        Text("还有 \(chat.queue.count - 3) 条…")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.08))
+            }
+
             // 已排队提示：持久显示（12 秒或该轮开始为止），不是一闪而过的 toast。
             // 同样遵守「恒定结构」原则，用高度/透明度控制显隐。
             HStack(spacing: 5) {
