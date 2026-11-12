@@ -1591,6 +1591,45 @@ function applyBridge(ctx, config) {
         });
       } catch { /* 记日志失败不影响主流程 */ }
 
+      // 探索：队列到底存在哪？
+      // task.result 只有 accepted，手机端拿不到「排在队列第几」「队列里有什么」。
+      // 这里把 sessionController 与 session 对象上和队列相关的键、以及同名下标的值
+      // 都 dump 到日志，用来确定「排队转插队 / 显示排队内容」该调哪个接口。
+      // 纯只读探测，不改任何状态。
+      try {
+        const probe = { step: "queue.probe", sessionId, mode: body.mode || "queue" };
+        const ctrlKeys = [];
+        try { ctrlKeys.push(...Object.keys(ctrl)); } catch {}
+        if (!ctrlKeys.length) {
+          try { ctrlKeys.push(...Object.getOwnPropertyNames(Object.getPrototypeOf(ctrl))); } catch {}
+        }
+        probe.ctrlKeys = ctrlKeys.filter((k) => !k.startsWith("_")).slice(0, 80);
+        probe.queueMethods = probe.ctrlKeys.filter((k) => /queue|pending|list|status|message|prompt/i.test(k));
+
+        const sessions = (() => { try { return ctx.get?.("sessions"); } catch { return null; } })();
+        const session = (() => { try { return sessions?.get?.(sessionId); } catch { return null; } })();
+        if (session) {
+          probe.sessionKeys = Object.keys(session).slice(0, 80);
+          probe.queueLike = {};
+          for (const k of probe.sessionKeys) {
+            if (!/queue|pending|prompt|turn|busy|running|message|state/i.test(k)) continue;
+            try {
+              const v = session[k];
+              if (typeof v === "function") { probe.queueLike[k] = "<fn>"; continue; }
+              if (v && typeof v === "object") {
+                const s = JSON.stringify(v);
+                probe.queueLike[k] = String(s).slice(0, 600);
+              } else {
+                probe.queueLike[k] = String(v).slice(0, 200);
+              }
+            } catch { probe.queueLike[k] = "<err>"; }
+          }
+        }
+        logLine(probe);
+      } catch (e) {
+        logLine({ step: "queue.probe/failed", error: String(e?.message || e).slice(0, 200) });
+      }
+
       return sendJson(res, 200, {
         ok: true,
         sessionId,
