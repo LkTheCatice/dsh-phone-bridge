@@ -102,6 +102,16 @@ struct QueueSheet: View {
                 .buttonStyle(.borderless)
 
                 Button {
+                    remove(item)
+                } label: {
+                    Label("删除", systemImage: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red.opacity(0.85))
+                .disabled(true)   // 写接口还没打通，先占位
+
+                Button {
                     steer(item)
                 } label: {
                     Label("插队", systemImage: "arrow.up.to.line")
@@ -119,6 +129,13 @@ struct QueueSheet: View {
         editing = item
         draft = item.text
         notice = nil
+    }
+
+    private func remove(_ item: QueueItem) {
+        // 删除 = splice(target: next-turn, start: 该条位置, removedCount: 1, inserted: [])
+        // 语义已经确认（事件里有 removedCount 字段），但还没有能调用的写接口。
+        let stillThere = chat.queue.contains { $0.rpcId == item.rpcId }
+        notice = stillThere ? "删除接口还在打通中" : "这条已经不在队列里了"
     }
 
     private func steer(_ item: QueueItem) {
