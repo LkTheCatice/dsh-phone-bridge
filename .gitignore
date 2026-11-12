@@ -19,3 +19,7 @@ pair.json
 Thumbs.db
 *.tmp
 *.log
+
+# Codemagic API token（不入库）
+.codemagic-token
+
