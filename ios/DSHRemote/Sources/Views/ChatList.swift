@@ -132,25 +132,28 @@ struct ChatList: UIViewRepresentable {
                 return !oldIds.isEmpty && !oldIds.contains(firstNew)
             }()
 
+            // 必须在 apply **之前**取值：apply 之后 contentSize 就是新的了
             let cv = collectionView
             let beforeHeight = cv?.contentSize.height ?? 0
             let beforeOffset = cv?.contentOffset.y ?? 0
+            let wasAtTop = beforeOffset < 90
 
             lookup = Dictionary(unique.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             snapshot.appendSections(["main"])
             snapshot.appendItems(unique.map(\.id), toSection: "main")
-            dataSource.apply(snapshot, animatingDifferences: false)
-
-            // QQ 式补偿：往头部插入内容后，UICollectionView 会把偏移量
-            // 拽回顶部附近（看起来像「回到底部」或「跳了一下」）。
-            // 这里把新增的高度加回到 contentOffset，画面保持不动。
-            if insertedAtTop, let cv, beforeHeight > 0 {
-                cv.layoutIfNeeded()
+            // 往头部插入内容后要补偿偏移，否则画面会被拽走（用户要求：
+            // 「向上拉不应该回到底部」—— 这是基本行为，不是可选项）。
+            //
+            // 关键：必须在 **completion 回调里**补偿。
+            // apply 是异步的，返回时 contentSize 还没更新，同步算出来 delta = 0，
+            // 等于没补偿（上一版就是这么失效的）。
+            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                guard let self, insertedAtTop, let cv = self.collectionView else { return }
+                guard beforeHeight > 0 else { return }
                 let delta = cv.contentSize.height - beforeHeight
-                if delta > 0 {
-                    cv.contentOffset.y = beforeOffset + delta
-                }
+                guard delta > 1 else { return }
+                cv.contentOffset.y = beforeOffset + delta
             }
         }
 
