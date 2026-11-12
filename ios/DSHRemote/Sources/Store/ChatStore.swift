@@ -30,10 +30,31 @@ final class ChatStore: ObservableObject {
     ///   改内容(removed>0 + items) → 替换；插队(next-step) → 移出队列。
     @Published private(set) var queue: [QueueItem] = []
 
-    /// 只在不相等时赋值，避免无意义通知（Equatable 比较，Array<ChatEntry> 的 == 已是轻量实现）
+    /// 只在不相等时赋值，避免无意义通知。
+    ///
+    /// 这里用**快速指纹**而不是整数组比较：
+    /// `entries != next` 是 O(n)（每条还要比几个 String），
+    /// 而 tick 在流式输出时每秒十几次 —— 会话加载到 600 条以后
+    /// 光这个比较就是明显开销（用户问「翻得越上越占性能吗」，
+    /// 渲染不占，但这条比较会）。
+    ///
+    /// 指纹 = count + 首条 id + 末条 id + 末条文本长度。
+    /// 流式追加必然改变末条长度；上拉插入必然改变首条 id；
+    /// 两者都不变时，内容不足以变化到需要重绘。
     func setEntries(_ next: [ChatEntry]) {
-        guard entries != next else { return }
+        guard !isSame(entries, next) else { return }
         entries = next
+    }
+
+    private func isSame(_ a: [ChatEntry], _ b: [ChatEntry]) -> Bool {
+        guard a.count == b.count else { return false }
+        guard let aFirst = a.first, let bFirst = b.first,
+              let aLast = a.last, let bLast = b.last else {
+            return a.isEmpty && b.isEmpty
+        }
+        return aFirst.id == bFirst.id
+            && aLast.id == bLast.id
+            && aLast.text.count == bLast.text.count
     }
 
     func bumpTick() {
