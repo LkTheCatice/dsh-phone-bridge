@@ -12,7 +12,14 @@ import UIKit
 /// - 解析结果按原文缓存，滚动时命中缓存不再解析
 enum MarkdownNS {
 
-    private static let cache = NSCache<NSString, NSAttributedString>()
+    /// 富文本缓存。**必须设上限**：一条长回答的富文本可能几 MB，
+    /// NSCache 不设限时只靠系统内存压力回收，长时间挂机会一路涨到上百 MB。
+    private static let cache: NSCache<NSString, NSAttributedString> = {
+        let c = NSCache<NSString, NSAttributedString>()
+        c.countLimit = 120                 // 最多 120 条消息的富文本
+        c.totalCostLimit = 40 * 1024 * 1024 // 合计不超过 40MB
+        return c
+    }()
 
     static func render(_ text: String) -> NSAttributedString {
         if let hit = cache.object(forKey: text as NSString) { return hit }
@@ -20,7 +27,8 @@ enum MarkdownNS {
         let built = build(blocks)
         // 缓存不可变副本：可变对象被别处改动会污染缓存
         let frozen = NSAttributedString(attributedString: built)
-        cache.setObject(frozen, forKey: text as NSString)
+        // cost 用「字符数 × 8」近似 attributed string 的实际占用（字符 + 属性表）
+        cache.setObject(frozen, forKey: text as NSString, cost: max(1, frozen.length * 8))
         return frozen
     }
 

@@ -27,7 +27,10 @@ final class ImageCache {
     /// 记录写入顺序，超过容量时按最久未用淘汰
     private var order: [String] = []
     private let capacity = 24
+    /// 下载/解码失败的路径。**必须设上限**：每张坏图都会记住一个 path，
+    /// 长期使用（尤其目录里堆了损坏文件）会一路涨。
     private var failed = Set<String>()
+    private let failedCapacity = 200
 
     func cached(_ path: String) -> UIImage? { cache[path] }
     func isFailed(_ path: String) -> Bool { failed.contains(path) }
@@ -46,6 +49,7 @@ final class ImageCache {
                 Self.decodeThumbnail(data, maxPixel: 1600)
             }.value
             guard let image else {
+                if failed.count >= failedCapacity { failed.removeAll(keepingCapacity: true) }
                 failed.insert(path)
                 return nil
             }
@@ -59,13 +63,23 @@ final class ImageCache {
             }
             return image
         } catch {
+            if failed.count >= failedCapacity { failed.removeAll(keepingCapacity: true) }
             failed.insert(path)
             return nil
         }
     }
 
     /// 后台解码出缩略图（非隔离方法，随便哪个线程调）
+    /// 注意：整段包在 `autoreleasepool` 里。
+    ///
+    /// 一张 2800×6000 的图解码过程中会产生大量临时对象（CGImage、中间位图、NSData 副本），
+    /// 没有 autoreleasepool 的话它们要等整个 Task 结束才释放；连续解码几十张时
+    /// 峰值会叠加到几百 MB。包一层能保证每次解码结束就还。
     nonisolated static func decodeThumbnail(_ data: Data, maxPixel: Int) -> UIImage? {
+        autoreleasepool { decodeThumbnailInner(data, maxPixel: maxPixel) }
+    }
+
+    private nonisolated static func decodeThumbnailInner(_ data: Data, maxPixel: Int) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             return UIImage(data: data)
         }
