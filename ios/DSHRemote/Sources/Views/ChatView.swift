@@ -576,10 +576,18 @@ struct ChatView: View {
         model.recordSubmitEvent()
         model.traceFollow("tap=send")
         let text = draft
-        // 这条会不会排队：当前正在生成、且选的是「排队」模式。
-        // 以前手机端发完就当「已发出」，如果实际在排队，界面上完全没有区别 ——
-        // 电脑端却明明显示「排队中」，两边对不上。
-        let willQueue = chat.streaming && model.sendMode == .queue
+        // 这条会不会排队。
+        //
+        // 之前只判断 chat.streaming —— 但它要等 turn.end 帧到达才翻 false，
+        // 帧总有延迟：用户看到回答结束、立刻发下一条时 streaming 还是 true，
+        // 于是**没有排队却显示了「已排队」**（用户实测）。
+        //
+        // 改成看条目级证据，两个条件任一成立才算真的在忙：
+        //   ① 还有 local- 前缀的条目没被服务端确认（上一条还在路上/在队列里）
+        //   ② 最后一条 assistant 的 running 还是 true（这一轮确实在生成）
+        let pendingLocal = chat.entries.contains { $0.id.hasPrefix("local-") }
+        let assistantRunning = chat.entries.last(where: { $0.kind == .assistant })?.running == true
+        let willQueue = (pendingLocal || assistantRunning) && model.sendMode == .queue
         // 附件和文字合并成一条消息：附件路径放后面，文字保持原样在前面
         let attachmentLines = attachments.map { "[附件] \($0)" }.joined(separator: "\n")
         let payload = attachmentLines.isEmpty
