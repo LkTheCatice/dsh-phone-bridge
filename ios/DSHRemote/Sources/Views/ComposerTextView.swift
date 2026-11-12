@@ -31,7 +31,6 @@ struct ComposerTextView: UIViewRepresentable {
         view.isScrollEnabled = false          // 高度由内容决定，超过上限由外层限高
         view.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
         view.textContainer.lineFragmentPadding = 0
-        view.keyboardDismissMode = .interactive
         view.returnKeyType = .default
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.text = text
@@ -84,11 +83,19 @@ struct ComposerTextView: UIViewRepresentable {
             if parent.focused.wrappedValue { parent.focused.wrappedValue = false }
         }
 
+        /// 上次上报的高度。**只在真正变化时回调** —— 每输入一个字符都改
+        /// inputHeight 会让 safeAreaInset 抖动，进而带动列表重排。
+        private var lastReportedHeight: CGFloat = 0
+
         func reportHeight() {
             guard let view = textView else { return }
+            let width = view.bounds.width
+            guard width > 1 else { return }   // 还没布局，等下一次
             let height = view.sizeThatFits(
-                CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude)
+                CGSize(width: width, height: .greatestFiniteMagnitude)
             ).height
+            guard abs(height - lastReportedHeight) >= 0.5 else { return }
+            lastReportedHeight = height
             parent.onHeightChange(height)
         }
     }

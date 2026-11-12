@@ -48,7 +48,11 @@ struct ChatList: UIViewRepresentable {
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
         view.backgroundColor = .clear
         view.alwaysBounceVertical = true
-        view.keyboardDismissMode = .interactive
+        // ⚠️ 不能用 .interactive：每输入一个字符，输入框高度变化会让 safeAreaInset
+        // 跟着变 → 列表调整 contentOffset → 触发滚动事件 → interactive 模式下
+        // 键盘立刻开始收起（用户实测：按任意键输入框就被「下拉」）。
+        // .onDrag 只在手指真正拖动列表时才收键盘。
+        view.keyboardDismissMode = .onDrag
         view.contentInsetAdjustmentBehavior = .never
         view.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseID)
         view.delegate = context.coordinator
