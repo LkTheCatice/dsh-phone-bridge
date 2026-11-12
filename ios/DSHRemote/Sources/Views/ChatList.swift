@@ -370,6 +370,7 @@ enum MessageRender {
             let color: UIColor = (entry.kind == .user) ? .tintColor : .tertiaryLabel
             let paragraph = NSMutableParagraphStyle()
             paragraph.paragraphSpacing = 2
+            if entry.kind == .user { paragraph.alignment = .right }
 
             out.append(NSAttributedString(
                 string: prefix,
@@ -421,8 +422,13 @@ enum MessageRender {
         default:
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 4
-            // 用户消息的「靠右」交给 cell 的 leading 约束（见 configure），
-            // 这里只调间距 —— 如果在文字上再缩进一次会双重偏移。
+            if entry.kind == .user {
+                // 用户消息整段右对齐：本来就有 56pt 左缩进（块靠右），
+                // 再把文字对齐到右边，短消息（「检测」「准备重启」这类）就会贴屏幕右侧，
+                // 像聊天软件的气泡。用户消息通常很短，右对齐不会妨碍阅读。
+                paragraph.alignment = .right
+                paragraph.paragraphSpacing = 3
+            }
             body = NSAttributedString(
                 string: entry.text,
                 attributes: [

@@ -48,6 +48,8 @@ struct ChatView: View {
     // 用 @State 就是「改状态 → 重算 → 回调 → 再改」的无限循环。
     /// 标注编辑器：待编辑的图与等待中的 continuation
     @State private var editorImage: UIImage?
+    /// 正在编辑的附件（下标 + 原图），编辑完替换对应附件
+    @State private var editingAttachmentIndex: Int?
     @State private var editorContinuation: CheckedContinuation<UIImage?, Never>?
 
     private static let bottomAnchor = "__chat_bottom__"
@@ -204,12 +206,19 @@ struct ChatView: View {
                 ImageEditorSheet(
                     image: image,
                     onCommit: { merged in
+                        let index = editingAttachmentIndex
                         editorImage = nil
-                        editorContinuation?.resume(returning: merged)
+                        editingAttachmentIndex = nil
+                        if let index {
+                            Task { await replaceAttachment(at: index, with: merged) }
+                        } else {
+                            editorContinuation?.resume(returning: merged)
+                        }
                         editorContinuation = nil
                     },
                     onCancel: {
                         editorImage = nil
+                        editingAttachmentIndex = nil
                         editorContinuation?.resume(returning: nil)
                         editorContinuation = nil
                     }
@@ -420,13 +429,24 @@ struct ChatView: View {
             // 已上传待发送的附件：chip 列表，点 × 单独移除
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(attachments, id: \.self) { path in
+                    ForEach(Array(attachments.enumerated()), id: \.element) { index, path in
                         HStack(spacing: 5) {
-                            Image(systemName: "photo")
+                            Image(systemName: ImageRef.kind(of: path) == .image ? "photo" : "doc")
                                 .font(.system(size: 11))
                             Text((path as NSString).lastPathComponent)
                                 .font(.system(size: 11))
                                 .lineLimit(1)
+                            // 只有图片才有标注入口（选完直接上传，需要时再点这里编辑）
+                            if ImageRef.kind(of: path) == .image {
+                                Button {
+                                    Task { await editAttachment(at: index, path: path) }
+                                } label: {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                            }
                             Button {
                                 attachments.removeAll { $0 == path }
                             } label: {
@@ -581,13 +601,10 @@ struct ChatView: View {
         for (index, item) in items.enumerated() {
             do {
                 guard let raw = try await item.loadTransferable(type: Data.self) else { continue }
-                // 单张时给一次标注机会（可跳过）；多张直接走上传，免得连着弹九次编辑器
-                var working = raw
-                if items.count == 1,
-                   let preview = UIImage(data: raw),
-                   let annotated = await presentEditor(preview) {
-                    working = annotated.jpegData(compressionQuality: 0.92) ?? raw
-                }
+                // 选完直接上传：以前单张会先弹标注编辑器，多张不弹 ——
+                // 单张必然多一步、多张反而没有，逻辑不一致（用户反馈「流程反复」）。
+                // 现在统一直接传，需要标注时点附件 chip 上的笔进入编辑器。
+                let working = raw
                 // 压缩必须离开主线程：1700 万像素的图光解码就是几十 MB，
                 // 在主线程跑会把触控堵死（上传完就卡住就是这个原因）
                 let data = await Task.detached(priority: .userInitiated) {
@@ -629,6 +646,41 @@ struct ChatView: View {
                 model.showToast("第 \(index + 1) 个视频上传失败：\(error.localizedDescription)")
                 uploadProgress = (index + 1, items.count)
             }
+        }
+    }
+
+    /// 点附件 chip 上的笔：下载该附件并按标注流程编辑，完成后替换
+    private func editAttachment(at index: Int, path: String) async {
+        guard ImageRef.kind(of: path) == .image else { return }
+        uploading = true
+        defer { uploading = false }
+        do {
+            // 用 preview 拿一张够编辑的图（不必拉原图）
+            let data = try await model.download(path: path, preview: true, maxWidth: 1600)
+            guard let image = UIImage(data: data) else { return }
+            editingAttachmentIndex = index
+            editorImage = image
+        } catch {
+            model.showToast("打开编辑失败：\(error.localizedDescription)")
+        }
+    }
+
+    /// 编辑完成后：重新压缩上传，替换原来那张
+    private func replaceAttachment(at index: Int, with image: UIImage) async {
+        guard attachments.indices.contains(index) else { return }
+        uploading = true
+        defer { uploading = false }
+        do {
+            let data = await Task.detached(priority: .userInitiated) {
+                ImagePrep.compress(image.jpegData(compressionQuality: 0.92) ?? Data())
+            }.value
+            let stamp = Int(Date().timeIntervalSince1970)
+            let remote = try await model.uploadAttachment(data, filename: "image-\(stamp)-edited.jpg")
+            if attachments.indices.contains(index) {
+                attachments[index] = remote
+            }
+        } catch {
+            model.showToast("替换失败：\(error.localizedDescription)")
         }
     }
 
