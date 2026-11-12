@@ -47,6 +47,16 @@ final class WalletStore: ObservableObject {
         wallets = parse("wallets", bonus: false) + parse("bonuses", bonus: true)
     }
 
+    /// 金额统一保留两位小数。
+    /// DSH 返回的是原始字符串（如 "2.4323527000000000"），直接显示太难看。
+    private static func formatMoney(_ raw: Any?) -> String {
+        let text = String(describing: raw ?? "")
+        guard let value = Double(text) else {
+            return (raw as? String) ?? "-"
+        }
+        return String(format: "%.2f", value)
+    }
+
     func markLoading() {
         status = "loading"
     }

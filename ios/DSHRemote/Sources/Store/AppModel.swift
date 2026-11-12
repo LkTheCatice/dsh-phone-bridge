@@ -596,10 +596,17 @@ final class AppModel: ObservableObject {
             case "error": label = "本轮出错"
             default: label = "本轮结束 · \(kind)"
             }
+            // 顺序很重要：先折叠过程拿到步数，再写「本轮结束」那一行，
+            // 这样步数能直接并进同一条系统行里（用户要求「本轮步数位置改成
+            // 和本轮同时一起」—— 之前是「本轮结束 · 用时 N 秒」和
+            // 「本轮过程 · M 步」分成两行，看着散）。
+            let foldedSteps = foldSteps(sid, turn: turn)
+            var endText = elapsed.isEmpty ? label : "\(label) · \(elapsed)"
+            if foldedSteps > 0 { endText += " · \(foldedSteps) 步" }
             append(sid, ChatEntry(
                 id: "\(sid)#end\(turn)",
                 kind: .system,
-                text: elapsed.isEmpty ? label : "\(label) · \(elapsed)",
+                text: endText,
                 at: Date()
             ))
             for key in entries.keys {
@@ -607,9 +614,6 @@ final class AppModel: ObservableObject {
                 for i in list.indices where list[i].running { list[i].running = false }
                 entries[key] = list
             }
-            // 本轮跑完就把过程收起来：思考 + 工具调用合成一行「本轮过程 · N 步」，
-            // 点开才展开。否则几十轮下来 log 会把聊天记录埋掉。
-            foldSteps(sid, turn: turn)
             // DSH 的标题是消息后异步生成的，turn.end 那一刻往往还没写进日志，
             // 所以延迟几秒再刷一次会话列表，标题才会显示出来。
             // 回填历史时必须跳过：一次历史里几十个 turn.end，否则会刷爆 /v1/sessions
@@ -822,13 +826,17 @@ final class AppModel: ObservableObject {
 
     /// 把某一轮里的思考 + 工具调用折叠成单个可展开条目。
     /// 少于 3 步就不折 —— 只有一两步时折起来反而多一次点击。
-    private func foldSteps(_ sessionId: String, turn: Int) {
-        guard var list = entries[sessionId] else { return }
+    /// 把本轮的思考/工具调用折成一行，返回折叠了几步（0 表示没折）。
+    /// 返回步数是为了让「本轮结束」那一行能带上它 —— 用户要求
+    /// 「本轮步数位置改成和本轮同时一起」，即合并成一条系统行。
+    @discardableResult
+    private func foldSteps(_ sessionId: String, turn: Int) -> Int {
+        guard var list = entries[sessionId] else { return 0 }
         let processKinds: Set<ChatEntry.Kind> = [.thinking, .toolCall]
         let stepIndexes = list.indices.filter {
             processKinds.contains(list[$0].kind) && list[$0].turn == turn
         }
-        guard stepIndexes.count >= 3, let firstIdx = stepIndexes.first else { return }
+        guard stepIndexes.count >= 3, let firstIdx = stepIndexes.first else { return 0 }
 
         let foldedEntries = stepIndexes.map { list[$0] }
         let fold = ChatEntry(
@@ -848,6 +856,7 @@ final class AppModel: ObservableObject {
         }
         list.insert(fold, at: min(firstIdx, list.count))
         entries[sessionId] = list
+        return foldedEntries.count
     }
 
     private func upsertStreaming(_ sessionId: String, id: String, kind: ChatEntry.Kind, delta: String, header: String, turn: Int = 0) {

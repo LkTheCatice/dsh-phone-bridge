@@ -302,6 +302,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             if !refs.videos.isEmpty { parts.append("\(refs.videos.count) 个视频") }
             if !refs.audios.isEmpty { parts.append("\(refs.audios.count) 段音频") }
             attachmentLabel.text = "📎 " + parts.joined(separator: " · ") + " · 点按查看 ›"
+            // 用户消息整条靠右，附件提示行也要跟着靠右 ——
+            // 它是独立的 UILabel，不受正文段落对齐影响（用户实拍：图片蓝链仍靠左）。
+            attachmentLabel.textAlignment = (entry.kind == .user) ? .right : .natural
             attachmentLabel.isHidden = false
         }
 
