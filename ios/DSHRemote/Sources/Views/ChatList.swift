@@ -88,6 +88,9 @@ struct ChatList: UIViewRepresentable {
             dataSource = UICollectionViewDiffableDataSource<String, String>(collectionView: view) { [weak self] cv, indexPath, id in
                 let cell = cv.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
                 if let entry = self?.lookup[id] {
+                    let index = entries.firstIndex { $0.id == id }
+                    let previousKind = (index ?? 0) > 0 ? entries[(index ?? 1) - 1].kind : nil
+                    let isRoleChange = previousKind != nil && previousKind != entry.kind
                     cell.configure(
                         entry,
                         streaming: self?.parent.isStreaming ?? false,
@@ -96,7 +99,8 @@ struct ChatList: UIViewRepresentable {
                         },
                         onOpenLink: { [weak self] url in
                             self?.parent.onOpenLink(id, url)
-                        }
+                        },
+                        isRoleChange: isRoleChange
                     )
                 }
                 return cell
@@ -180,6 +184,11 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private var onTapAttachments: (() -> Void)?
     /// 点开链接 / 折叠提示（由 ChatView 决定行为）
     private var onOpenLink: ((URL) -> Void)?
+    /// cell 顶部留白（角色切换时更大）
+    private var topConstraint: NSLayoutConstraint?
+    private var stackTopSpacing: CGFloat = 4 {
+        didSet { topConstraint?.constant = stackTopSpacing }
+    }
     /// 当前渲染的条目（高度缓存要按它生成 key）
     private var currentEntry: ChatEntry?
 
@@ -207,8 +216,10 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
+        topConstraint = stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
+            topConstraint!,
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -264,10 +275,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         _ entry: ChatEntry,
         streaming: Bool,
         onTapAttachments: (() -> Void)?,
-        onOpenLink: ((URL) -> Void)? = nil
+        onOpenLink: ((URL) -> Void)? = nil,
+        isRoleChange: Bool = false
     ) {
         currentEntry = entry
         self.onOpenLink = onOpenLink
+        // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强
+        stackTopSpacing = isRoleChange ? 14 : 4
         textView.attributedText = MessageRender.attributed(entry)
         self.onTapAttachments = onTapAttachments
 
@@ -385,11 +399,16 @@ enum MessageRender {
                 ]
             )
         case .system, .toolResult:
+            // 系统行是背景信息，居中 + 更淡更小，让它退到正文之后
+            let centered = NSMutableParagraphStyle()
+            centered.alignment = .center
+            centered.paragraphSpacing = 4
             body = NSAttributedString(
                 string: entry.text,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 11),
+                    .font: UIFont.systemFont(ofSize: 10.5),
                     .foregroundColor: UIColor.tertiaryLabel,
+                    .paragraphStyle: centered,
                 ]
             )
         default:
