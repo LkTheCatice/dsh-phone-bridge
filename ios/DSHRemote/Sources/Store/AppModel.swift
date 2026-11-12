@@ -1305,66 +1305,6 @@ final class AppModel: ObservableObject {
     /// 把某个会话的历史事件拉回来重建成聊天记录。
     /// 之前只显示「连上之后收到的事件」，所以重开 App 后旧对话是空的。
     /// limit 从服务端取多少帧；实际留在内存里的条数还要过 220 的修剪。
-    /// 「上拉加载更早」的状态：已加载条数 / 是否还有更早 / 是否正在加载
-    @Published private(set) var olderHasMore = false
-    @Published private(set) var olderLoading = false
-    private var olderBefore: [String: Int] = [:]
-
-    /// 加载更早的消息（QQ 式上拉）。
-    /// 服务端按 before（已加载条数，从尾部往前数）分页返回。
-    func loadOlder(_ sessionId: String, limit: Int = 80) async {
-        guard let client, !sessionId.isEmpty, !olderLoading else { return }
-        olderLoading = true
-        defer { olderLoading = false }
-        // 用服务端给的 nextBefore，**不能**用条目数 ——
-        // 一个条目可能由多个帧合成，两个数字对不上会导致重复拉取
-        // （用户实拍：同一条消息被插了三次）。
-        //
-        // 游标只在 loadHistory 里记录。如果这次会话没走过 loadHistory
-        // （比如内容是从别处恢复的），olderBefore 就是空的 ——
-        // 之前直接 return，表现就是「往上拉完全没反应」。
-        // 现在先补一次完整加载拿到游标，再继续。
-        var cursor = olderBefore[sessionId]
-        if cursor == nil {
-            await loadHistory(sessionId)
-            cursor = olderBefore[sessionId]
-        }
-        guard let before = cursor else {
-            trace("older-no-cursor sid=\(sessionId.suffix(6))")
-            return
-        }
-        do {
-            let raw = try await client.transcript(sessionId: sessionId, limit: limit, before: before)
-            guard let frames = raw["frames"] as? [[String: Any]], !frames.isEmpty else {
-                trace("older-empty hasMore=\(raw["hasMore"] ?? "?")")
-                olderHasMore = false
-                return
-            }
-            trace("older-frames=\(frames.count) hasMore=\(raw["hasMore"] ?? "?")")
-            olderHasMore = (raw["hasMore"] as? Bool) ?? false
-            if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
-                olderBefore[sessionId] = next
-            }
-            // 历史帧按顺序应用，插到已有条目的**前面**。
-            // 不能「清空 → apply → 拼回去」：apply 里带 foldSteps / syncCurrentEntries
-            // 等副作用，而且一旦 before 算错就会把已加载的帧再插一遍
-            // （用户实拍：同一条消息出现三次）。
-            let existing = entriesStorage[sessionId] ?? []
-            let existingIds = Set(existing.map(\.id))
-            entriesStorage[sessionId] = []
-            for frame in frames {
-                let seq = (frame["seq"] as? NSNumber)?.intValue ?? 0
-                apply(seq: seq, frame: frame, isHistory: true)
-            }
-            // 只保留「已有条目里没有的」新条目，按 id 去重兜底
-            let fresh = (entriesStorage[sessionId] ?? []).filter { !existingIds.contains($0.id) }
-            entriesStorage[sessionId] = fresh + existing
-            syncCurrentEntries()
-        } catch {
-            trace("older-failed=\(error.localizedDescription.prefix(40))")
-        }
-    }
-
     func loadHistory(_ sessionId: String, limit: Int = 120) async {
         guard let client, !sessionId.isEmpty else { return }
         historyLoading = true
@@ -1392,11 +1332,6 @@ final class AppModel: ObservableObject {
             }
             if let lastError { throw lastError }
             guard let frames = raw["frames"] as? [[String: Any]] else { return }
-            // 记下「下次往更早拉」的游标，以及还有没有更早的
-            if let next = (raw["nextBefore"] as? NSNumber)?.intValue {
-                olderBefore[sessionId] = next
-            }
-            olderHasMore = (raw["hasMore"] as? Bool) ?? false
             let started = CFAbsoluteTimeGetCurrent()
             var worstChunkMs = 0
             var chunkStart = started

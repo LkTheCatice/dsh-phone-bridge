@@ -313,14 +313,11 @@ final class BridgeClient {
         return try await postJSON("/v1/session/model", json: payload)
     }
 
-    /// - Parameter before: 已经加载过的条数（从尾部往前数），用于「上拉加载更早」。
-    func transcript(sessionId: String, limit: Int = 400, before: Int = 0) async throws -> [String: Any] {
-        var query: [(String, String)] = [
+    func transcript(sessionId: String, limit: Int = 400) async throws -> [String: Any] {
+        try await getJSON("/v1/transcript", query: [
             ("sessionId", sessionId),
             ("limit", String(limit)),
-        ]
-        if before > 0 { query.append(("before", String(before))) }
-        return try await getJSON("/v1/transcript", query: query)
+        ])
     }
 
     func sessions(archived: Bool = false) async throws -> [String: Any] {

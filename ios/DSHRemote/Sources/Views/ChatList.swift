@@ -17,8 +17,6 @@ struct ChatList: UIViewRepresentable {
     let onBottomChanged: (Bool) -> Void
     /// 需要「滚到底」时由外部改这个 token（每次变化触发一次滚动）
     let scrollRequest: Int
-    /// 滚到顶部附近时回调，用于加载更早的消息（QQ 式上拉）
-    let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
     let onTapEntry: (String) -> Void
     /// 点击「📎 附件」提示行（打开媒体面板）
@@ -149,22 +147,10 @@ struct ChatList: UIViewRepresentable {
 
         // MARK: UIScrollViewDelegate（通过 collectionView.delegate 转发）
 
-        // 上拉加载更早：滚到顶部附近触发一次。
-        // 用 120pt 的提前量，让用户还没真正贴顶时就开始拉，体验更连续。
-        private var lastOlderTrigger = false
-
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let height = scrollView.contentSize.height
             let offset = scrollView.contentOffset.y
             let viewport = scrollView.bounds.height
-            // 顶部触发（带防抖：靠近才触发一次，离开后复位）
-            let nearTop = offset < 120
-            if nearTop, !lastOlderTrigger {
-                lastOlderTrigger = true
-                parent.onLoadOlder()
-            } else if offset > 260 {
-                lastOlderTrigger = false
-            }
             guard height > viewport else { report(bottom: true); return }
             let distance = height - (offset + viewport)
             // 滞后：靠近底部 40pt 内算在底部，离开 200pt 才算离开
