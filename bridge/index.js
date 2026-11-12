@@ -627,10 +627,18 @@ function applyBridge(ctx, config) {
       return videoPreview(real, stat);
     }
 
-    if (stat.size < PREVIEW_MIN_BYTES) return null;
+    // 聊天列表里的缩略图只需几百像素；点开大图才要 2048。
+    // 由调用方用 ?w= 指定，缺省仍用 PREVIEW_MAX_PIXEL。
+    const maxPixel = Math.min(
+      Math.max(Number(options.maxPixel) || PREVIEW_MAX_PIXEL, 64),
+      PREVIEW_MAX_PIXEL,
+    );
+
+    // 太小的图不必压（压了反而更大）
+    if (stat.size < PREVIEW_MIN_BYTES && maxPixel >= PREVIEW_MAX_PIXEL) return null;
 
     const key = createHash("sha1")
-      .update(`${real}|${stat.mtimeMs}|${PREVIEW_MAX_PIXEL}|${PREVIEW_QUALITY}`)
+      .update(`${real}|${stat.mtimeMs}|${maxPixel}|${PREVIEW_QUALITY}`)
       .digest("hex");
     const cachedPath = path.join(previewCacheDir, `${key}.jpg`);
     try {
@@ -653,7 +661,7 @@ function applyBridge(ctx, config) {
       await fsp.mkdir(previewCacheDir, { recursive: true });
       await execFileAsync(
         python,
-        ["-c", script, real, cachedPath, String(PREVIEW_MAX_PIXEL), String(PREVIEW_QUALITY)],
+        ["-c", script, real, cachedPath, String(maxPixel), String(PREVIEW_QUALITY)],
         { timeout: 25000, windowsHide: true },
       );
       const buffer = await fsp.readFile(cachedPath);
@@ -1673,7 +1681,7 @@ function applyBridge(ctx, config) {
       // 手机只为「看一眼确认」，原件始终在电脑上。
       if (url.searchParams.get("preview") === "1" && offset === 0) {
         const mode = url.searchParams.get("mode") || "auto";
-        const preview = await imagePreview(target, { mode });
+        const preview = await imagePreview(target, { mode, maxPixel: Number(url.searchParams.get("w")) || undefined });
         if (preview) {
           return sendBinary(res, 200, preview.buffer, ctxEnc, {
             "x-file-size": String(preview.buffer.length),

@@ -318,7 +318,9 @@ final class BridgeClient {
         offset: Int,
         limit: Int,
         preview: Bool = false,
-        mode: String? = nil
+        mode: String? = nil,
+        /// 预览目标宽度（像素）。聊天列表用几百，点开看大图用 2048。
+        maxWidth: Int? = nil
     ) async throws -> Data {
         var query: [(String, String)] = [
             ("path", path),
@@ -326,6 +328,7 @@ final class BridgeClient {
             ("limit", String(limit)),
         ]
         if preview { query.append(("preview", "1")) }
+        if preview, let maxWidth { query.append(("w", String(maxWidth))) }
         // mode=poster 时服务端只返回封面帧；不传则按类型自动（图片压缩 / 视频压预览）
         if let mode, !mode.isEmpty { query.append(("mode", mode)) }
         let (data, headers) = try await sendWithHeaders(method: "GET", path: "/v1/fs/read", query: query)

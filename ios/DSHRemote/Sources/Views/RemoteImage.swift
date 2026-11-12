@@ -40,7 +40,9 @@ final class ImageCache {
         if failed.contains(path) { return nil }
         model.markMain("img:download")
         do {
-            let data = try await model.download(path: path)
+            // 让电脑端压好再传：列表里只需要 ~900px，比拉原图（动辄十几 MB）
+            // 再本地解码便宜两个数量级；点开看大图时另有 2048 的预览路径。
+            let data = try await model.download(path: path, preview: true, maxWidth: 900)
             // 不能在主线程直接 UIImage(data:) —— 那是懒解码，真正解码发生在渲染时，
             // 一张 2835×6144 的图要 70MB，界面会直接卡住。
             // 这里在后台用 CGImageSource 只解码出一个够显示的缩略图。

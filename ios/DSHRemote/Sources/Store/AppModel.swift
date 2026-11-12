@@ -1406,12 +1406,30 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 下载文件内容。
+    ///
+    /// `preview: true` 时**电脑侧先压缩再传**（Pillow 缩放到 `maxWidth`，见 bridge/index.js
+    /// 的 imagePreview）。聊天里看图只要几百像素，用 preview 能把传输量从几十 MB
+    /// 降到几百 KB，并省掉手机端解码大图的内存峰值。
     func download(
         path: String,
         chunkSize: Int = 1024 * 1024,
+        preview: Bool = false,
+        maxWidth: Int? = nil,
         onProgress: ((Int64, Int64) -> Void)? = nil
     ) async throws -> Data {
         guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
+        if preview {
+            // 预览图由电脑侧一次性生成，不必分块
+            return try await client.readFile(
+                path: path,
+                offset: 0,
+                limit: 8 * 1024 * 1024,
+                preview: true,
+                maxWidth: maxWidth
+            )
+        }
+
         var data = Data()
         var offset = 0
         var guardCount = 0
