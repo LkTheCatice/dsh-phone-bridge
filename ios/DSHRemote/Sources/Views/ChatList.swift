@@ -218,7 +218,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private var topConstraint: NSLayoutConstraint?
     /// 内容块左边界：用户消息靠右（留出 56pt），其余贴左
     private var leadingConstraint: NSLayoutConstraint?
-    private var stackTopSpacing: CGFloat = 4 {
+    private var stackTopSpacing: CGFloat = 8 {
         didSet { topConstraint?.constant = stackTopSpacing }
     }
     /// 当前渲染的条目（高度缓存要按它生成 key）
@@ -254,14 +254,18 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
-        topConstraint = stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4)
+        topConstraint = stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8)
         // 约束分两套，按消息角色切换：
         //   助手 → leading 固定 0 + trailing 固定（铺满）
         //   用户 → leading 改成 ≥56（可收缩）+ width 固定（按内容）+ trailing 固定（贴右）
+        // 只保留 topConstraint 一个 top 约束。
+        // 之前这里还有个 `stack.topAnchor == contentView.topAnchor`，
+        // 两条约束打架，topConstraint 的 constant 完全不起作用 ——
+        // 表现就是「两个气泡贴在一起，调间距没反应」（用户实拍）。
+        // bottom 也从 -2 改成 -8：气泡往外扩 6pt，留 2pt 会被裁掉。
         NSLayoutConstraint.activate([
             topConstraint!,
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
         ])
         stackLeadingEq = stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
         stackLeadingMin = stack.leadingAnchor.constraint(
@@ -543,7 +547,9 @@ enum MessageRender {
                 string: entry.text,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 10.5),
-                    .foregroundColor: UIColor.tertiaryLabel,
+                    // 用 secondaryLabel 的 55% —— tertiaryLabel 在某些背景下
+                    // 看起来偏深（用户反馈「仍是黑色字」），这档更轻。
+                    .foregroundColor: UIColor.secondaryLabel.withAlphaComponent(0.55),
                     .paragraphStyle: centered,
                 ]
             )
