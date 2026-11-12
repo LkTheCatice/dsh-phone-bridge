@@ -211,20 +211,28 @@ enum MarkdownNS {
             )
 
         case let .table(headers, rows):
-            // 表格：用 **tabStops 做真正的列对齐**。
+            // 表格一律用 **tabStops 做列对齐**（等宽字体 + 按显示宽度算停靠点）。
             //
-            // 走过的路：
-            // 1. 「│ 分隔的对齐文本行」→ 长内容撑乱整行，列根本对不上
-            // 2. 「卡片式：每行拆 2~3 段」→ 可读了，但段落数翻倍，
-            //    实测 STUCK 从 1 条 725ms 涨到 65 条 6965ms
-            // 3. 「一行一条用 ｜ 分隔」→ 便宜，但列仍不对齐（用户：不直观）
+            // 走过的错路：
+            // 1. 「│ 分隔的对齐文本行」→ 长内容撑乱整行
+            // 2. 「卡片式（每行拆 2~3 段）」→ 可读但段落数翻倍，STUCK 1→65 条、725ms→6965ms
+            // 3. 「卡片式用在详情页」→ ▸ 标题缺换行，和「列名：」粘在一起（用户实拍）
             //
-            // 现在：等宽字体 + 按显示宽度算出的 tabStops + 每行用 \t 分隔。
-            // 列是真的对齐了，段落数与普通文本相同（成本回到基线）。
+            // 现在列表与详情页共用同一套 tabStops 实现，只有预算不同：
+            // 列表收紧（10 行 / 5 列 / 46 字符宽）保滚动性能；
+            // 详情页放宽（200 行 / 8 列 / 90 字符宽 + 更小字号）看完整内容。
+            let isFull = (mode == .full)
+            let rowLimit = isFull ? 200 : 10
+            let columnLimit = isFull ? 8 : 5
+            let availableChars = isFull ? 90 : 46
+            let charWidth: CGFloat = isFull ? 6.4 : 7.2
+            let fontSize: CGFloat = isFull ? 10 : 11.5
+
             let maxColumns = max(headers.count, rows.map(\.count).max() ?? 0)
             guard maxColumns > 0 else { return NSAttributedString() }
+            let columnCount = min(maxColumns, columnLimit)
+            let hiddenColumns = maxColumns - columnCount
 
-            // 中文/全角算 2 个字符宽，其余算 1 —— 等宽字体下才能对齐
             func displayWidth(_ s: String) -> Int {
                 s.unicodeScalars.reduce(0) { acc, u in
                     let wide = (u.value >= 0x1100 && u.value <= 0x115F)
@@ -238,61 +246,8 @@ enum MarkdownNS {
                 }
             }
 
-            // full 模式（详情页）不截断：行列全展开，单元格不压缩
-            if mode == .full {
-                let out = NSMutableAttributedString()
-                for (rowIndex, row) in rows.enumerated() {
-                    let title = row.first ?? ""
-                    if !title.isEmpty {
-                        let head = NSMutableAttributedString(
-                            string: "▸ ",
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                                .foregroundColor: UIColor.secondaryLabel,
-                            ]
-                        )
-                        head.append(inline(title, base: .systemFont(ofSize: 13, weight: .semibold)))
-                        head.addAttribute(
-                            .paragraphStyle,
-                            value: Self.style(spacingAfter: 2, spacingBefore: rowIndex == 0 ? before : 8, lineSpacing: 2, headIndent: 14, firstLineIndent: 2),
-                            range: NSRange(location: 0, length: head.length)
-                        )
-                        out.append(head)
-                    }
-                    for column in 1..<max(row.count, 1) where column < row.count {
-                        let name = column < headers.count ? headers[column] : "列\(column + 1)"
-                        let line = NSMutableAttributedString(
-                            string: "\(name)：",
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 12),
-                                .foregroundColor: UIColor.tertiaryLabel,
-                            ]
-                        )
-                        line.append(inline(row[column], base: .systemFont(ofSize: 13)))
-                        line.addAttribute(
-                            .paragraphStyle,
-                            value: Self.style(spacingAfter: 3, spacingBefore: 0, lineSpacing: 2, headIndent: 16, firstLineIndent: 16),
-                            range: NSRange(location: 0, length: line.length)
-                        )
-                        out.append(line)
-                        out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 2)]))
-                    }
-                    out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 4)]))
-                }
-                return out
-            }
-
-            let limit = 10
-            let shownRows = Array(rows.prefix(limit))
-
-            // 手机竖屏、11.5pt 等宽字体下大约能放 46 个字符宽。
-            // **必须限总宽**：只限单格宽度的话，5 列 × 14 + 间距 ≈ 78 字符，
-            // 超出的部分会被强行折行，竖线立刻错位（用户问的就是这个）。
-            let availableChars = 46
+            let shownRows = Array(rows.prefix(rowLimit))
             let gutterChars = 2
-            let maxColumnsShown = 5
-            let columnCount = min(maxColumns, maxColumnsShown)
-            let hiddenColumns = maxColumns - columnCount
             let gutterTotal = (columnCount - 1) * gutterChars
             let contentBudget = max(8, availableChars - gutterTotal)
 
@@ -310,16 +265,13 @@ enum MarkdownNS {
                 return out + "…"
             }
 
-            // 第一遍：算每列的自然宽度（单列上限先放 16）
-            let table = [headers] + shownRows
+            let allRows = [headers] + shownRows
             var natural = [Int](repeating: 0, count: columnCount)
-            for row in table {
+            for row in allRows {
                 for (i, cell) in row.enumerated() where i < columnCount {
-                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: 16)))
+                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: isFull ? 22 : 16)))
                 }
             }
-
-            // 第二遍：超宽就按比例压缩，内容短的列保持短，只压长的
             let naturalTotal = natural.reduce(0, +)
             var columnWidths = natural
             if naturalTotal > contentBudget, naturalTotal > 0 {
@@ -327,8 +279,6 @@ enum MarkdownNS {
                 columnWidths = natural.map { max(4, Int((Double($0) * scale).rounded(.down))) }
             }
 
-            // 12pt 等宽字体单个字符约 7.2pt
-            let charWidth: CGFloat = 7.2
             var stops: [NSTextTab] = []
             var location: CGFloat = 0
             for i in 1..<columnCount {
@@ -339,10 +289,9 @@ enum MarkdownNS {
             func makeRow(_ row: [String], isHeader: Bool) -> NSAttributedString {
                 let style = NSMutableParagraphStyle()
                 style.tabStops = stops
-                style.lineSpacing = 3
-                style.paragraphSpacing = isHeader ? 4 : 3
-                style.headIndent = 0
-                let base = UIFont.monospacedSystemFont(ofSize: 11.5, weight: isHeader ? .semibold : .regular)
+                style.lineSpacing = isHeader ? 2 : 3
+                style.paragraphSpacing = isHeader ? 5 : 3
+                let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
                 for column in 0..<columnCount {
                     if column > 0 {
@@ -361,17 +310,18 @@ enum MarkdownNS {
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
                 out.append(makeRow(headers, isHeader: true))
-                out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)]))
+                out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 4)]))
             }
             for (i, row) in shownRows.enumerated() {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
                 out.append(makeRow(row, isHeader: false))
             }
-            if rows.count > limit || hiddenColumns > 0 {
+
+            // 折叠提示只在列表（compact）里出现；详情页本身就是完整内容
+            if !isFull, rows.count > rowLimit || hiddenColumns > 0 {
                 var note = "\n"
                 if hiddenColumns > 0 { note += "（还有 \(hiddenColumns) 列未显示）" }
-                if rows.count > limit { note += "… 还有 \(rows.count - limit) 行未显示" }
-                // 提示紧跟在表格后面。放在 cell 的附件标签上会跑到整条消息末尾（用户实拍反馈）。
+                if rows.count > rowLimit { note += "… 还有 \(rows.count - rowLimit) 行未显示" }
                 out.append(NSAttributedString(
                     string: note,
                     attributes: [
@@ -380,24 +330,22 @@ enum MarkdownNS {
                         .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 3, lineSpacing: 1),
                     ]
                 ))
-                // 「可点」的部分用强调色 + ›，和上面灰掉的统计文字区分（用户建议）
-                // 做成 dsh://detail 链接：UITextView 里只有 .link 属性才收得到点击
-                // （普通文字上盖 onTapGesture 会被 cell 拦截）
-                var hint = NSMutableAttributedString(
-                    string: "\n▦ 表格已折叠 · 点按看完整版 ›",
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 12, weight: .medium),
-                        .foregroundColor: UIColor.tintColor,
-                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 1, lineSpacing: 1),
-                    ]
-                )
                 if let url = URL(string: "dsh://detail") {
-                    hint.addAttribute(.link, value: url, range: NSRange(location: 0, length: hint.length))
+                    var hint = NSMutableAttributedString(
+                        string: "▦ 表格已折叠 · 点按看完整版 ›",
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+                            .foregroundColor: UIColor.tintColor,
+                            .link: url,
+                            .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 1, lineSpacing: 1),
+                        ]
+                    )
+                    out.append(hint)
                 }
-                out.append(hint)
             }
             return out
         }
+
     }
 
     /// 行内格式：用 `InlineParser` 的**分段结果**拼接属性。
@@ -405,6 +353,24 @@ enum MarkdownNS {
     /// 全程只有 `append`，没有任何 `replaceCharacters(in:with:)` ——
     /// NSRange 只用于「已知长度」的切片，不会因为前一次替换而失效。
     /// 这就是「点开就闪退」那个越界问题的结构性解法（实现在 Core 层，已被 selftest 覆盖）。
+
+    /// 把 markdown 里的地址变成可点的 URL。
+    /// - 绝对地址（http/https/mailto 等）→ 直接用
+    /// - 相对路径（phone-dsh/dist/x.ipa）→ 包成 dsh://path?p=<编码后的路径>，
+    ///   由上层决定是提示还是跳到文件页；总比「染成蓝色却点不动」好
+    static func linkTarget(for raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed), url.scheme != nil {
+            return url
+        }
+        var components = URLComponents()
+        components.scheme = "dsh"
+        components.host = "path"
+        components.queryItems = [URLQueryItem(name: "p", value: trimmed)]
+        return components.url
+    }
+
     private static func inline(_ text: String, base: UIFont) -> NSAttributedString {
         let out = NSMutableAttributedString()
         for segment in InlineParser.segments(text) {
@@ -425,11 +391,19 @@ enum MarkdownNS {
                 )
                 attributes[.backgroundColor] = UIColor.secondarySystemFill
             case let .link(url):
-                // UITextView 对 .link 属性原生支持点击（isSelectable = true 即可）
-                attributes[.foregroundColor] = UIColor.tintColor
-                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                if let target = URL(string: url) {
+                // UITextView 对 .link 属性原生支持点击（isSelectable = true 即可）。
+                //
+                // ⚠️ 只有能构造成 URL 的才染色 + 加 .link：
+                // 消息里常出现相对路径（如 phone-dsh/dist/x.ipa），
+                // URL(string:) 对它返回 nil —— 以前照样染成蓝色，结果点了没反应（用户实拍）。
+                // 现在构造失败就保持普通文字，不做「看着能点却点不动」的暗示。
+                switch Self.linkTarget(for: url) {
+                case .some(let target):
+                    attributes[.foregroundColor] = UIColor.tintColor
+                    attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                     attributes[.link] = target
+                case .none:
+                    break
                 }
             }
             out.append(NSAttributedString(string: segment.text, attributes: attributes))
