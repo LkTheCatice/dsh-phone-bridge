@@ -83,6 +83,13 @@ struct ChatView: View {
     @State private var scrollAnchor: UnitPoint? = .bottom
     /// 上次 tick 时的首条 id：用来区分「插入历史」和「来了新消息」
     @State private var lastFirstIdForTick: String?
+    /// 上一次「尾部指纹」：条数 + 末条 id + 末条正文长度。
+    ///
+    /// `chat.tick` 只是「脏了」的信号 —— 队列帧、占位替换、甚至同一条的跑马灯刷新
+    /// 都会让它 +1，却没有新内容。以前只要 tick 变、人又不在底部，就弹出「新消息」
+    /// 按钮（用户实拍：明明没有新消息，往上翻也会冒出来）。
+    /// 用尾部指纹把这类假信号挡掉。
+    @State private var lastTailKeyForTick = ""
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
 
@@ -167,6 +174,11 @@ struct ChatView: View {
                         lastFirstIdForTick = firstId
                         return
                     }
+                    // 没有新内容就别提示：tick 会因为队列帧/占位替换而 +1，
+                    // 但尾部（条数 / 末条 id / 末条正文长度）都没变。
+                    let tailKey = "\(entries.count)|\(entries.last?.id ?? "")|\(entries.last?.text.count ?? 0)"
+                    if tailKey == lastTailKeyForTick { return }
+                    lastTailKeyForTick = tailKey
                     if jump.atBottom {
                         // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
                         let now = Date()

@@ -178,12 +178,20 @@ enum MarkdownNS {
             let maxChars = mode == .compact ? 46 : 96
             let rawLines = clampCode(code).components(separatedBy: "\n")
             let target = min(maxChars, rawLines.map { Self.displayWidth($0) }.max() ?? 0)
+            // 每行前面补一个空格当内边距，尾部补到统一宽度：
+            // 等宽字体下宽度可精确计算，底色于是连成一整块矩形。
             let padded = rawLines.map { line -> String in
                 let width = Self.displayWidth(line)
-                guard target > width else { return line }
-                return line + String(repeating: " ", count: target - width)
+                let body = " " + line
+                guard target > width else { return body }
+                return body + String(repeating: " ", count: target - width)
             }.joined(separator: "\n")
 
+            // 整体外框：TextKit 没有边框 API（NSTextTable 是 AppKit 专属），
+            // 所以用同一套等宽字符画上下两条「─」，底色当填充 ——
+            // 视觉上就是一整块带框的代码区（用户要求「再加一个整体外框」）。
+            let ruleWidth = max(8, target + 3)
+            let rule = String(repeating: "─", count: ruleWidth)
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
                 out.append(NSAttributedString(
@@ -195,12 +203,35 @@ enum MarkdownNS {
                     ]
                 ))
             }
+            let mono = UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+            let fill = UIColor.secondarySystemFill
+            // 上边框
             out.append(NSAttributedString(
-                string: padded,
+                string: rule + "\n",
                 attributes: [
-                    .font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
+                    .font: mono,
+                    .foregroundColor: UIColor.tertiaryLabel,
+                    .backgroundColor: fill,
+                    .paragraphStyle: style,
+                ]
+            ))
+            // 正文（每行已带左侧内边距 + 尾部对齐）
+            out.append(NSAttributedString(
+                string: padded.joined(separator: "\n"),
+                attributes: [
+                    .font: mono,
                     .foregroundColor: UIColor.label,
-                    .backgroundColor: UIColor.secondarySystemFill,
+                    .backgroundColor: fill,
+                    .paragraphStyle: style,
+                ]
+            ))
+            // 下边框
+            out.append(NSAttributedString(
+                string: "\n" + rule,
+                attributes: [
+                    .font: mono,
+                    .foregroundColor: UIColor.tertiaryLabel,
+                    .backgroundColor: fill,
                     .paragraphStyle: style,
                 ]
             ))

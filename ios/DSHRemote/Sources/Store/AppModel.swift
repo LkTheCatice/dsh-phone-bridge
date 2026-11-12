@@ -594,7 +594,9 @@ final class AppModel: ObservableObject {
                 kind: .toolCall,
                 text: Self.toolLabel(name),
                 detail: detail,
-                at: Date(),
+                // 同样用帧时间：Date() 在续传/回填时是「现在」，
+                // 会把工具行排到同一轮正文的后面（用户实拍）。
+                at: Self.frameDate(frame),
                 running: true,
                 turn: turn,
                 summary: ToolSummary.make(from: detail)
@@ -664,7 +666,10 @@ final class AppModel: ObservableObject {
                 id: "\(sid)#end\(turn)",
                 kind: .system,
                 text: endText,
-                at: Date()
+                // 用帧里的时间，不用 Date()：回填/续传时 Date() 是「现在」，
+                // 和工具行、正文的时间轴对不上，按 at 排序会把顺序搞乱
+                // （用户实拍：上一轮的回答下面又冒出了上一轮的工具行）。
+                at: Self.frameDate(frame)
             ))
             for key in entries.keys {
                 guard var list = entries[key] else { continue }
@@ -737,7 +742,9 @@ final class AppModel: ObservableObject {
                     && abs(item.at.timeIntervalSinceNow) < 15
             }
             guard !duplicated else { return }
-            append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Date()))
+            // 帧时间而不是 Date()：回填时所有条目都用 Date() 会挤在同一毫秒，
+            // 按 at 排序就退化成插入顺序（历史里提问/回答会错位）。
+            append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Self.frameDate(frame)))
 
         default:
             break
@@ -936,7 +943,9 @@ final class AppModel: ObservableObject {
             kind: .collapsedSteps,
             text: "本轮过程 · \(foldedEntries.count) 步",
             detail: nil,
-            at: Date(),
+            // 折叠块要留在「第一次出现的过程条目」那个时间点上，
+            // 否则按 at 排序时会跑到本轮正文后面去。
+            at: foldedEntries.first?.at ?? Date(),
             running: false,
             ok: nil,
             turn: turn,
