@@ -354,7 +354,9 @@ final class AppModel: ObservableObject {
             // 但状态必须一起改：之前只取消流、phase 仍留在 .connected，
             // 于是后台期间界面写着「已连接」，实际一个帧都收不到
             // （用户实测：「显示已连接但收不到消息」）。
-            if phase == .connected { phase = .disconnected }
+            // 注意：这个函数的参数也叫 phase（ScenePhase），
+            // 所以必须写 self.phase —— 否则是在给 let 参数赋值。
+            if self.phase == .connected { self.phase = .disconnected }
             // 回前台的头几秒不弹断线横幅 —— 那是误报
             suppressDisconnect = true
         case .active:
