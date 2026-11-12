@@ -181,7 +181,7 @@ struct SessionListSheet: View {
             parts.append("已完成")
         }
         if !session.relativeTime.isEmpty { parts.append(session.relativeTime) }
-        if parts.isEmpty { parts.append(session.cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "") }
+        if parts.isEmpty { parts.append(session.cwdName ?? session.cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "") }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }

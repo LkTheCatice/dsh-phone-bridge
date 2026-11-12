@@ -8,6 +8,11 @@ struct SessionRow: Identifiable, Hashable {
     /// 服务端给的最后活动时间（毫秒时间戳）
     var updatedAt: Double?
 
+    /// cwd 的最后一段目录名。
+    /// 预计算并随 SessionRow 一起构造 —— UI 里每行都调
+    /// `URL(fileURLWithPath:).lastPathComponent` 是白开销（60 行就是 60 次解析）。
+    var cwdName: String? = nil
+
     var displayTitle: String {
         if let title, !title.isEmpty { return title }
         return String(id.suffix(8))
@@ -31,12 +36,15 @@ struct SessionRow: Identifiable, Hashable {
             return nil
         }
         let stamp = (dict["updatedAt"] as? NSNumber)?.doubleValue
+        let cwd = dict["cwd"] as? String
         return SessionRow(
             id: id,
             title: dict["title"] as? String,
-            cwd: dict["cwd"] as? String,
+            cwd: cwd,
             running: (dict["running"] as? Bool) ?? false,
-            updatedAt: stamp
+            updatedAt: stamp,
+            // 预计算：UI 每行都要用，别在 body 里解析 URL
+            cwdName: cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
         )
     }
 }
