@@ -428,6 +428,26 @@ final class AppModel: ObservableObject {
             break
         }
 
+        // 队列帧要在会话过滤**之前**处理。
+        // 原因：agent/inbox/spliced 的 data 里不一定带 sessionId，
+        // 落到下面的 sid 比较就会不匹配、被 return 掉 —— 表现就是
+        // 电脑端明明在排队，手机队列区却一直是空的（用户实测）。
+        if type == "queue.changed" {
+            let target = (frame["target"] as? String) ?? ""
+            let start = (frame["start"] as? NSNumber)?.intValue ?? 0
+            let removed = (frame["removed"] as? NSNumber)?.intValue ?? 0
+            let rawItems = (frame["items"] as? [[String: Any]]) ?? []
+            let items = rawItems.map { row in
+                QueueItem(
+                    id: (row["id"] as? String) ?? "",
+                    rpcId: (row["rpcId"] as? String) ?? "",
+                    text: (row["text"] as? String) ?? ""
+                )
+            }
+            chat.applyQueueChange(target: target, start: start, removed: removed, items: items)
+            return
+        }
+
         // 没被选中的会话**不落条目**（用户要求：先不加载，点开时再拉历史）。
         // 之前是所有会话的对话都堆在内存里、每个 delta 都可能触发 append 与裁剪，
         // 切会话时两份对话还同时在 body 里被扫描。副作用只有一个：把未读标上。
@@ -555,22 +575,6 @@ final class AppModel: ObservableObject {
                     await refreshSessions(force: true)
                 }
             }
-
-        case "queue.changed":
-            // 队列变更（电脑端排队/插队/改内容也会到达这里 —— 两边看到同一份队列）
-            let target = (frame["target"] as? String) ?? ""
-            // JSON 解出来可能是 NSNumber，直接 as? Int 会拿不到
-            let start = (frame["start"] as? NSNumber)?.intValue ?? 0
-            let removed = (frame["removed"] as? NSNumber)?.intValue ?? 0
-            let rawItems = (frame["items"] as? [[String: Any]]) ?? []
-            let items = rawItems.map { row in
-                QueueItem(
-                    id: (row["id"] as? String) ?? "",
-                    rpcId: (row["rpcId"] as? String) ?? "",
-                    text: (row["text"] as? String) ?? ""
-                )
-            }
-            chat.applyQueueChange(target: target, start: start, removed: removed, items: items)
 
         case "user.message":
             let text = (frame["text"] as? String) ?? ""
