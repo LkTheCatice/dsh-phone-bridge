@@ -798,9 +798,9 @@ final class AppModel: ObservableObject {
     ///
     /// 原来是 80 —— 而 loadOlder 一次就往头部插 300 帧（约 40~90 条），
     /// 插进去立刻又被 trimIfNeeded 从头部裁掉，等于白拉。
-    /// 现在放到 600：初始 400 帧 + 两三次上拉都在容量内，
-    /// 又不会让单个会话无限膨胀（600 条 × 几 KB 仍是可接受量级）。
-    private static let maxEntriesPerSession = 600
+    /// 现在放到 300：初始 400 帧约合 100 条消息，加上一两次上拉正好够，
+    /// 超出 340（cap + trimSlack）才开始裁头部。
+    private static let maxEntriesPerSession = 300
 
     /// 满 cap 之后不要每条都裁：裁一次是 O(n) 的全量 filter，而流式输出时
     /// 每个 delta 都会走一遍 append —— 等于每帧一次 220 元素的复制。
