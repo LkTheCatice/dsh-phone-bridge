@@ -648,6 +648,10 @@ final class AppModel: ObservableObject {
                 var item = entries[sid]![idx]
                 item.running = false
                 item.queued = false
+                // steering 也要清 —— 上一版只清了 queued，
+                // 插队那条执行完之后「▍我 · 已插队，等当前任务完成」一直挂着
+                // （用户实拍：标还在气泡里没删）。
+                item.steering = false
                 entries[sid]![idx] = item
                 return
             }
