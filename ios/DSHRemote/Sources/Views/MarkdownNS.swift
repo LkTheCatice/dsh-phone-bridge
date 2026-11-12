@@ -383,16 +383,17 @@ enum MarkdownNS {
             // 给表格加个框：TextKit 没有表格边框 API（NSTextTable 是 AppKit 专属），
             // 所以用整段底色模拟 —— 和代码块同一套做法。
             // 注意 lineSpacing 必须是 0，否则按行绘制的背景会被行距切成一条条。
-            // 只给表头加很淡的底色（区分表头即可）。
-            // 之前整段 55% 灰底既会把文字压暗、又因为按行绘制被行距切碎，
-            // 看起来像一块块补丁（用户实拍）。
+            // 表头分隔线。
+            //
+            // 为什么不用底色：`.backgroundColor` 只能覆盖**字符**，
+            // 而 tabStops 对齐产生的空白不属于任何字符 —— 底色会在行尾
+            // 断掉一段（用户实拍「最上面一行的灰色少了一段」）。
+            // 改成给表头文字加下划线，横跨整行的视觉效果靠它完成。
             if !headers.isEmpty {
                 let headerText = makeRow(headers, isHeader: true)
-                out.addAttribute(
-                    .backgroundColor,
-                    value: UIColor.secondarySystemFill.withAlphaComponent(0.35),
-                    range: NSRange(location: 0, length: min(headerText.length, out.length))
-                )
+                let headerRange = NSRange(location: 0, length: min(headerText.length, out.length))
+                out.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: headerRange)
+                out.addAttribute(.underlineColor, value: UIColor.separator, range: headerRange)
             }
             return out
         }
