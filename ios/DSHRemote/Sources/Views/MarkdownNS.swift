@@ -206,62 +206,66 @@ enum MarkdownNS {
             )
 
         case let .table(headers, rows):
-            // **iOS 上没有 NSTextTable**（那是 AppKit 的类，UIKit 的 TextKit 没提供），
-            // 而「用 │ 分隔的对齐文本行」在窄屏上不可读：长单元格撑乱整行、
-            // 换行后列完全对不上（用户实拍确认）。
+            // 表格：**每行压成一个段落**（不是每个单元格一个段落）。
             //
-            // 手机窄屏的最优解是**卡片式**：每个表格行变成一小块，
-            // 第一列作标题，其余列以「列名：值」竖排。信息不丢，也不依赖列宽对齐。
-            let out = NSMutableAttributedString()
-            for (rowIndex, row) in rows.enumerated() {
+            // 走过的两条错路：
+            // 1. 「用 │ 分隔的对齐文本行」→ 长内容撑乱整行，窄屏不可读（用户实拍否决）
+            // 2. 「卡片式：每行 = 标题段 + 每列一段」→ 可读了，但文本量翻几倍，
+            //    实测 STUCK 从 1 条 725ms 涨到 65 条 6965ms（mark=body）
+            // 现在折中：一行一条，用 — 和 ｜ 分隔，列名省略（表头已给出语义），
+            // 段落数与普通文本相同，成本回到基线。
+            let limit = 12
+            let shown = rows.prefix(limit)
+            var out = NSMutableAttributedString()
+
+            for (i, row) in shown.enumerated() {
+                var line = NSMutableAttributedString()
                 let title = row.first ?? ""
                 if !title.isEmpty {
-                    let head = NSMutableAttributedString(
-                        string: "▸ " + title + "\n",
+                    line.append(NSAttributedString(
+                        string: "▸ " + title,
                         attributes: [
                             .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
                             .foregroundColor: UIColor.label,
-                            .paragraphStyle: Self.style(
-                                spacingAfter: 3,
-                                spacingBefore: rowIndex == 0 ? before : 10,
-                                lineSpacing: 2,
-                                headIndent: 2
-                            ),
                         ]
-                    )
-                    out.append(head)
+                    ))
                 }
-                let remaining = Array(row.dropFirst())
-                for (offset, value) in remaining.enumerated() {
-                    let column = offset + 1
-                    let name = column < headers.count ? headers[column] : "列\(column + 1)"
-                    let line = NSMutableAttributedString(
-                        string: "\(name)：",
+                let rest = Array(row.dropFirst()).filter { !$0.isEmpty }
+                for value in rest {
+                    line.append(NSAttributedString(
+                        string: "  ｜ ",
                         attributes: [
-                            .font: UIFont.systemFont(ofSize: 12),
-                            .foregroundColor: UIColor.secondaryLabel,
+                            .font: UIFont.systemFont(ofSize: 11),
+                            .foregroundColor: UIColor.tertiaryLabel,
                         ]
-                    )
+                    ))
                     line.append(inline(value, base: .systemFont(ofSize: 13)))
-                    line.addAttribute(
-                        .paragraphStyle,
-                        value: Self.style(
-                            spacingAfter: 3,
-                            spacingBefore: 0,
-                            lineSpacing: 2,
-                            headIndent: 16,
-                            firstLineIndent: 16
-                        ),
-                        range: NSRange(location: 0, length: line.length)
-                    )
-                    out.append(line)
-                    if offset < remaining.count - 1 {
-                        out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 2)]))
-                    }
                 }
-                if rowIndex < rows.count - 1 {
+                line.addAttribute(
+                    .paragraphStyle,
+                    value: Self.style(
+                        spacingAfter: 6,
+                        spacingBefore: i == 0 ? before : 0,
+                        lineSpacing: 3,
+                        headIndent: 14,
+                        firstLineIndent: 2
+                    ),
+                    range: NSRange(location: 0, length: line.length)
+                )
+                out.append(line)
+                if i < shown.count - 1 {
                     out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 2)]))
                 }
+            }
+            if rows.count > limit {
+                out.append(NSAttributedString(
+                    string: "\n… 还有 \(rows.count - limit) 行未显示",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 11),
+                        .foregroundColor: UIColor.tertiaryLabel,
+                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 2, lineSpacing: 0, headIndent: 14),
+                    ]
+                ))
             }
             return out
         }
