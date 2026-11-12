@@ -1319,12 +1319,23 @@ final class AppModel: ObservableObject {
         // 用服务端给的 nextBefore，**不能**用条目数 ——
         // 一个条目可能由多个帧合成，两个数字对不上会导致重复拉取
         // （用户实拍：同一条消息被插了三次）。
-        guard let before = olderBefore[sessionId] else {
-            olderHasMore = false
+        //
+        // 游标只在 loadHistory 里记录。如果这次会话没走过 loadHistory
+        // （比如内容是从别处恢复的），olderBefore 就是空的 ——
+        // 之前直接 return，表现就是「往上拉完全没反应」。
+        // 现在先补一次完整加载拿到游标，再继续。
+        var cursor = olderBefore[sessionId]
+        if cursor == nil {
+            await loadHistory(sessionId)
+            cursor = olderBefore[sessionId]
+        }
+        guard let before = cursor else {
+            trace("older-no-cursor sid=\(sessionId.suffix(6))")
             return
         }
         do {
             let raw = try await client.transcript(sessionId: sessionId, limit: limit, before: before)
+            trace("older-frames=\(frames.count) hasMore=\(raw["hasMore"] ?? "?")")
             guard let frames = raw["frames"] as? [[String: Any]], !frames.isEmpty else {
                 olderHasMore = false
                 return
