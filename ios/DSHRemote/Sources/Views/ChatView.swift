@@ -71,7 +71,6 @@ struct ChatView: View {
     @State private var scrollRequest = 0
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
-    @State private var expandedEntryId: String?
 
     /// 工具详情弹窗（全列表共用一个，别在每个气泡上挂 sheet）
     @StateObject private var detailPresenter = ToolDetailPresenter()
@@ -342,15 +341,6 @@ struct ChatView: View {
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "terminal").font(.largeTitle).foregroundStyle(.secondary)
-            Text("发一句话，让电脑上的 DSH 去干").foregroundStyle(.secondary)
-            Text("第一次发送会自动新建一个会话").font(.caption).foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 80)
-    }
 
     /// 自动跟随：滚到内容末尾的哨兵。
     ///

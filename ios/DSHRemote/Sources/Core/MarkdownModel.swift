@@ -32,19 +32,6 @@ enum Block: Identifiable, Equatable {
         }
     }
 
-    /// 需要做行内格式解析的文本片段（后台预解析用）
-    var inlineTexts: [String] {
-        switch self {
-        case let .heading(_, text), let .paragraph(text), let .quote(text):
-            return [text]
-        case let .bullet(items), let .ordered(items):
-            return items
-        case let .table(headers, rows):
-            return headers + rows.flatMap { $0 }
-        case .code, .divider:
-            return []
-        }
-    }
 }
 
 enum MarkdownParser {

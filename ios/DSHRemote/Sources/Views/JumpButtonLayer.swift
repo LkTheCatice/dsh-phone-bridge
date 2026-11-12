@@ -22,7 +22,6 @@ final class JumpButtonState: ObservableObject {
     /// 自动跟随的节流时间戳
     var lastFollowAt = Date.distantPast
     /// 「是否在底部」翻转的节流时间戳（防止几何值在阈值边界抖动引发反复重算）
-    var lastBottomFlip: CFAbsoluteTime = 0
 
     /// 是否该显示按钮（用于外层占位高度判断）
     var needsLayer: Bool {
