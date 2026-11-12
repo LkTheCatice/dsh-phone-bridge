@@ -184,10 +184,10 @@ let inlineCases: [(String, String)] = [
     ("**a** `b` *c*", "a b c"),
     ("前**粗**后", "前粗后"),
     ("3 * 4 = 12", "3 * 4 = 12"),            // 孤立星号保持字面
-    ("**未闭合", "**未闭合"),                 // 未闭合保持字面
-    ("`未闭合", "`未闭合"),
-    ("****", "****"),                        // 空内容不配对
-    ("**跨\n行**", "**跨\n行**"),            // 行内标记不跨行
+    ("**未闭合", "未闭合"),        // 兜底：未闭合标记也清掉（显示干净优先）                 // 未闭合保持字面
+    ("`未闭合", "未闭合"),
+    ("****", ""),                        // 空内容不配对
+    ("**跨\n行**", "跨\n行"),   // 兜底：跨行的 ** 也被清掉（不作为行内样式解析）
     ("😀**表情**", "😀表情"),
     ("", ""),
     ("正常文本", "正常文本"),
@@ -372,6 +372,30 @@ let meaningful = mixed.filter { seg in
 check(meaningful.count == 3, "混排应有 3 个有效段，实际 \(meaningful.count)（总段数 \(mixed.count)）")
 check(meaningful.contains { if case .link = $0.style { return true }; return false }, "混排里没有 link")
 print("  \(linkCases.count) 条用例 + 样式/混排断言")
+
+// MARK: - 11. 残留标记兜底（截图露出 ** 与反引号）
+
+section("stripResidual 兜底")
+
+let residualCases: [(String, String)] = [
+    ("**`NSTextTable` 做表格**", "NSTextTable 做表格"),   // 嵌套写法：bold 内套 code
+    ("普通文字**加粗", "普通文字加粗"),
+    ("`未闭合", "未闭合"),
+    ("正常文本", "正常文本"),
+    ("**a**`b`", "ab"),
+]
+for (input, expect) in residualCases {
+    let cleaned = InlineParser.stripResidual(input)
+    check(cleaned == expect, "兜底清理：输入「\(input)」期望「\(expect)」实际「\(cleaned)」")
+}
+
+// 关键：任何 segments 输出里都不该再有 ** 或反引号
+let nested = "**`NSTextTable` 做表格**"
+let nestedSegs = InlineParser.segments(nested)
+let joinedNested = nestedSegs.map(\.text).joined()
+check(!joinedNested.contains("**"), "嵌套写法仍残留 **：\(joinedNested)")
+check(!joinedNested.contains("`"), "嵌套写法仍残留反引号：\(joinedNested)")
+print("  \(residualCases.count) 条兜底用例 + 嵌套断言")
 
 // MARK: - 汇总
 

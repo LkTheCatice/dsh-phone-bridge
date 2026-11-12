@@ -222,13 +222,16 @@ enum MarkdownNS {
                 var line = NSMutableAttributedString()
                 let title = row.first ?? ""
                 if !title.isEmpty {
+                    // ⚠️ 标题必须走 inline()：之前直接拼字符串，
+                    // 于是 `**\`NSTextTable\` 做表格**` 的星号和反引号原样露出（用户实拍）。
                     line.append(NSAttributedString(
-                        string: "▸ " + title,
+                        string: "▸ ",
                         attributes: [
                             .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                            .foregroundColor: UIColor.label,
+                            .foregroundColor: UIColor.secondaryLabel,
                         ]
                     ))
+                    line.append(inline(title, base: .systemFont(ofSize: 13, weight: .semibold)))
                 }
                 let rest = Array(row.dropFirst()).filter { !$0.isEmpty }
                 for value in rest {

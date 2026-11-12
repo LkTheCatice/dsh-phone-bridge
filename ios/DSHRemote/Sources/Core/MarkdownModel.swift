@@ -229,7 +229,12 @@ enum InlineParser {
 
         func flush() {
             if !buffer.isEmpty {
-                out.append(InlineSegment(text: buffer, style: .plain))
+                // 兜底：plain 段里若还残留 ** 或反引号，说明有未覆盖的组合写法
+                // （例如 `**\`code\` 文字**` 这类嵌套）。宁可丢样式，也不能把标记露给用户。
+                let cleaned = Self.stripResidual(buffer)
+                if !cleaned.isEmpty {
+                    out.append(InlineSegment(text: cleaned, style: .plain))
+                }
                 buffer = ""
             }
         }
@@ -243,7 +248,7 @@ enum InlineParser {
                     let inner = String(chars[(i + 2)..<close])
                     if !inner.isEmpty {
                         flush()
-                        out.append(InlineSegment(text: inner, style: .bold))
+                        out.append(InlineSegment(text: stripResidual(inner), style: .bold))
                         i = close + 2
                         continue
                     }
@@ -292,7 +297,7 @@ enum InlineParser {
                     let inner = String(chars[(i + 1)..<close])
                     if !inner.isEmpty, !inner.contains("\n") {
                         flush()
-                        out.append(InlineSegment(text: inner, style: .italic))
+                        out.append(InlineSegment(text: stripResidual(inner), style: .italic))
                         i = close + 1
                         continue
                     }
@@ -327,6 +332,14 @@ enum InlineParser {
             j += 1
         }
         return nil
+    }
+
+    /// 去掉残留的行内标记（兜底用，不建任何样式）
+    static func stripResidual(_ text: String) -> String {
+        guard text.contains("**") || text.contains("`") else { return text }
+        return text
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "`", with: "")
     }
 
     /// 解析 `[文本](地址)`，返回 (文本, 地址, 下一个位置)。
