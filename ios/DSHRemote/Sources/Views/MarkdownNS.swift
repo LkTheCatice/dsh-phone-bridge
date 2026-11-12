@@ -38,19 +38,24 @@ enum MarkdownNS {
     }
 
     /// 统一段落样式：行距 + 段后距 + 缩进
+    /// 注意返回**可变**类型：调用方还要设 `tailIndent`（代码块左右缩进），
+    /// 返回 `NSParagraphStyle` 会让它变成只读属性（CI 已抓到一次）。
+    @discardableResult
     private static func style(
         spacingAfter: CGFloat = 8,
         spacingBefore: CGFloat = 0,
         lineSpacing: CGFloat = 3,
         headIndent: CGFloat = 0,
-        firstLineIndent: CGFloat? = nil
-    ) -> NSParagraphStyle {
+        firstLineIndent: CGFloat? = nil,
+        tailIndent: CGFloat? = nil
+    ) -> NSMutableParagraphStyle {
         let p = NSMutableParagraphStyle()
         p.lineSpacing = lineSpacing
         p.paragraphSpacing = spacingAfter
         p.paragraphSpacingBefore = spacingBefore
         p.headIndent = headIndent
         p.firstLineHeadIndent = firstLineIndent ?? headIndent
+        if let tailIndent { p.tailIndent = tailIndent }
         return p
     }
 
@@ -104,8 +109,10 @@ enum MarkdownNS {
 
         case let .code(code, lang):
             // 代码块：左右缩进 + 等宽 + 底色 + 稍紧的行距
-            let style = Self.style(spacingAfter: 2, spacingBefore: before, lineSpacing: 1.5, headIndent: 10)
-            style.tailIndent = -10
+            let style = Self.style(
+                spacingAfter: 2, spacingBefore: before, lineSpacing: 1.5,
+                headIndent: 10, tailIndent: -10
+            )
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
                 let tag = NSAttributedString(
