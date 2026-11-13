@@ -121,15 +121,19 @@ const INLINE_MEDIA_EXT = new Set([
 ]);
 
 /**
- * 值得在手机上提示「产出了文件」的扩展名。
- * 图片/视频本来就能预览，不需要再提示（提示反而吵）。
+ * 值得在手机上提示「产出了文件」的扩展名 —— **只留真正的产物**。
+ *
+ * 之前把 swift/js/py/md/txt 也算进来了，于是每次改源码都冒一条
+ * 「📄 输出文件 · AppModel.swift」，夹在工具行中间像日志噪声（用户实拍）。
+ * 现在只认办公文档 / 安装包 / 压缩包这类"能给出去的东西"。
  */
 const DELIVERABLE_EXT = new Set([
   "docx", "doc", "xlsx", "xls", "pptx", "ppt", "pdf",
-  "ipa", "apk", "zip", "tar", "gz", "7z", "rar",
-  "md", "txt", "csv", "json", "yaml", "yml", "log",
-  "swift", "js", "ts", "py", "ps1", "sh", "html", "css",
+  "epub", "ipa", "apk", "dmg", "zip", "tar", "gz", "7z", "rar",
 ]);
+
+/** 只有这些工具会「产出新文件」（read/grep 也有 file_path，不能算） */
+const OUTPUT_TOOLS = new Set(["write", "present"]);
 
 function fileExt(p) {
   const m = String(p || "").match(/\.([A-Za-z0-9]{1,8})$/);
@@ -243,9 +247,10 @@ export function normalizeEvent(session, event) {
         args: clip(data.arguments ?? data.args ?? data.input ?? null, RAW_LIMIT),
       });
       // 产物提示：手机端只渲染图片/视频，docx/pptx/pdf/ipa 这类文件以前完全看不见。
-      // 这里给 write/edit/present 的文件路径补一帧轻量提示（不含正文，只带路径）。
+      // 只有 write / present 且扩展名属于「产物类」才发（读源码、改 .swift 都不发，
+      // 否则每条写入都会插一条，夹在工具行中间像噪声 —— 用户实拍）。
       const outputPath = extractOutputPath(data);
-      if (outputPath && isDeliverableFile(outputPath)) {
+      if (OUTPUT_TOOLS.has(toolName) && outputPath && isDeliverableFile(outputPath)) {
         frames.push({
           ...base,
           type: "file.output",
