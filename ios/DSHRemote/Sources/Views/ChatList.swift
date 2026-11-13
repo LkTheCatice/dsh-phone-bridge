@@ -635,26 +635,63 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         let width = layoutAttributes.size.width
         let key = cacheKey(for: layoutAttributes, width: width)
         if let key, let cached = Self.heightStorage[key], abs(cached.width - width) < 0.5 {
-            var attributes = layoutAttributes
-            attributes.size.height = cached.height
-            return attributes
+            var hit = layoutAttributes
+            hit.size.height = cached.height
+            return hit
         }
 
-        setNeedsLayout()
-        layoutIfNeeded()
-        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
-        let size = contentView.systemLayoutSizeFitting(
-            target,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        let height = ceil(size.height)
+        let started = CFAbsoluteTimeGetCurrent()
+        let height = measuredHeight(cellWidth: width)
+        Self.noteMeasure(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))
         if let key { Self.store(key: key, height: height, width: width) }
 
         var attributes = layoutAttributes
         attributes.size.height = height
         return attributes
     }
+
+    /// 直接算高度：**不再走 Auto Layout**。
+    ///
+    /// 旧实现是 setNeedsLayout() + layoutIfNeeded() 再 systemLayoutSizeFitting() ——
+    /// 等于把整个 cell 的约束解两遍，长消息一次几百毫秒；真机 STUCK 数值
+    /// （stalls.maxMs ≈ 9s、over1s ≈ 190）就是这条路径贡献的。
+    ///
+    /// 现在按布局常量做算术：cell 高度 = 顶部间距 + 内容高度 + 底部 8。
+    /// 唯一需要排版引擎的是文本 —— 用 UITextView.sizeThatFits 量，
+    /// 那是文本真正显示时用的同一套 TextKit 引擎，不会和最终布局不一致。
+    private func measuredHeight(cellWidth: CGFloat) -> CGFloat {
+        guard let entry = currentEntry else { return 44 }
+
+        // 产物卡片：约束固定（上下各 8pt、最小高度 32pt）
+        if entry.kind == .fileOutput {
+            return stackTopSpacing + 32 + 8
+        }
+
+        // 用户消息整块右移 56pt；宽度已由 applyUserBubbleLayout 按内容算好
+        let leadingInset: CGFloat = (entry.kind == .user) ? 56 : 0
+        var contentWidth = cellWidth - leadingInset
+        if entry.kind == .user, let fixed = stackWidth?.constant, fixed > 1 {
+            contentWidth = min(contentWidth, fixed)
+        }
+        contentWidth = max(40, contentWidth)
+
+        let textHeight: CGFloat
+        if let attributed = textView.attributedText, attributed.length > 0 {
+            textHeight = textView.sizeThatFits(
+                CGSize(width: contentWidth, height: .greatestFiniteMagnitude)
+            ).height
+        } else {
+            textHeight = 0
+        }
+
+        var height = stackTopSpacing + textHeight + 8
+        // 附件行：stack spacing 4 + 单行 12pt 字约 17pt
+        if !attachmentLabel.isHidden { height += 4 + 17 }
+        // 产物卡片：同一 stack 里，间距同上
+        if !fileChip.isHidden { height += 4 + 32 }
+        return ceil(height)
+    }
+
 
     /// 高度缓存用「id + 内容长度 + 附件数」作 key：内容一变就不复用旧高度。
     /// 不用 attributed string 的 hash —— 那个在每个 cell 上算一次比测量还贵。
@@ -664,6 +701,21 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     }
 
     /// 高度缓存。**有上限**（LRU 600 条），避免长会话把内存吃满。
+    // 测量耗时统计：每 40 次打一行，和 /v1/diag 的 stalls 对照用
+    private static var measureCount = 0
+    private static var measureTotalMs = 0
+    private static var measureWorstMs = 0
+
+    private static func noteMeasure(_ ms: Int) {
+        measureCount += 1
+        measureTotalMs += ms
+        if ms > measureWorstMs { measureWorstMs = ms }
+        if measureCount % 40 == 0 {
+            NSLog("[measure] n=%d avg=%dms worst=%dms",
+                  measureCount, measureTotalMs / max(1, measureCount), measureWorstMs)
+        }
+    }
+
     private struct CachedHeight { let height: CGFloat; let width: CGFloat }
     private static var heightStorage: [String: CachedHeight] = [:]
     private static var heightOrder: [String] = []
