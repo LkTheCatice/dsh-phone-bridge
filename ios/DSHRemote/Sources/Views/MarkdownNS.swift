@@ -215,9 +215,9 @@ enum MarkdownNS {
                     .paragraphStyle: style,
                 ]
             ))
-            // 正文（每行已带左侧内边距 + 尾部对齐）
+            // 正文（每行已带左侧内边距 + 尾部对齐；padded 本身就是用 \n 连好的整段）
             out.append(NSAttributedString(
-                string: padded.joined(separator: "\n"),
+                string: padded,
                 attributes: [
                     .font: mono,
                     .foregroundColor: UIColor.label,
