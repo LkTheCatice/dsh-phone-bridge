@@ -24,17 +24,30 @@ final class BlockFillLayoutManager: NSLayoutManager {
         guard let storage = textStorage, storage.length > 0 else { return }
 
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+
+        // 先按颜色把**相邻的 run 合并**成一段。
+        // 一块卡片/代码块常常由多段组成（5pt 空段落 + 正文 + 5pt 空段落），
+        // 不合并的话每段各画一个圆角矩形，接缝处会出现两道圆角（很难看）。
+        var regions: [(range: NSRange, color: UIColor)] = []
         storage.enumerateAttribute(BlockFillAttribute.key, in: charRange, options: []) { value, range, _ in
             guard let color = value as? UIColor else { return }
-            let glyphRange = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            guard glyphRange.length > 0 else { return }
+            if let last = regions.last, NSMaxRange(last.range) == range.location, last.color == color {
+                regions[regions.count - 1].range = NSUnionRange(last.range, range)
+            } else {
+                regions.append((range: range, color: color))
+            }
+        }
 
-            // 把这个 run 的所有行片段并成一个矩形
+        for region in regions {
+            let glyphRange = self.glyphRange(forCharacterRange: region.range, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { continue }
+
+            // 把这一段的所有行片段并成一个矩形
             var union: CGRect = .null
             self.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, _, _ in
                 union = union.isNull ? rect : union.union(rect)
             }
-            guard !union.isNull, union.height > 0 else { return }
+            guard !union.isNull, union.height > 0 else { continue }
 
             let target = CGRect(
                 x: origin.x + union.minX,
@@ -43,16 +56,16 @@ final class BlockFillLayoutManager: NSLayoutManager {
                 height: union.height
             )
             // 横向向内收 2pt（离气泡内边留 2pt）；
-            // **纵向不再外扩**：上下 padding 由 MarkdownNS 里那两个「空白段」提供，
+            // **纵向不再外扩**：上下 padding 由调用方插入的「空白段」提供，
             // 是真布局。以前在这里用负 insetBy 往外画，遇到相邻元素必然重叠。
             .insetBy(dx: 2, dy: 0)
 
-            color.setFill()
+            region.color.setFill()
             let path = UIBezierPath(roundedRect: target, cornerRadius: 8)
             path.fill()
 
             // 描边（同一 run 上给了 stroke 才画）
-            if let stroke = storage.attribute(BlockFillAttribute.strokeKey, at: range.location, effectiveRange: nil) as? UIColor {
+            if let stroke = storage.attribute(BlockFillAttribute.strokeKey, at: region.range.location, effectiveRange: nil) as? UIColor {
                 stroke.setStroke()
                 path.lineWidth = 1
                 path.stroke()

@@ -272,21 +272,23 @@ final class AppModel: ObservableObject {
     private func flushFileHints(_ sessionId: String) {
         guard let hints = pendingFileHints.removeValue(forKey: sessionId), !hints.isEmpty else { return }
         for hint in hints {
-            // 文件名按 **/ 和 \ 两种分隔符**取：NSString.lastPathComponent 只认 "/"，
-            // Windows 路径（D:\a\b.md）会整条返回（用户实拍）。
-            let name = hint.path
-                .split(whereSeparator: { $0 == "/" || $0 == "\\" })
-                .last
-                .map(String.init) ?? hint.path
             append(sessionId, ChatEntry(
                 id: "\(sessionId)#file\(hint.turn)_\(hint.path)",
                 kind: .toolResult,
-                text: "📄 输出文件 · \(name)",
+                text: "📄 输出文件 · \(Self.fileName(hint.path))",
                 detail: hint.path,
                 at: hint.at,
                 turn: hint.turn
             ))
         }
+    }
+
+    /// 取文件名：按 **/ 和 \ 两种分隔符**切（NSString.lastPathComponent 只认 "/"，
+    /// Windows 路径 D:\a\b.md 会整条返回，提示里就是一大串全路径）。
+    static func fileName(_ path: String) -> String {
+        path.split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .last
+            .map(String.init) ?? path
     }
 
     /// 一轮里的「第几段回答」。
@@ -656,6 +658,22 @@ final class AppModel: ObservableObject {
             // （用户要求：别夹在工具行中间）。见 flushFileHints。
             let path = (frame["path"] as? String) ?? ""
             guard !path.isEmpty else { return }
+            if isHistory {
+                // 回放历史时**当场落位**，不要进 pending：
+                // 上拉加载更早的消息时，桥会把老轮次的 tool/call 也回放成 file.output；
+                // 那些轮次的 turn.end 可能不在这一页里，于是提示一直攒着，
+                // 等到某个更晚的 turn.end 才 flush，按 turn 排序就跑到历史最前面去了
+                // （用户实拍：加载旧消息后文件提示出现在最上方）。
+                append(sid, ChatEntry(
+                    id: "\(sid)#file\(turn)_\(path)",
+                    kind: .toolResult,
+                    text: "📄 输出文件 · \(Self.fileName(path))",
+                    detail: path,
+                    at: Self.frameDate(frame),
+                    turn: turn
+                ))
+                return
+            }
             var hints = pendingFileHints[sid] ?? []
             if !hints.contains(where: { $0.path == path }) {
                 hints.append((path: path, at: Self.frameDate(frame), turn: turn))

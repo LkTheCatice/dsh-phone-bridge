@@ -716,35 +716,54 @@ enum MessageRender {
             // 用户要能一眼看到"刚才产出了什么文件" → 做成一条通栏浅色卡片
             // （BlockFill 画的圆角底色），正文色 + 13pt 中等字重。
             if entry.text.hasPrefix("📄") {
-                let cardStyle = NSMutableParagraphStyle()
-                cardStyle.paragraphSpacing = 6
-                cardStyle.paragraphSpacingBefore = 4
-                cardStyle.lineSpacing = 2
-                cardStyle.headIndent = 10
-                cardStyle.firstLineHeadIndent = 10
-                cardStyle.tailIndent = -10
-                // 卡片高度：底色按**行片段**画，只靠字体行高这张卡只有 ~15pt，
-                // 上下没有 padding，看起来像一条细线（用户实拍「边框有些小」）。
-                // 把行高固定到 26pt —— 真布局，不是把矩形往外画，
-                // 于是底色上下各有约 5pt 留白，像一张正常 chip。
-                cardStyle.minimumLineHeight = 26
-                cardStyle.maximumLineHeight = 26
-                // 行高变大后，多出来的空间默认全在**基线下方**，字就贴在上沿
-                // （用户实拍「没有上下居中」）。
-                // baselineOffset 取负值把基线下移「(行高 - 字体行高)/2」，
-                // 视觉上就是垂直居中。
+                // 卡片 = [上空白段 5pt][正文 13pt][下空白段 5pt]，三段同属一块底色。
+                // 之前用 minimumLineHeight + baselineOffset 硬凑居中 —— 那是在猜
+                // TextKit 把多出来的空间分到基线上方还是下方，猜错就不居中（用户连拍两次）。
+                // 现在 padding 由**真实段落**提供，文字天然落在正中间，
+                // 布局管理器会把这相邻三段合并成一个圆角矩形。
                 let cardFont = UIFont.systemFont(ofSize: 13, weight: .medium)
-                let cardBaseline = -(26 - cardFont.lineHeight) / 2
-                body = NSAttributedString(
+                let padFont = UIFont.systemFont(ofSize: 5)
+
+                let textStyle = NSMutableParagraphStyle()
+                textStyle.lineSpacing = 0
+                textStyle.paragraphSpacing = 0
+                textStyle.headIndent = 10
+                textStyle.firstLineHeadIndent = 10
+                textStyle.tailIndent = -10
+
+                let topStyle = NSMutableParagraphStyle()
+                topStyle.paragraphSpacingBefore = 6
+                topStyle.paragraphSpacing = 0
+                topStyle.headIndent = 10
+                topStyle.firstLineHeadIndent = 10
+                topStyle.tailIndent = -10
+
+                let bottomStyle = NSMutableParagraphStyle()
+                bottomStyle.paragraphSpacingBefore = 0
+                bottomStyle.paragraphSpacing = 6
+                bottomStyle.headIndent = 10
+                bottomStyle.firstLineHeadIndent = 10
+                bottomStyle.tailIndent = -10
+
+                let card = NSMutableAttributedString()
+                card.append(NSAttributedString(
+                    string: "\n",
+                    attributes: [.font: padFont, .paragraphStyle: topStyle, BlockFillAttribute.key: UIColor.tertiarySystemFill]
+                ))
+                card.append(NSAttributedString(
                     string: entry.text,
                     attributes: [
                         .font: cardFont,
                         .foregroundColor: UIColor.label,
-                        .paragraphStyle: cardStyle,
-                        .baselineOffset: cardBaseline,
+                        .paragraphStyle: textStyle,
                         BlockFillAttribute.key: UIColor.tertiarySystemFill,
                     ]
-                )
+                ))
+                card.append(NSAttributedString(
+                    string: "\n",
+                    attributes: [.font: padFont, .paragraphStyle: bottomStyle, BlockFillAttribute.key: UIColor.tertiarySystemFill]
+                ))
+                body = card
                 break
             }
             // 系统行是背景信息，居中 + 更淡更小，让它退到正文之后
