@@ -18,7 +18,9 @@ struct ChatView: View {
     @State private var sending = false
     /// 排队提示：持久显示在输入区上方，直到这一轮真的开始（或超时）
     /// 之前用 toast，一闪而过 —— 用户以为没发出去，又发了一遍，列表里出现两条重复。
-    @State private var queuedNotice = false
+    // 注：原来这里有个 queuedNotice（发送时预测「会不会排队」→ 弹橙色条），
+    // 已经删掉 —— 预测错就会「没排队也提示已排队」（用户实拍）。
+    // 现在橙色条只看 chat.queue 是否非空。
     /// 排队详情面板
     @State private var showQueue = false
     @FocusState private var focused: Bool
@@ -83,6 +85,8 @@ struct ChatView: View {
     @State private var scrollAnchor: UnitPoint? = .bottom
     /// 上次 tick 时的首条 id：用来区分「插入历史」和「来了新消息」
     @State private var lastFirstIdForTick: String?
+    /// 当前会话是否真的有消息在排队 —— 橙色「已排队」条只认它。
+    private var queueWaiting: Bool { !chat.queue.isEmpty }
     /// 上一次「尾部指纹」：条数 + 末条 id + 末条正文长度。
     ///
     /// `chat.tick` 只是「脏了」的信号 —— 队列帧、占位替换、甚至同一条的跑马灯刷新
@@ -190,11 +194,8 @@ struct ChatView: View {
                         jump.hasNewBelow = true
                     }
                 }
-                .onChange(of: chat.streaming) { streaming in
-                // 新一轮真的开始跑了，「已排队」提示就该收起
-                if streaming, queuedNotice { queuedNotice = false }
-            }
-            .onChange(of: chat.historyVersion) { _ in
+                // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
+                .onChange(of: chat.historyVersion) { _ in
                     if !jump.atBottom { jump.atBottom = true }
                     if jump.hasNewBelow { jump.hasNewBelow = false }
                     scrollRequest += 1
@@ -501,7 +502,9 @@ struct ChatView: View {
                 .buttonStyle(.plain)
             }
 
-            // 已排队提示：持久显示（12 秒或该轮开始为止），不是一闪而过的 toast。
+            // 已排队提示：**只由服务端队列状态驱动**（chat.queue 非空）。
+            // 以前是发送时预测「会不会排队」→ 猜错就冒一条假的「已排队」
+            // （用户实拍：没排队也有橙色字）。现在队列被取走就自动消失。
             // 同样遵守「恒定结构」原则，用高度/透明度控制显隐。
             HStack(spacing: 5) {
                 Image(systemName: "clock.badge.checkmark")
@@ -512,8 +515,8 @@ struct ChatView: View {
             .foregroundStyle(.orange)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
-            .frame(height: queuedNotice ? 20 : 0)
-            .opacity(queuedNotice ? 1 : 0)
+            .frame(height: queueWaiting ? 20 : 0)
+            .opacity(queueWaiting ? 1 : 0)
             .clipped()
 
             HStack(spacing: 6) {
@@ -669,16 +672,13 @@ struct ChatView: View {
         if jump.hasNewBelow { jump.hasNewBelow = false }
         focused = false
         sending = true
-        if willQueue {
-            // 持久提示（输入区上方那条橙色状态条），不是一闪而过的 toast：
-            // 用户实测「发送时它直接进消息框且提示不明显」，结果以为没发出去又发了一次。
-            queuedNotice = true
-            Task {
-                // 12 秒后自动收起；如果那一轮提前开始，会在下面被清掉
-                try? await Task.sleep(nanoseconds: 12_000_000_000)
-                if queuedNotice { queuedNotice = false }
-            }
-        }
+        // 这里**不再**预测「会不会排队」然后弹橙色提示。
+        //
+        // 用户实拍：明明没排队，发出去也有「已排队 · 等当前轮跑完再执行」。
+        // 因为 willQueue 是界面猜的（pendingLocal / assistantRunning / streaming），
+        // 猜错的代价就是一条假提示。现在提示改成由**服务端的队列状态**驱动：
+        // 橙色条只在 chat.queue 非空时出现（见 composer 里的 queueWaiting），
+        // 队列被取走就自动消失 —— 显示的永远是真实发生过的事。
         let outgoing = payload
         // 「按下发送后，主线程多久才轮到下一个任务」。
         //
