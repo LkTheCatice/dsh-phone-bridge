@@ -703,6 +703,22 @@ enum MessageRender {
                     .paragraphStyle: centered,
                 ]
             )
+        case .collapsedSteps:
+            // 折叠块（「▸ 本轮过程 · N 步」）。
+            // 以前这里没有分支，掉进 default → 16pt + label 色，
+            // 于是折起来那行是**黑色大字**，比正文还显眼（用户实拍）。
+            // 它本质是背景信息，要和「本轮结束 · 用时…」那类小灰字同一档。
+            let style = NSMutableParagraphStyle()
+            style.paragraphSpacing = 4
+            style.lineSpacing = 2
+            body = NSAttributedString(
+                string: entry.text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: UIColor.secondaryLabel.withAlphaComponent(0.7),
+                    .paragraphStyle: style,
+                ]
+            )
         default:
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 4

@@ -176,8 +176,14 @@ struct ChatView: View {
                     let firstId = entries.first?.id
                     if firstId != lastFirstIdForTick {
                         lastFirstIdForTick = firstId
+                        // 顺手把尾部指纹也更新掉：往头部插一页之后，条数变了，
+                        // 如果不更新，下一次 tick 会被误判成「来了新消息」
+                        // （用户实拍：划到最顶时冒出「新消息」）。
+                        lastTailKeyForTick = "\(entries.count)|\(entries.last?.id ?? "")|\(entries.last?.text.count ?? 0)"
                         return
                     }
+                    // 正在读历史（回填/上拉）时不提示：这期间的 tick 都是在补旧内容
+                    if model.historyLoading || model.olderLoading { return }
                     // 没有新内容就别提示：tick 会因为队列帧/占位替换而 +1，
                     // 但尾部（条数 / 末条 id / 末条正文长度）都没变。
                     let tailKey = "\(entries.count)|\(entries.last?.id ?? "")|\(entries.last?.text.count ?? 0)"
