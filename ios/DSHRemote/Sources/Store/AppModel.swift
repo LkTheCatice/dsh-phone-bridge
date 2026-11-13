@@ -489,24 +489,31 @@ final class AppModel: ObservableObject {
         let frameTurn = (frame["turn"] as? NSNumber)?.intValue ?? 0
         let turn = frameTurn > 0 ? frameTurn : (currentTurn[sid] ?? 0)
 
-        // 流式状态：只在翻转时写
-        switch type {
-        case "turn.start", "assistant.delta", "assistant.thinking":
-            chat.setStreaming(true)
-        case "turn.end":
-            chat.setStreaming(false)
-        default:
-            break
-        }
+        // 运行/流式状态：**只认实时帧**。
+        //
+        // 用户实拍：上翻历史时点开另一个会话，列表里好几个会话都挂着「正在处理」的
+        // 小转圈（10 分钟前、8 小时前那些早就结束的）。原因是回填历史帧时这些
+        // 状态也照样被写：一页 120 帧里有 turn.start / tool.call 却没有对应的
+        // turn.end，于是 running 被置 true 后再也不会被清掉。
+        // 历史帧只用来建条目，不能改"谁在跑"。
+        if !isHistory {
+            switch type {
+            case "turn.start", "assistant.delta", "assistant.thinking":
+                chat.setStreaming(true)
+            case "turn.end":
+                chat.setStreaming(false)
+            default:
+                break
+            }
 
-        // 运行状态：只看帧类型，不碰内容 —— 未选中的会话也能在列表里显示「在跑」
-        switch type {
-        case "turn.start", "assistant.delta", "assistant.thinking", "tool.call":
-            sessionList.markRunning(sid, true)
-        case "turn.end":
-            sessionList.markRunning(sid, false)
-        default:
-            break
+            switch type {
+            case "turn.start", "assistant.delta", "assistant.thinking", "tool.call":
+                sessionList.markRunning(sid, true)
+            case "turn.end":
+                sessionList.markRunning(sid, false)
+            default:
+                break
+            }
         }
 
         // 队列帧要在会话过滤**之前**处理。
