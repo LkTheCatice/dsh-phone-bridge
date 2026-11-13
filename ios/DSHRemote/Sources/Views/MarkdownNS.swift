@@ -419,6 +419,77 @@ enum MarkdownNS {
                 return line
             }
 
+            // 自适应排法：**3 列以上且按 tabStops 排会截断**时，改用「列名：值」卡片式。
+            //
+            // 为什么：气泡宽度只有 50 个半角字符，三列中文（每字 2 宽）几乎必然截断 ——
+            // 用户看到的是一排省略号，信息反而丢了（实拍多次）。
+            // 卡片式每行只放「列名 + 一个值」，可以换行，不丢内容；代价是行数变多。
+            // 两列以内仍用 tabStops（那是最省高度的排法）。
+            let wouldTruncate = allRows.contains { row in
+                row.enumerated().contains { idx, cell in
+                    idx < columnCount
+                        && displayWidth(InlineParser.stripResidual(cell)) > columnWidths[idx]
+                }
+            }
+            if !isFull, columnCount >= 3, wouldTruncate {
+                let card = NSMutableAttributedString()
+                let valueFont = UIFont.systemFont(ofSize: 13)
+                let labelFont = UIFont.systemFont(ofSize: 11, weight: .medium)
+                for (rowIndex, row) in shownRows.enumerated() {
+                    if rowIndex > 0 {
+                        card.append(NSAttributedString(
+                            string: "\n",
+                            attributes: [.font: UIFont.systemFont(ofSize: 7)]
+                        ))
+                    }
+                    for column in 0..<columnCount where column < row.count {
+                        let style = NSMutableParagraphStyle()
+                        style.lineSpacing = 2
+                        style.paragraphSpacing = 3
+                        style.headIndent = 10        // 换行后悬挂缩进，读起来成块
+                        style.firstLineHeadIndent = 0
+                        style.lineBreakMode = .byWordWrapping
+                        let label = column < headers.count ? headers[column] : ""
+                        let line = NSMutableAttributedString()
+                        if column == 0 {
+                            line.append(NSAttributedString(
+                                string: "· ",
+                                attributes: [.font: valueFont, .foregroundColor: UIColor.tertiaryLabel]
+                            ))
+                        } else {
+                            line.append(NSAttributedString(string: "  ", attributes: [.font: valueFont]))
+                        }
+                        line.append(NSAttributedString(
+                            string: label + " ",
+                            attributes: [.font: labelFont, .foregroundColor: UIColor.secondaryLabel]
+                        ))
+                        line.append(NSAttributedString(
+                            string: InlineParser.stripResidual(row[column]),
+                            attributes: [.font: valueFont, .foregroundColor: UIColor.label]
+                        ))
+                        line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
+                        card.append(line)
+                        card.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 2)]))
+                    }
+                }
+                let range = NSRange(location: 0, length: card.length)
+                if range.length > 0 {
+                    card.addAttribute(BlockFillAttribute.key, value: UIColor.tertiarySystemFill, range: range)
+                }
+                if rows.count > rowLimit, let url = URL(string: "dsh://detail") {
+                    card.append(NSAttributedString(
+                        string: "\n▦ 还有 \(rows.count - rowLimit) 行 · 点按看完整版 ›",
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+                            .foregroundColor: UIColor.tintColor,
+                            .link: url,
+                            .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 4, lineSpacing: 1),
+                        ]
+                    ))
+                }
+                return card
+            }
+
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
                 out.append(makeRow(headers, isHeader: true))
@@ -462,33 +533,21 @@ enum MarkdownNS {
             // 注意：除了「行/列超限」，**单元格被压窄截断**也算被省略（用户实拍：
             // 4 列 8 行的表里 13.3… / 1.24… 被截断，却没有入口点开）。
             if !isFull, rows.count > rowLimit || hiddenColumns > 0 || didTruncateCells {
-                // 以前 note 和链接挤在同一行：「（部分单元格内容已省略）▦ 表格已折叠…」
-                // 看着像一句乱码（用户实拍）。现在分两行：说明在上、入口在下。
-                var note = "\n"
-                if hiddenColumns > 0 { note += "（还有 \(hiddenColumns) 列未显示）" }
-                if rows.count > rowLimit { note += "… 还有 \(rows.count - rowLimit) 行未显示" }
-                if hiddenColumns == 0, rows.count <= rowLimit, didTruncateCells {
-                    note += "（部分单元格内容已省略）"
-                }
-                out.append(NSAttributedString(
-                    string: note + "\n",
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 11),
-                        .foregroundColor: UIColor.tertiaryLabel,
-                        .paragraphStyle: Self.style(spacingAfter: 1, spacingBefore: 3, lineSpacing: 1),
-                    ]
-                ))
+                // 说明 + 入口合成一行，别再分两行占高度（用户实拍觉得像乱码那一版）。
+                var label = "▦ 表格已折叠"
+                if hiddenColumns > 0 { label += "（还有 \(hiddenColumns) 列）" }
+                if rows.count > rowLimit { label += "（还有 \(rows.count - rowLimit) 行）" }
+                label += " · 点按看完整版 ›"
                 if let url = URL(string: "dsh://detail") {
-                    let hint = NSMutableAttributedString(
-                        string: "▦ 表格已折叠 · 点按看完整版 ›",
+                    out.append(NSAttributedString(
+                        string: "\n" + label,
                         attributes: [
                             .font: UIFont.systemFont(ofSize: 12, weight: .medium),
                             .foregroundColor: UIColor.tintColor,
                             .link: url,
-                            .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 0, lineSpacing: 1),
+                            .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 4, lineSpacing: 1),
                         ]
-                    )
-                    out.append(hint)
+                    ))
                 }
             }
             // 给表格加个框：TextKit 没有表格边框 API（NSTextTable 是 AppKit 专属），
