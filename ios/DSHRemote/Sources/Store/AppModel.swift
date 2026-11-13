@@ -1445,8 +1445,19 @@ final class AppModel: ObservableObject {
         // 现在先补一次完整加载拿到游标，再继续。
         var cursor = olderBefore[sessionId]
         if cursor == nil {
-            await loadHistory(sessionId)
-            cursor = olderBefore[sessionId]
+            // 只为拿游标 —— **不能**在这里调 loadHistory。
+            //
+            // loadHistory 会把 entries 整个重置成「最近 200 帧」再回放。
+            // 一长轮次（工具调用多、回答长）的帧数轻松上百，200 帧只覆盖到
+            // 这一轮的后半段 —— 于是「开始第 N 轮」「我的提问」「本轮结束」
+            // 这些行被整段截掉。用户实拍：上拉到顶再跳回底部，中间内容缺了。
+            // 这里只要 nextBefore，读一次不落盘。
+            if let raw = try? await client.transcript(sessionId: sessionId, limit: page),
+               let next = (raw["nextBefore"] as? NSNumber)?.intValue {
+                olderBefore[sessionId] = next
+                cursor = next
+            }
+            if cursor == nil { trace("older-cursor-missing sid=\(sessionId.suffix(6))") }
         }
         guard let before = cursor else {
             trace("older-no-cursor sid=\(sessionId.suffix(6))")
@@ -1502,6 +1513,11 @@ final class AppModel: ObservableObject {
                 return a.at < b.at
             }
             entriesStorage[sessionId] = merged
+            // 观察点：合并后条目反而变少，说明这一页把已有内容覆盖掉了
+            // （历史上的「跳到底部内容缺失」就是这类）。
+            if merged.count < existing.count {
+                trace("older.shrink from=\(existing.count) to=\(merged.count) page=\(frames.count)")
+            }
             trimIfNeeded(sessionId)
             endBatch()
         } catch {
@@ -1555,6 +1571,13 @@ final class AppModel: ObservableObject {
             // 逐次通知会让 ChatView 重建几百遍，切会话时手感发钝就是这个原因。
             beginBatch()
             suppressTrim = true          // 逐条裁是 O(n²)：回填期间关掉，收尾统一裁一次
+            // 回填前先留住已有条目：**不能直接清空**。
+            // 这一页只有最近 200 帧，长轮次（工具多、回答长）的帧数轻松上百，
+            // 200 帧常常只覆盖到当前轮的后半段 —— 直接清空会把
+            // 「开始第 N 轮 / 我的提问 / 本轮结束」整段抹掉。
+            // 用户实拍：上拉到顶再跳回底部，中间内容缺了。
+            // 现在改成「重放这一页 → 与已有条目合并」，重复 apply 也不会丢内容。
+            let existingBefore = entriesStorage[sessionId] ?? []
             entries[sessionId] = []
             // 从头重放，段落号也跟着从头数（否则回填出来的 id 会带上一轮的段号）
             answerSegment[sessionId] = 0
@@ -1574,6 +1597,17 @@ final class AppModel: ObservableObject {
                 chunkStart = CFAbsoluteTimeGetCurrent()
             }
             suppressTrim = false
+            // 与已有条目合并（按 id 去重，已有优先：它可能带着更完整的状态）
+            if !existingBefore.isEmpty, let replayed = entriesStorage[sessionId] {
+                let liveIds = Set(existingBefore.map(\.id))
+                let kept = replayed.filter { !liveIds.contains($0.id) }
+                var merged = existingBefore + kept
+                merged.sort { a, b in
+                    if a.turn != b.turn { return a.turn < b.turn }
+                    return a.at < b.at
+                }
+                entriesStorage[sessionId] = merged
+            }
             trimIfNeeded(sessionId)
             // 历史回填完成后清掉残留的 running。
             // 拉的是最近 N 帧，很可能截在某一轮中间 —— 那些没有 turn.end 收尾的

@@ -94,6 +94,14 @@ struct ChatView: View {
     /// 按钮（用户实拍：明明没有新消息，往上翻也会冒出来）。
     /// 用尾部指纹把这类假信号挡掉。
     @State private var lastTailKeyForTick = ""
+    /// 停在底部时的「尾部锚点」：末条 id + 末条正文长度。
+    ///
+    /// 「新消息」按钮只该在**尾巴真的变长/变新**时出现。
+    /// 之前用 entries.count 或整表指纹判断，上拉插一页（条数变多、首条变了）
+    /// 也会被当成新消息（用户实拍：划到最顶冒出「新消息」）。
+    /// 尾部锚点不受头部插入/裁剪影响，是最稳的判据。
+    @State private var bottomTailId = ""
+    @State private var bottomTailLen = -1
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
 
@@ -142,7 +150,12 @@ struct ChatView: View {
                     isStreaming: chat.streaming,
                     onBottomChanged: { bottom in
                         if jump.atBottom != bottom { jump.atBottom = bottom }
-                        if bottom, jump.hasNewBelow { jump.hasNewBelow = false }
+                        if bottom {
+                            if jump.hasNewBelow { jump.hasNewBelow = false }
+                            // 停在底部就刷新锚点：之后只有「尾巴变长/变新」才算新消息
+                            bottomTailId = entries.last?.id ?? ""
+                            bottomTailLen = entries.last?.text.count ?? -1
+                        }
                     },
                     scrollRequest: scrollRequest,
                     onLoadOlder: {
@@ -170,35 +183,24 @@ struct ChatView: View {
                     }
                 )
                 .onChange(of: chat.tick) { _ in
-                    // 区分「往上加载历史」和「真的来了新消息」：
-                    // 前者会把历史插到头部，首条 id 会变 —— 那种情况不能算
-                    // 「有新消息」（用户反馈：没新消息也会冒出「新消息」按钮）。
-                    let firstId = entries.first?.id
-                    if firstId != lastFirstIdForTick {
-                        lastFirstIdForTick = firstId
-                        // 顺手把尾部指纹也更新掉：往头部插一页之后，条数变了，
-                        // 如果不更新，下一次 tick 会被误判成「来了新消息」
-                        // （用户实拍：划到最顶时冒出「新消息」）。
-                        lastTailKeyForTick = "\(entries.count)|\(entries.last?.id ?? "")|\(entries.last?.text.count ?? 0)"
-                        return
-                    }
-                    // 正在读历史（回填/上拉）时不提示：这期间的 tick 都是在补旧内容
-                    if model.historyLoading || model.olderLoading { return }
-                    // 没有新内容就别提示：tick 会因为队列帧/占位替换而 +1，
-                    // 但尾部（条数 / 末条 id / 末条正文长度）都没变。
-                    let tailKey = "\(entries.count)|\(entries.last?.id ?? "")|\(entries.last?.text.count ?? 0)"
-                    if tailKey == lastTailKeyForTick { return }
-                    lastTailKeyForTick = tailKey
+                    // 「新消息」只看尾巴：末条 id 变了（真来了新条）或末条正文变长
+                    // （流式在长）。上拉插头部、裁剪、队列帧都不会动尾巴，
+                    // 所以不会再出现「划到最顶就冒新消息」（用户实拍）。
+                    let tailId = entries.last?.id ?? ""
+                    let tailLen = entries.last?.text.count ?? -1
                     if jump.atBottom {
+                        bottomTailId = tailId
+                        bottomTailLen = tailLen
                         // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
                         let now = Date()
                         guard now.timeIntervalSince(jump.lastFollowAt) > 0.5 else { return }
                         jump.lastFollowAt = now
                         guard !model.expNoAutoFollow else { return }
                         scrollRequest += 1
-                    } else if !jump.hasNewBelow {
-                        jump.hasNewBelow = true
+                        return
                     }
+                    let grew = tailId != bottomTailId || (tailId == bottomTailId && tailLen > bottomTailLen)
+                    if grew, !jump.hasNewBelow { jump.hasNewBelow = true }
                 }
                 // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
                 .onChange(of: chat.historyVersion) { _ in
