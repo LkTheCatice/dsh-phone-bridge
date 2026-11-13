@@ -1463,11 +1463,18 @@ final class AppModel: ObservableObject {
             // （用户实拍：同一条消息出现三次）。
             let existing = entriesStorage[sessionId] ?? []
             let existingIds = Set(existing.map(\.id))
+            // 回放这一页帧时：不再逐帧通知界面、也不逐帧裁。
+            // 120 帧 × 每帧 append → markCurrentDirty / trimIfNeeded，
+            // 上拉时会连续触发好几次全量 sync（用户反馈「上划手感怪」）。
+            // 和 loadHistory 用同一套批量写，收尾统一刷新一次。
+            beginBatch()
+            suppressTrim = true
             entriesStorage[sessionId] = []
             for frame in frames {
                 let seq = (frame["seq"] as? NSNumber)?.intValue ?? 0
                 apply(seq: seq, frame: frame, isHistory: true)
             }
+            suppressTrim = false
             // 只保留「已有条目里没有的」新条目，按 id 去重兜底
             // 只保留已有条目里没有的（按 id）；但 id 可能变 ——
             // 用户刚发的消息本地是 local-xxx，服务端回显时换成正式 id，
@@ -1488,7 +1495,8 @@ final class AppModel: ObservableObject {
                 return a.at < b.at
             }
             entriesStorage[sessionId] = merged
-            syncCurrentEntries()
+            trimIfNeeded(sessionId)
+            endBatch()
         } catch {
             trace("older-failed=\(error.localizedDescription.prefix(40))")
         }

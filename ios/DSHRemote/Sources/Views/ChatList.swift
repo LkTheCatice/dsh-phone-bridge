@@ -85,6 +85,14 @@ struct ChatList: UIViewRepresentable {
         private var lastBottomValue: Bool?
         /// 上一次 apply 的内容指纹：没变就整段跳过
         private var lastFingerprint = ""
+        /// 角色切换（我 ↔ AI）的条目 id，在 apply() 里一次算好
+        private var roleChangeIds: Set<String> = []
+        /// 手指还在拖：这时候往头部插内容会把列表在手指底下顶走
+        private var isDragging = false
+        /// 拖动期间被推迟的一次 apply（等松手再落地）
+        private var deferredEntries: [ChatEntry]?
+        /// apply 之后立刻读到的 contentSize.height，用来吸收「自适应高度二次收敛」
+        private var appliedHeight: CGFloat = 0
 
         init(_ parent: ChatList) {
             self.parent = parent
@@ -95,10 +103,13 @@ struct ChatList: UIViewRepresentable {
             dataSource = UICollectionViewDiffableDataSource<String, String>(collectionView: view) { [weak self] cv, indexPath, id in
                 let cell = cv.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
                 if let entry = self?.lookup[id] {
-                    let list = self?.parent.entries ?? []
-                    let index = list.firstIndex { $0.id == id }
-                    let previousKind = (index ?? 0) > 0 ? list[(index ?? 1) - 1].kind : nil
-                    let isRoleChange = previousKind != nil && previousKind != entry.kind
+                    // 角色切换（我 ↔ AI）只影响气泡留白。
+                    //
+                    // 以前是**每个 cell** 都拿 entries 做一次 firstIndex(where:) ——
+                    // O(n) × 可见 cell 数 × 每次布局，300 条消息时就是几千次比较，
+                    // 滚动（尤其上拉插入后整屏重排）会明显发涩。
+                    // 现在在 apply() 里一次算好，这里只做 O(1) 查表。
+                    let isRoleChange = self?.roleChangeIds.contains(id) ?? false
                     cell.configure(
                         entry,
                         streaming: self?.parent.isStreaming ?? false,
@@ -147,6 +158,25 @@ struct ChatList: UIViewRepresentable {
                 return !oldIds.isEmpty && !oldIds.contains(firstNew)
             }()
 
+            // 手指按着的时候**不**往头部插：往上拖到顶、触发加载，条目一到就
+            // 在手指底下把内容顶走，手感就是「滑到一半被弹了一下」（用户反馈）。
+            // 先记下来，松手/惯性结束时再落地（iOS 官方列表也是这个节奏）。
+            if insertedAtTop, isDragging {
+                deferredEntries = entries
+                lastFingerprint = fp
+                return
+            }
+
+            // 角色切换一次算好，cell provider 只查表（O(1)）
+            var changes = Set<String>()
+            changes.reserveCapacity(unique.count / 4)
+            if unique.count > 1 {
+                for i in 1..<unique.count where unique[i].kind != unique[i - 1].kind {
+                    changes.insert(unique[i].id)
+                }
+            }
+            roleChangeIds = changes
+
             // 必须在 apply **之前**取值：apply 之后 contentSize 就是新的了
             let cv = collectionView
             let beforeHeight = cv?.contentSize.height ?? 0
@@ -159,22 +189,49 @@ struct ChatList: UIViewRepresentable {
             snapshot.appendItems(unique.map(\.id), toSection: "main")
             // 往头部插入后补偿偏移。
             //
-            // 两个坑都要避开：
+            // 三个坑都要避开：
             //  ① 同步读 contentSize 时还是旧值 → delta = 0（第一次失败的原因）
             //  ② 放到 completion 里补偿 → apply 与补偿之间会有一帧显示错位
             //     （用户反馈「加载会突然闪一下」）
-            // 所以整段放进 performWithoutAnimation，并在同一个块里
-            // 强制 layoutIfNeeded 后立刻把偏移加回去 —— 没有中间帧。
+            //  ③ 布局用的是 `.estimated(80)`：apply 后的 contentSize 是**估算**的，
+            //     自适应 cell 完成最终排版后还会再变一次 —— 只补偿一次，
+            //     后续那次收敛会把内容再推一下，手感就是「顿一下 / 回弹一点」。
+            // 所以：同步补偿一次（没有中间帧），下一个 runloop 再吸收二次收敛。
             UIView.performWithoutAnimation {
                 dataSource.apply(snapshot, animatingDifferences: false)
-                guard insertedAtTop, let cv, beforeHeight > 0 else { return }
+                guard insertedAtTop, let cv, beforeHeight > 0 else {
+                    appliedHeight = cv?.contentSize.height ?? 0
+                    return
+                }
                 cv.layoutIfNeeded()
                 let delta = cv.contentSize.height - beforeHeight
                 if delta > 1 {
                     cv.contentOffset.y = beforeOffset + delta
                     cv.layoutIfNeeded()
                 }
+                appliedHeight = cv.contentSize.height
             }
+            guard insertedAtTop, let cv, beforeHeight > 0 else { return }
+            // 二次收敛补偿：只在「用户没在拖/没在惯性」时做，否则会和手势打架
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let cv = self.collectionView else { return }
+                guard !cv.isTracking, !cv.isDecelerating else { return }
+                let settled = cv.contentSize.height
+                let drift = settled - self.appliedHeight
+                if abs(drift) > 1 {
+                    cv.contentOffset.y += drift
+                    self.appliedHeight = settled
+                }
+            }
+        }
+
+        /// 拖动期间推迟的那次 apply，松手后补上
+        private func flushDeferred() {
+            guard let pending = deferredEntries else { return }
+            deferredEntries = nil
+            // 清掉指纹，否则 apply 会认为「没变」直接返回
+            lastFingerprint = ""
+            apply(pending)
         }
 
         /// 内容指纹：count + 首末 id + 末条文本长度。
@@ -233,6 +290,20 @@ struct ChatList: UIViewRepresentable {
             guard lastBottomValue != bottom else { return }
             lastBottomValue = bottom
             parent.onBottomChanged(bottom)
+        }
+
+        // 拖动状态：只用来决定「头部插入能不能现在落地」
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            isDragging = true
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            isDragging = false
+            if !decelerate { flushDeferred() }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            flushDeferred()
         }
 
         // 不再实现 didSelectItemAt：它会抢走 UITextView 里的链接点击，
