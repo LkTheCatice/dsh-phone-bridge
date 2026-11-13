@@ -16,8 +16,10 @@ struct LaunchOverlay: View {
     /// 用户要求：多留一点时间，刚好把页面布局走完。
     let isReady: () -> Bool
 
-    @State private var markScale: CGFloat = 0.86
-    @State private var markOpacity: Double = 0
+    // 图标**第一帧就可见**：之前 opacity 从 0 淡入，于是开头有一小段"什么都没有"，
+    // 观感就是"系统白屏撤了、图标才姗姗出现"（用户实拍）。
+    // 现在只做轻微缩放（0.94 → 1），不参与透明度渐入。
+    @State private var markScale: CGFloat = 0.94
     @State private var titleOpacity: Double = 0
     @State private var leaving = false
 
@@ -45,7 +47,6 @@ struct LaunchOverlay: View {
                         .foregroundStyle(Color.accentColor)
                         .scaleEffect(markScale)
                 }
-                .opacity(markOpacity)
 
                 VStack(spacing: 4) {
                     Text("DSH Helm")
@@ -63,9 +64,8 @@ struct LaunchOverlay: View {
             // 入场
             withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
                 markScale = 1
-                markOpacity = 1
             }
-            withAnimation(.easeOut(duration: 0.28).delay(0.08)) {
+            withAnimation(.easeOut(duration: 0.22).delay(0.06)) {
                 titleOpacity = 1
             }
 
@@ -77,8 +77,8 @@ struct LaunchOverlay: View {
             // 「中间元素刚显现白屏就结束了」）。现在主体 ~0.4s 就位，
             // 至少停到 2.0s 才退场，给首屏布局留足时间。
             let started = CFAbsoluteTimeGetCurrent()
-            let minDwell: Double = 2.0
-            let maxWait: Double = 3.2
+            let minDwell: Double = 2.6
+            let maxWait: Double = 3.8
             while CFAbsoluteTimeGetCurrent() - started < maxWait {
                 let elapsed = CFAbsoluteTimeGetCurrent() - started
                 if elapsed >= minDwell, isReady() { break }
