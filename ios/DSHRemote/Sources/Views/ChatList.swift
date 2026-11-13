@@ -762,7 +762,10 @@ enum MessageRender {
     private static let prefetchQueue = DispatchQueue(label: "dsh.render.prefetch", qos: .userInitiated)
 
     private static func cacheKey(_ entry: ChatEntry) -> NSString {
-        "\(entry.id)|\(entry.text.count)|\(entry.summary?.count ?? 0)|\(entry.running ? 1 : 0)"
+        // 必须显式 String(describing:) 再桥接：Swift 5 里直接把插值表达式
+        // 当返回值会推断成 String，报 "cannot convert return expression"
+        // （CI 抓到的编译错误）。
+        String("\(entry.id)|\(entry.text.count)|\(entry.summary?.count ?? 0)|\(entry.running ? 1 : 0)") as NSString
     }
 
     /// 后台预渲染：把还没进缓存的条目排进后台队列。
