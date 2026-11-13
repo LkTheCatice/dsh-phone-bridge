@@ -192,6 +192,7 @@ struct ChatList: UIViewRepresentable {
             let beforeOffset = cv?.contentOffset.y ?? 0
             let wasAtTop = beforeOffset < 90
 
+            latestEntries = unique
             lookup = Dictionary(unique.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
 
             // 流式最常见的形态：**只有末条的文本在变长**，id 序列完全没动。
@@ -217,9 +218,18 @@ struct ChatList: UIViewRepresentable {
                 }
             }
 
+            // 头部插入且量大 → 先只插入后面的一部分，前面几帧逐批补。
+            if insertedAtTop, stagedTopCount == 0 {
+                let newLeading = unique.prefix { !oldIds.contains($0.id) }.count
+                if newLeading > Self.insertChunk {
+                    stagedTopCount = newLeading - Self.insertChunk
+                }
+            }
+            let shown = stagedTopCount > 0 ? Array(unique.dropFirst(stagedTopCount)) : unique
+
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             snapshot.appendSections(["main"])
-            snapshot.appendItems(unique.map(\.id), toSection: "main")
+            snapshot.appendItems(shown.map(\.id), toSection: "main")
             // 往头部插入后补偿偏移。
             //
             // 三个坑都要避开：
@@ -248,6 +258,16 @@ struct ChatList: UIViewRepresentable {
             Diag.ping("apply n=\(unique.count) top=\(insertedAtTop ? 1 : 0)"
                       + " snap=\(Int((CFAbsoluteTimeGetCurrent() - snapStart) * 1000))"
                       + " total=\(Int((CFAbsoluteTimeGetCurrent() - applyStart) * 1000))")
+            // 还有暂缓的头部条目 → 下一帧再补一片（每次都带偏移补偿，
+            // 用户当前看的内容不会被顶走）。
+            if stagedTopCount > 0 {
+                stagedTopCount = max(0, stagedTopCount - Self.insertChunk)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let all = self.latestEntries else { return }
+                    self.lastFingerprint = ""
+                    self.apply(all)
+                }
+            }
             guard insertedAtTop, let cv, beforeHeight > 0 else { return }
             // 二次收敛补偿：只在「用户没在拖/没在惯性」时做，否则会和手势打架
             DispatchQueue.main.async { [weak self] in
@@ -261,6 +281,20 @@ struct ChatList: UIViewRepresentable {
                 }
             }
         }
+
+        /// 分片插入：一次最多往列表里塞这么多条，剩下的下几帧补齐。
+        ///
+        /// 真机数据（.86/.88 打点）：apply 本身只要 2~44ms、测量 avg 0ms，
+        /// 但每插入一页历史，主线程仍连续卡 3~5 秒 —— 因为 UIKit 在自适应用
+        /// 估算高度时会**为每个新条目实例化 cell 并 configure**，
+        /// 每次 configure 都要把整条 markdown 交给 TextKit 排一遍。
+        /// 一次 40 条 = 40 次排版，全在主线程。
+        /// 分片后每帧只排 8 条，中间让 runloop 喘一口，手感从"卡死"变成"顺畅地补上"。
+        private static let insertChunk = 8
+        /// 被暂缓插入的头部条目数（0 = 全部已插入）
+        private var stagedTopCount = 0
+        /// 最近一次收到的完整条目列表（分片补插时要用）
+        private var latestEntries: [ChatEntry]?
 
         /// 拖动期间推迟的那次 apply，松手后补上
         private func flushDeferred() {
