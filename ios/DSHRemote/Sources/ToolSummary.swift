@@ -43,8 +43,43 @@ enum ToolSummary {
     /// 手机端不渲染就完全看不到 —— 而这些图往往正是「这一轮到底看了什么」的关键。
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"]
 
+    /// 图片路径识别：**在原始文本里扫**，而不是要求整个值就是一个路径。
+    ///
+    /// 之前的实现：把 detail 当 JSON 解析，只认"值的整体是路径且扩展名是图片"
+    /// 的字符串。可 DSH 的 read_image 结果长这样（用户实拍的工具详情）：
+    ///
+    ///   {"type":"text","text":"<path>E:\\AI\\ComfyUI\\...\\x.png</path>\n<type>image</type>…"}
+    ///
+    /// 路径被包在 `<path>` 标签里、分隔符还是 JSON 转义过的 `\\`，
+    /// 于是整体 pathExtension 变成 `png</path>…` → 判不出图片，详情里永远没图。
+    ///
+    /// 现在用正则直接扫，兼容：`<path>` 包裹、`\\` 转义、Windows 盘符、POSIX 路径。
+
+    private static let imagePathRegex: NSRegularExpression = {
+        // 分隔符可以是单个 / 或 \，也可以是 JSON 里转义过的两个反斜杠
+        let sep = #"(?:\\\\|[\\/])"#
+        let seg = #"(?:[^<>"\\/\n]|\\\\)+"#
+        let ext = #"\.(?:png|jpe?g|gif|webp|heic|bmp)"#
+        let windows = #"[A-Za-z]:"# + sep + seg + "(?:" + sep + seg + ")*?" + ext
+        let posix = #"/(?:[^<>"\n]+/)*[^<>"\n]+"# + ext
+        return try! NSRegularExpression(
+            pattern: "(?:" + windows + "|" + posix + ")",
+            options: [.caseInsensitive]
+        )
+    }()
+
     static func imagePaths(from raw: String?) -> [String] {
         guard let raw, !raw.isEmpty else { return [] }
+        var found: [String] = []
+
+        // ① 扫原始文本（覆盖 <path> 包裹与转义写法）
+        let ns = raw as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        for match in imagePathRegex.matches(in: raw, options: [], range: range) {
+            found.append(normalizePath(ns.substring(with: match.range)))
+        }
+
+        // ② 老路子：值本身就是路径的 JSON（保持兼容）
         var value: Any = raw
         for _ in 0..<3 {
             guard let text = value as? String,
@@ -53,17 +88,29 @@ enum ToolSummary {
             else { break }
             value = parsed
         }
-        var found: [String] = []
         collectPaths(value, into: &found, depth: 0)
+
         var seen = Set<String>()
-        return found.filter { seen.insert($0).inserted }
+        return found
+            .filter { imageExtensions.contains(($0 as NSString).pathExtension.lowercased()) }
+            .filter { seen.insert($0).inserted }
     }
 
+    /// 去掉 JSON 转义、`<path>` 之类残留，得到真实路径
+    private static func normalizePath(_ raw: String) -> String {
+        var text = raw
+        text = text.replacingOccurrences(of: "\\\\", with: "\\")
+        if let r = text.range(of: "<path>") { text = String(text[r.upperBound...]) }
+        if let r = text.range(of: "</path>") { text = String(text[..<r.lowerBound]) }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 老路径的 JSON 收集器（值本身就是路径的场合）。
+    /// 正则已经覆盖了绝大多数情况，这里只是兜底 + 保持历史行为。
     private static func collectPaths(_ value: Any, into found: inout [String], depth: Int) {
         guard depth < 4 else { return }
         if let text = value as? String {
             let ext = (text as NSString).pathExtension.lowercased()
-            // 只看绝对路径 + 图片扩展名，别把普通文案误判成路径
             if imageExtensions.contains(ext), text.contains("/") || text.contains("\\") {
                 found.append(text)
             }
