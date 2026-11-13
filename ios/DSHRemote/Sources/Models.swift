@@ -86,6 +86,10 @@ struct ChatEntry: Identifiable, Hashable {
     var ok: Bool? = nil
     /// 属于哪一轮，折叠时按它筛
     var turn: Int = 0
+    /// 轮内序号：同 turn、同 at 时的稳定次序（0 = 普通帧，900 = 产物卡片，1000 = 结束行）。
+    /// 排序键是 (turn, at, order, id)，全部来自帧数据 ——
+    /// 所以同一份历史无论何时回放、从哪一页开始装，顺序都一样。
+    var order: Int = 0
     /// 这条是本地乐观插入、还没被服务端确认的消息（排队中）。
     /// 显示上要明确标出来，否则用户会以为它已经执行了。
     var queued: Bool = false
@@ -105,7 +109,7 @@ extension ChatEntry {
     /// 手写 Hashable：默认合成会把 `folded: [ChatEntry]` 整棵树递归比较，
     /// SwiftUI 做 diff 时非常贵。只比真正影响显示的那几个字段。
     static func == (lhs: ChatEntry, rhs: ChatEntry) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id && lhs.order == rhs.order
             && lhs.kind == rhs.kind
             && lhs.text == rhs.text
             && lhs.running == rhs.running

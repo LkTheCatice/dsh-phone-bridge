@@ -273,9 +273,6 @@ final class AppModel: ObservableObject {
     /// 用户要求：产物提示跟着当轮走，不要夹在工具行中间（那样像日志噪声）。
     private var pendingFileHints: [String: [(path: String, at: Date, turn: Int)]] = [:]
 
-    /// 每个 (会话, 轮次) 的「顺序时钟」，见 append 里的说明。
-    private var turnClock: [String: Date] = [:]
-
     /// 把攒着的产物提示写进列表。
     ///
     /// 位置由**插入顺序**决定（append 里对同一 turn 做单调时钟），
@@ -294,15 +291,34 @@ final class AppModel: ObservableObject {
         pendingFileHints[sessionId] = hints.isEmpty ? nil : hints
 
         for hint in ready {
+            // 落位时间：**这一轮当前最晚的条目时间**（纯帧数据，可重现）。
+            // 不用 Date()：那会把"装载时刻"写进排序键，重启 / 上拉 / 切会话后位置就飘。
+            let latest = entries[sessionId]?
+                .filter { $0.turn == hint.turn }
+                .map(\.at)
+                .max() ?? hint.at
             append(sessionId, ChatEntry(
                 id: "\(sessionId)#file\(hint.turn)_\(hint.path)",
                 kind: .fileOutput,
                 text: "📄 输出文件 · \(Self.fileName(hint.path))",
                 detail: hint.path,
-                at: Date(),
-                turn: hint.turn
+                at: max(latest, hint.at),
+                turn: hint.turn,
+                order: 900
             ))
         }
+    }
+
+    /// 列表的唯一排序规则：(轮次, 帧时间, 轮内序号, id)。
+    ///
+    /// **全部来自帧数据** —— 不含"现在几点"，也不含"先加载了哪一页"。
+    /// 这是这几个 bug 的根：之前既有按装载顺序递增的时钟，又有 flush 时用
+    /// Date() 打的章，于是重启 / 上拉 / 切换会话会得到不同顺序。
+    static func before(_ a: ChatEntry, _ b: ChatEntry) -> Bool {
+        if a.turn != b.turn { return a.turn < b.turn }
+        if a.at != b.at { return a.at < b.at }
+        if a.order != b.order { return a.order < b.order }
+        return a.id < b.id
     }
 
     /// 取文件名：按 **/ 和 \ 两种分隔符**切（NSString.lastPathComponent 只认 "/"，
@@ -749,7 +765,9 @@ final class AppModel: ObservableObject {
                 // turn 必须带上：不带就是 0，而「按 (turn, at) 排序」会把 0 排到最前
                 // —— 「开始第 N 轮 / 本轮结束 / 我的提问」就是这么从原位消失、
                 // 跑到整屏最上面的（用户实拍两轮回答之间只剩折叠块）。
-                turn: turn
+                turn: turn,
+                // 同一 turn 内即使 at 撞了，结束行也必须排最后
+                order: 1000
             ))
             for key in entries.keys {
                 guard var list = entries[key] else { continue }
@@ -944,21 +962,9 @@ final class AppModel: ObservableObject {
             trimIfNeeded(sessionId)
             return
         }
-        // ── 本轮内的顺序时钟 ───────────────────────────────────────────
-        // 排序键是 (turn, at)。**同一个 turn 内，显示顺序必须等于插入顺序**：
-        // 历史回放的帧时间和实时帧时间不可比（回放时 assistant 消息的时间戳
-        // 往往晚于同一轮的工具帧），光靠帧时间会让同一轮里的条目互相插队 ——
-        // 用户多次实拍：重新加载会话后「📄 输出文件」跑到正文上方。
-        // 所以在唯一入口这里做单调递增：插入顺序即显示顺序。
-        let clockKey = "\(sessionId)#\(item.turn)"
-        if let last = turnClock[clockKey] {
-            if item.at <= last {
-                item.at = last.addingTimeInterval(0.001)
-            }
-            turnClock[clockKey] = item.at
-        } else {
-            turnClock[clockKey] = item.at
-        }
+        // 顺序不在这里决定：entry 自带 (turn, at, order)，全部来自帧本身。
+        // 之前这里维护过一个"插入顺序时钟"，导致同一批消息在重启 / 上拉 /
+        // 切换会话后顺序不一致（用户实拍：重启后消息乱序、切会话随机乱序）。
         entries[sessionId, default: []].append(item)
         trimIfNeeded(sessionId)
     }
@@ -1598,10 +1604,7 @@ final class AppModel: ObservableObject {
                 return !existingTextTurns.contains(key)
             }
             var merged = fresh + existing
-            merged.sort { a, b in
-                if a.turn != b.turn { return a.turn < b.turn }
-                return a.at < b.at
-            }
+            merged.sort(by: Self.before)
             entriesStorage[sessionId] = merged
             // 观察点：合并后条目反而变少，说明这一页把已有内容覆盖掉了
             // （历史上的「跳到底部内容缺失」就是这类）。
@@ -1692,14 +1695,17 @@ final class AppModel: ObservableObject {
             }
             suppressTrim = false
             // 与已有条目合并（按 id 去重，已有优先：它可能带着更完整的状态）
-            if !existingBefore.isEmpty, let replayed = entriesStorage[sessionId] {
-                let liveIds = Set(existingBefore.map(\.id))
-                let kept = replayed.filter { !liveIds.contains($0.id) }
-                var merged = existingBefore + kept
-                merged.sort { a, b in
-                    if a.turn != b.turn { return a.turn < b.turn }
-                    return a.at < b.at
-                }
+            if let replayed = entriesStorage[sessionId] {
+                // 合并策略：**回放的条目优先**。
+                // 理由：回放出来的 at/order 直接来自帧，是这份历史的"标准答案"；
+                // 内存里已有的是上一次（可能是旧版本、可能被插入顺序时钟改过）
+                // 的投影。以前保留 existing、只补 replay 缺的 id，于是同一轮里
+                // 新旧时间戳混在一起 → 切换会话后随机乱序（用户实拍）。
+                // 现在只保留"回放里没有的"内存条目（本地乐观插入的 local- 等）。
+                let replayedIds = Set(replayed.map(\.id))
+                let extra = existingBefore.filter { !replayedIds.contains($0.id) }
+                var merged = extra + replayed
+                merged.sort(by: Self.before)
                 entriesStorage[sessionId] = merged
             }
             trimIfNeeded(sessionId)
@@ -1742,14 +1748,12 @@ final class AppModel: ObservableObject {
             }
         }
         entries[sessionId] = []
-        // 会话内容清空时，相关状态一起清 —— 否则重建历史时 turnClock 还停在旧值，
-        // 新插入的条目会被顶到很后面；pending 里的提示也会跑到下一次 turn.end 去。
+        // 会话内容清空时，攒着的产物提示一起清 —— 否则它们会落进下一次 turn.end。
         resetTurnState(sessionId)
     }
 
     /// 清掉某个会话的「本轮时钟 + 攒着的产物提示」
     private func resetTurnState(_ sessionId: String) {
-        turnClock = turnClock.filter { !$0.key.hasPrefix("\(sessionId)#") }
         pendingFileHints[sessionId] = nil
     }
 

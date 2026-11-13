@@ -223,6 +223,16 @@ struct ChatView: View {
                     if latest > lastSeenTurn, !jump.hasNewBelow { jump.hasNewBelow = true }
                 }
                 // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
+                // 切换会话：每个会话都要重新"首次滚到底"，
+                // 否则从 A 切到 B 时 didInitialScroll 仍是 true，
+                // B 的历史回来了却不滚动 —— 用户看到的是"切过去停在最上面"
+                // （这是本轮三个 bug 里的第 2 条）。
+                .onChange(of: model.selectedSessionId) { _ in
+                    didInitialScroll = false
+                    lastSeenTurn = 0
+                    if !jump.atBottom { jump.atBottom = true }
+                    if jump.hasNewBelow { jump.hasNewBelow = false }
+                }
                 .onChange(of: chat.historyVersion) { _ in
                     // 历史重建完成后：
                     //   首次进入会话 → 滚到底（否则会停在顶部）
