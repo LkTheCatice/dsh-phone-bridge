@@ -332,9 +332,14 @@ export function normalizeEvent(session, event) {
       const injected =
         !text.trim() ||
         /^(Time sampled while preparing|Browser time zone for this request|Elapsed since)/im.test(text) ||
-        /Current DSH file policy|Approval prompts are disabled in this session|Current DeepSeek Harness implementation checkout|Current DeepSeek Harness Web GUI URL/i.test(
-          text,
-        ) ||
+        // runtime-context：DSH 换过措辞，所以按**字段名**判，别绑死整句。
+        // 旧版写的是 "Current DSH file policy"，现在变成 "Current file policy"；
+        // "Approval prompts are disabled" 变成 "Approval requests are auto-granted"；
+        // 结果整段上下文被当成「我」的消息显示（用户实拍：满屏英文）。
+        /Current runtime context|This snapshot supersedes/i.test(text) ||
+        /Current\s+(working directory|file policy|implementation checkout|local Web GUI URL)\s*:/i.test(text) ||
+        /Approval\s+(requests are auto-granted|prompts are disabled|bypass)/i.test(text) ||
+        /Current DSH file policy|Current DeepSeek Harness/i.test(text) ||
         // 3. checkpoint：上下文压缩时 DSH 会把一段
         //    「This is an automatically generated checkpoint condensing an earlier span…」
         //    注入成 user/message。它是给模型看的，之前直接在手机上显示成「我」说的话

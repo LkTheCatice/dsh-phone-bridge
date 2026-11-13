@@ -508,6 +508,12 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         bubbleWidth = bubble.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 20)
         bubbleWidth?.isActive = true
 
+        // 卡片行（产物 / 折叠）自己接管点击：这两类 textView 是隐藏的，
+        // 挂在 textView 上的手势收不到事件。
+        let chipTap = UITapGestureRecognizer(target: self, action: #selector(handleRowTap))
+        fileChip.addGestureRecognizer(chipTap)
+        fileChip.isUserInteractionEnabled = true
+
         // 工具行整行可点：打开「工具详情」（含它读过的图片）。
         // 只对 .toolCall 生效 —— 其它行里的 dsh:// 链接靠 UITextView 自己的
         // delegate 处理，不要让一个手势去抢点击。
@@ -600,10 +606,20 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         // 用户消息把内容块整体右移（不是文字缩进）：左边界 56pt，
         // 这样右边界贴着屏幕右边，看起来才像「我说的」，与微信/QQ 一致。
         leadingConstraint?.constant = (entry.kind == .user) ? 56 : 0
-        // 产物卡片：这一条**不用 textView**，交给 FileChipView（真视图 + 约束）。
+        // 产物卡片 / 折叠行：这两类都**不用 textView**，交给 FileChipView
+        // （真视图 + 约束）—— 文字的垂直居中、内边距都由约束保证。
         if entry.kind == .fileOutput {
             fileChip.isHidden = false
             fileChip.text = entry.text
+            fileChip.textColor = .label
+            textView.isHidden = true
+            textView.attributedText = nil
+        } else if entry.kind == .collapsedSteps {
+            // 「▸ 本轮过程 · N 步」做成一张**有色卡片的行**：
+            // 之前是 12pt 灰字，小、没颜色、看不出能点（用户实拍）。
+            fileChip.isHidden = false
+            fileChip.text = "▸ " + entry.text + "  ›"
+            fileChip.textColor = .tintColor
             textView.isHidden = true
             textView.attributedText = nil
         } else {

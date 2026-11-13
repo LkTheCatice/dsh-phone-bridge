@@ -22,6 +22,13 @@ final class FileChipView: UIView {
         set { label.text = newValue }
     }
 
+    /// 文字颜色。折叠行（「本轮过程」）用主题色 —— 灰字太弱，
+    /// 用户看不出这一行能点（实拍反馈）。
+    var textColor: UIColor {
+        get { label.textColor }
+        set { label.textColor = newValue }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false

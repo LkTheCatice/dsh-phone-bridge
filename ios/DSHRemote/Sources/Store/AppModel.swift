@@ -1040,7 +1040,14 @@ final class AppModel: ObservableObject {
         }
         guard stepIndexes.count >= 3, let firstIdx = stepIndexes.first else { return 0 }
 
-        let foldedEntries = stepIndexes.map { list[$0] }
+        // 折叠出来的拷贝必须清掉 running：turn.end 里"清 running"的循环在
+        // 折叠**之后**才跑，否则拷贝会永远停在 running=true，
+        // 「本轮过程」页那一步的转圈就永远不消失（用户实拍：思考一直在转）。
+        let foldedEntries = stepIndexes.map { index -> ChatEntry in
+            var step = list[index]
+            step.running = false
+            return step
+        }
         let fold = ChatEntry(
             id: "\(sessionId)#fold\(turn)",
             kind: .collapsedSteps,
