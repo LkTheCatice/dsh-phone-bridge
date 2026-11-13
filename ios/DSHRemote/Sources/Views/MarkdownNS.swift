@@ -231,6 +231,12 @@ enum MarkdownNS {
                     .paragraphStyle: style,
                 ]
             ))
+            // 下空白段：第一个 "\n" 只是给最后一行收尾，第二个才是独立的空段落
+            // （少一个的话底边会被切掉 —— 和表格同一个坑）。
+            out.append(NSAttributedString(
+                string: "\n",
+                attributes: [.font: UIFont.systemFont(ofSize: 3)]
+            ))
             out.append(NSAttributedString(
                 string: "\n",
                 attributes: [.font: padFont, .paragraphStyle: padBottomStyle]
@@ -538,9 +544,17 @@ enum MarkdownNS {
                 out.append(makeRow(headers, isHeader: true))
             }
             for (i, row) in shownRows.enumerated() {
-                if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
+                // ⚠️ 每一行前面都要补 "\n"（包括第一行）。
+                // makeRow 产出的行**不带换行**，以前靠表头下面那行「─」收尾，
+                // 那行删掉之后第一行数据就接到了表头段里 ——
+                // 用户实拍：表头那一行变成「调用 结果 write 晨报.docx」。
+                out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)]))
                 out.append(makeRow(row, isHeader: false, isLast: i == shownRows.count - 1))
             }
+            // 下空白段：先 "\n" 结束最后一行，再来一个 "\n" 才是**独立的空段落**
+            // （只加一个 "\n" 只是给上一行收尾，不会产生高度 ——
+            //  用户实拍：表格下边界被切掉）。
+            out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)]))
             out.append(NSAttributedString(
                 string: "\n",
                 attributes: [
