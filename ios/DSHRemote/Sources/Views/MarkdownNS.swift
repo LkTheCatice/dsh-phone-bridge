@@ -327,6 +327,73 @@ enum MarkdownNS {
             )
 
         case let .table(headers, rows):
+            // ── 窄气泡里先判断：这张表"根本塞不下"就别硬做表格 ─────────────
+            //
+            // 硬用 tabStops 对齐时，一旦是 3 列以上的中文表格，列宽会被压到 8 字符，
+            // 每格都被迫换行 —— 最终看起来就是「几个词一堆堆在一起」，
+            // 既不像表格也不像列表（用户实拍反馈）。
+            // 这种时候降级成「一条记录一块」：首列加粗当小标题，
+            // 其余列按「列名：值」排，读起来和表格等价，但不会再挤爆。
+            if mode == .compact {
+                let colCount = max(headers.count, rows.map(\.count).max() ?? 0)
+                var widestCell = 0
+                for row in rows.prefix(6) {
+                    for cell in row { widestCell = max(widestCell, Self.displayWidth(InlineParser.stripResidual(cell))) }
+                }
+                let estimated = widestCell * max(1, colCount) + (colCount - 1) * 2
+                let cannotFit = colCount >= 3 || estimated > 44
+                if cannotFit {
+                    let out = NSMutableAttributedString()
+                    let headFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+                    let nameFont = UIFont.systemFont(ofSize: 13, weight: .regular)
+                    let valueFont = UIFont.systemFont(ofSize: 14, weight: .regular)
+                    let shown = Array(rows.prefix(6))
+
+                    for (r, row) in shown.enumerated() {
+                        // 首列：加粗小标题
+                        let head = row.first ?? ""
+                        let title = NSMutableAttributedString(
+                            attributedString: Self.inline(head, base: headFont)
+                        )
+                        title.addAttribute(
+                            .paragraphStyle,
+                            value: Self.style(spacingAfter: 2, spacingBefore: r == 0 ? 0 : 12, lineSpacing: 1),
+                            range: NSRange(location: 0, length: title.length)
+                        )
+                        out.append(title)
+                        out.append(NSAttributedString(string: "\n"))
+
+                        // 其余列：列名：值
+                        for (c, cell) in row.enumerated() where c > 0 {
+                            let name = c < headers.count ? headers[c] : ""
+                            let line = NSMutableAttributedString()
+                            if !name.isEmpty {
+                                line.append(NSAttributedString(string: "\(name)：", attributes: [
+                                    .font: nameFont,
+                                    .foregroundColor: UIColor.secondaryLabel,
+                                ]))
+                            }
+                            line.append(Self.inline(cell, base: valueFont))
+                            line.addAttribute(
+                                .paragraphStyle,
+                                value: Self.style(spacingAfter: 0, lineSpacing: 2),
+                                range: NSRange(location: 0, length: line.length)
+                            )
+                            out.append(line)
+                            out.append(NSAttributedString(string: "\n"))
+                        }
+                    }
+
+                    if rows.count > shown.count {
+                        out.append(NSAttributedString(string: "…\n", attributes: [
+                            .font: UIFont.systemFont(ofSize: 13),
+                            .foregroundColor: UIColor.tertiaryLabel,
+                        ]))
+                    }
+                    return out
+                }
+            }
+
             // 表格一律用 **tabStops 做列对齐**（等宽字体 + 按显示宽度算停靠点）。
             //
             // 走过的错路：
