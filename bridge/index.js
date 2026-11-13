@@ -64,16 +64,67 @@ const PUBLIC_PATHS = new Set(["/v1/health", "/v1/handshake"]);
  * 从 storages/workspace.json 读，不猜 process.cwd()：
  * Electron 进程的 cwd 是 profile 目录，根本不是用户以为的"工作区"。
  */
-function detectWorkspaceRoots() {  try {
+function detectWorkspaceRoots() {
+  const out = [];
+  try {
     const file = path.join(dshHome(), "storages", "workspace.json");
     const doc = readJson(file, null);
     const table = doc?.tables?.workspaces ?? {};
-    return Object.values(table)
-      .map((ws) => (ws && typeof ws.path === "string" ? ws.path : null))
-      .filter(Boolean);
+    out.push(
+      ...Object.values(table)
+        .map((ws) => (ws && typeof ws.path === "string" ? ws.path : null))
+        .filter(Boolean),
+    );
   } catch {
-    return [];
+    /* 工作区表读不到就只靠下面的额外根 */
   }
+  out.push(...detectExtraRoots());
+  return out;
+}
+
+/**
+ * 额外允许的根目录：**产物目录**。
+ *
+ * 起因：手机上打开 `📄 输出文件` 的图片（ComfyUI 生成的图 /
+ * 本地生成的文档）会报「读不到这张图（路径可能不在电脑允许的目录里）」——
+ * 因为这些目录在 DSH 工作区之外，安全白名单里没有。
+ *
+ * 来源（按优先级）：
+ *   1. 环境变量 DSH_PHONE_ROOTS：分号分隔，最灵活
+ *   2. `~/.dsh/storages/phone-roots.json`：{ "roots": ["D:/x", ...] }
+ *   3. 已知的生成图目录（存在才加）：
+ *      ~/Desktop/千问1生图、E:/AI/ComfyUI/ComfyUI/output
+ *
+ * 仍然只加**具体目录**，不开盘符；realpath 校验照旧（符号链接逃逸照样失败）。
+ */
+function detectExtraRoots() {
+  const candidates = [];
+
+  const env = process.env.DSH_PHONE_ROOTS;
+  if (env) {
+    candidates.push(...String(env).split(path.delimiter === ";" ? ";" : ":"));
+  }
+
+  const json = readJson(path.join(dshHome(), "storages", "phone-roots.json"), null);
+  if (json && Array.isArray(json.roots)) candidates.push(...json.roots.map(String));
+
+  const home = dshHome().replace(/[\\/][^\\/]*$/, "");
+  candidates.push(
+    path.join(home, "Desktop", "千问1生图"),
+    "E:/AI/ComfyUI/ComfyUI/output",
+  );
+
+  const out = [];
+  for (const raw of candidates) {
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    try {
+      if (fs.existsSync(value)) out.push(value);
+    } catch {
+      /* 不存在就跳过 */
+    }
+  }
+  return out;
 }
 
 class HttpError extends Error {
