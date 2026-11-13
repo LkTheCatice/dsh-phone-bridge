@@ -325,8 +325,8 @@ struct ChatView: View {
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            // 键盘弹起时藏掉底部 Tab Bar：否则它被键盘盖住，三个按钮点不到
-            .toolbar(focused ? .hidden : .visible, for: .tabBar)
+            // 系统 tab bar 已由 MainView 整条隐藏（换成自定义底栏），
+            // 这里不要再按焦点切换可见性 —— 会和那边打架、还可能把它闪出来一次。
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     // 会话列表放不进 Menu：UIMenu 只渲染简单的文本/图片组合，
@@ -651,30 +651,6 @@ struct ChatView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            // 状态条：占住输入区下方的空白，把顶栏挤掉的信息收在这里。
-            // 一条 16pt 高的细行，左连接点、右用量 —— 不抢注意力但一直在。
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 6, height: 6)
-                if model.phase != .connected {
-                    Text(connectionShort)
-                        .foregroundStyle(statusColor)
-                }
-                ComfyBadge(quietWhenIdle: true)
-                Spacer(minLength: 8)
-                if !chat.queue.isEmpty {
-                    Text("队列 \(chat.queue.count)")
-                }
-                if chat.streaming {
-                    Text("生成中")
-                }
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 2)
-            .frame(height: 16)
         }
         .background(.bar)
     }
