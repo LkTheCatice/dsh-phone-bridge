@@ -517,7 +517,12 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     }
 
     @objc private func handleRowTap() {
-        guard let entry = currentEntry, entry.kind == .toolCall else { return }
+        // 工具行 → 工具详情；折叠行（▸ 本轮过程 · N 步）→ 本轮过程页。
+        // 只放 .toolCall 是不够的：折叠行同样需要入口，
+        // 漏掉它就会出现「找不到本轮过程入口」（用户实拍）。
+        guard let entry = currentEntry,
+              entry.kind == .toolCall || entry.kind == .collapsedSteps
+        else { return }
         onTapEntry?(entry.id)
     }
 
@@ -609,6 +614,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         }
         self.onTapAttachments = onTapAttachments
         self.onTapEntry = onTapEntry
+        // 思考行最多 6 行：TextKit 只排这么多，界面给个「大概在想什么」；
+        // 其余行不限制（0 = 不限）。
+        textView.textContainer.maximumNumberOfLines = (entry.kind == .thinking) ? 6 : 0
 
         // 气泡配色 + 布局：
         //   用户 → 淡主题色气泡，按内容收缩，整体靠右（文字在气泡内左对齐）
@@ -878,11 +886,23 @@ enum MessageRender {
             // 完成态回答走 markdown → 单个 NSAttributedString（代码块/列表/引用都在里面）
             body = MarkdownNS.render(entry.text)
         case .thinking:
+            // 思考（CoT）动辄几千字，而且是**流式**增长的：
+            // 每来一条 assistant.thinking 就整段重排 + 重新测量，会把主线程按住
+            // （真机实测 STUCK 728→2810ms 连续累积，就是开思考之后出现的）。
+            // 这里只排「尾部 TAIL 字」，配合 textContainer 的 6 行上限，
+            // 单帧排版量恒定；全文仍在 entry.text 里，「本轮过程」页可看。
+            let tailLimit = 900
+            let text = entry.text.count > tailLimit
+                ? "…" + String(entry.text.suffix(tailLimit))
+                : entry.text
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
             body = NSAttributedString(
-                string: entry.text,
+                string: text,
                 attributes: [
                     .font: UIFont.italicSystemFont(ofSize: 13),
                     .foregroundColor: UIColor.secondaryLabel,
+                    .paragraphStyle: style,
                 ]
             )
         case .toolCall:
