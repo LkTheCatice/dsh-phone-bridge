@@ -17,26 +17,68 @@ final class AppModel: ObservableObject {
 
     /// 断线横幅是否显示。
     ///
-    /// 不能直接绑 `phase != .connected`：重连循环里 phase 会反复
-    /// failed → connected → failed（每次尝试都先置 failed），
-    /// 横幅跟着闪烁，用户看到「未连接」在反复刷新（用户实拍确认）。
-    /// 这里做 1.5 秒防抖：只有断线持续到这个时长才真的弹横幅。
+    /// 规则（用户明确要求）：
+    ///   · **未连接就一直显示** —— 中途重连尝试不再让它闪一下又消失
+    ///   · 可以手动划掉（避免挡住操作），划掉后 **5 秒**自动恢复
+    ///   · 一旦连上，立即消失并清掉"已划掉"状态
+    ///
+    /// 之前是「phase 一变就重算 + 1.5s 防抖」：重连循环里 phase 反复
+    /// failed → connecting，横幅跟着忽隐忽现（用户实拍确认）。
+    /// 现在拆成"目标状态"和"临时隐藏"两件事，互不干扰。
     @Published private(set) var showDisconnectBanner = false
+    /// 用户划掉的那一刻；nil = 没划掉
+    private var bannerDismissedAt: Date?
     private var bannerTask: Task<Void, Never>?
+    /// 划掉后多久恢复
+    private let bannerDismissGrace: TimeInterval = 5
+
+    /// 真正应该显示横幅吗（不含 1.5s 首现防抖）
+    private var bannerWanted: Bool {
+        phase != .connected && !suppressDisconnect
+    }
 
     private func scheduleBannerUpdate() {
         bannerTask?.cancel()
-        if phase == .connected || suppressDisconnect {
+
+        // 连上了：立刻收起，并清掉"已划掉"标记（下次断线重新来过）
+        guard bannerWanted else {
+            bannerDismissedAt = nil
             if showDisconnectBanner { showDisconnectBanner = false }
             return
         }
+
+        // 已经在显示：不动它（重连过程中的 phase 抖动不该影响它）
+        if showDisconnectBanner { return }
+
+        // 刚被用户划掉：等 grace 之后如果还没连上，再显示
+        if let dismissedAt = bannerDismissedAt {
+            let remaining = bannerDismissGrace - Date().timeIntervalSince(dismissedAt)
+            if remaining > 0 {
+                bannerTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                    guard !Task.isCancelled, let self else { return }
+                    self.bannerDismissedAt = nil
+                    self.scheduleBannerUpdate()
+                }
+                return
+            }
+            bannerDismissedAt = nil
+        }
+
+        // 首次出现仍做 1.5s 防抖（开屏/切换网络时别闪一下）
         bannerTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard !Task.isCancelled, let self else { return }
-            if self.phase != .connected, !self.suppressDisconnect {
-                self.showDisconnectBanner = true
-            }
+            guard self.bannerWanted else { return }
+            self.showDisconnectBanner = true
         }
+    }
+
+    /// 用户划掉横幅：先隐藏，5 秒后若仍未连上自动回来
+    func dismissDisconnectBanner() {
+        bannerDismissedAt = Date()
+        if showDisconnectBanner { showDisconnectBanner = false }
+        scheduleBannerUpdate()
     }
     @Published private(set) var pairing: PairingConfig?
     @Published private(set) var serverInfo: String = ""

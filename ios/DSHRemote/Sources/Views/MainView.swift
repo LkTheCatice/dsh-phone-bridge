@@ -121,7 +121,30 @@ struct DisconnectBanner: View {
             }
             .buttonStyle(.bordered)
             .disabled(reconnecting)
+
+            // 划掉：临时让开视线，5 秒后如果还没连上会自己回来
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    model.dismissDisconnectBanner()
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+            }
+            .buttonStyle(.plain)
         }
+        // 上下滑动也能划掉（横幅贴在顶部，往上推更符合直觉）
+        .gesture(
+            DragGesture(minimumDistance: 12)
+                .onEnded { value in
+                    guard value.translation.height < -10 || value.translation.width > 60 else { return }
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        model.dismissDisconnectBanner()
+                    }
+                }
+        )
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(tint.opacity(0.35)))
@@ -247,7 +270,7 @@ struct BannerHost: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
-        .animation(.easeInOut(duration: 0.2), value: model.showDisconnectBanner)
+        .animation(.easeInOut(duration: 0.22), value: model.showDisconnectBanner)
         .animation(.easeInOut(duration: 0.2), value: model.suppressDisconnect)
     }
 }
