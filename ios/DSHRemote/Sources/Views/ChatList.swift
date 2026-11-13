@@ -662,7 +662,10 @@ enum MessageRender {
         if let prefix = prefix(for: entry) {
             let color: UIColor = (entry.kind == .user) ? .tintColor : .tertiaryLabel
             let paragraph = NSMutableParagraphStyle()
-            paragraph.paragraphSpacing = 2
+            // 前缀（▍AI / ▍我）和下面正文之间的间距。
+            // 原来是 2pt —— 看着几乎贴在一起（用户实拍「AI 离正文太近」）。
+            // 7pt 之后前缀自成一行、正文开头也有呼吸感。
+            paragraph.paragraphSpacing = 7
             if entry.kind == .user { paragraph.alignment = .right }
 
             out.append(NSAttributedString(
