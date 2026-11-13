@@ -1765,6 +1765,8 @@ final class AppModel: ObservableObject {
 
     func pingDiagnostic(_ tag: String) {
         guard let pairing else { return }
+        // 顺带给视图侧的打点器填上地址（Diag / ChatList 的耗时统计走同一条路）
+        Diag.endpoint = (pairing.host, pairing.port)
         // 参数名必须是 d —— 服务端 /v1/health 里读的就是它，拼错就一条日志都不会有
         let encoded = tag.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? tag
         guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/v1/health?d=\(encoded)") else { return }

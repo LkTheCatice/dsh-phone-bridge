@@ -146,6 +146,7 @@ struct ChatList: UIViewRepresentable {
             let fp = fingerprint(entries)
             guard fp != lastFingerprint else { return }
             lastFingerprint = fp
+            let applyStart = CFAbsoluteTimeGetCurrent()
 
             var seen = Set<String>()
             var unique: [ChatEntry] = []
@@ -207,6 +208,7 @@ struct ChatList: UIViewRepresentable {
                         dataSource.apply(current, animatingDifferences: false)
                     }
                     appliedHeight = cv.contentSize.height
+                    Diag.ping("apply-tail total=\(Int((CFAbsoluteTimeGetCurrent() - applyStart) * 1000))")
                     return
                 }
             }
@@ -224,6 +226,7 @@ struct ChatList: UIViewRepresentable {
             //     自适应 cell 完成最终排版后还会再变一次 —— 只补偿一次，
             //     后续那次收敛会把内容再推一下，手感就是「顿一下 / 回弹一点」。
             // 所以：同步补偿一次（没有中间帧），下一个 runloop 再吸收二次收敛。
+            let snapStart = CFAbsoluteTimeGetCurrent()
             UIView.performWithoutAnimation {
                 dataSource.apply(snapshot, animatingDifferences: false)
                 guard insertedAtTop, let cv, beforeHeight > 0 else {
@@ -238,6 +241,9 @@ struct ChatList: UIViewRepresentable {
                 }
                 appliedHeight = cv.contentSize.height
             }
+            Diag.ping("apply n=\(unique.count) top=\(insertedAtTop ? 1 : 0)"
+                      + " snap=\(Int((CFAbsoluteTimeGetCurrent() - snapStart) * 1000))"
+                      + " total=\(Int((CFAbsoluteTimeGetCurrent() - applyStart) * 1000))")
             guard insertedAtTop, let cv, beforeHeight > 0 else { return }
             // 二次收敛补偿：只在「用户没在拖/没在惯性」时做，否则会和手势打架
             DispatchQueue.main.async { [weak self] in
@@ -711,8 +717,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         measureTotalMs += ms
         if ms > measureWorstMs { measureWorstMs = ms }
         if measureCount % 40 == 0 {
-            NSLog("[measure] n=%d avg=%dms worst=%dms",
-                  measureCount, measureTotalMs / max(1, measureCount), measureWorstMs)
+            let avg = measureTotalMs / max(1, measureCount)
+            NSLog("[measure] n=%d avg=%dms worst=%dms", measureCount, avg, measureWorstMs)
+            Diag.ping("measure n=\(measureCount) avg=\(avg) worst=\(measureWorstMs)")
         }
     }
 
