@@ -714,6 +714,12 @@ enum MessageRender {
                 cardStyle.headIndent = 10
                 cardStyle.firstLineHeadIndent = 10
                 cardStyle.tailIndent = -10
+                // 卡片高度：底色按**行片段**画，只靠字体行高这张卡只有 ~15pt，
+                // 上下没有 padding，看起来像一条细线（用户实拍「边框有些小」）。
+                // 把行高固定到 26pt —— 真布局，不是把矩形往外画，
+                // 于是底色上下各有约 5pt 留白，像一张正常 chip。
+                cardStyle.minimumLineHeight = 26
+                cardStyle.maximumLineHeight = 26
                 body = NSAttributedString(
                     string: entry.text,
                     attributes: [
