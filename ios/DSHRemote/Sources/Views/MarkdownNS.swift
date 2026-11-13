@@ -184,31 +184,45 @@ enum MarkdownNS {
             // 现在也不该把空格塞进可复制的内容里）。
             let body = rawLines.map { " " + $0 }.joined(separator: "\n")
 
-            let out = NSMutableAttributedString()
-            if let lang, !lang.isEmpty {
-                // 语言标签是本块的第一段：段前距给足，
-                // 否则上一个块的底色（向下外扩 4pt）会和它的顶边贴到一起
-                // （用户实拍：两个临近的内框范围重合）。
-                let tagStyle = Self.style(
-                    spacingAfter: 0, spacingBefore: max(before, 18), lineSpacing: 0,
-                    headIndent: 8, tailIndent: -8
-                )
-                out.append(NSAttributedString(
-                    string: lang + "\n",
-                    attributes: [
-                        .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .medium),
-                        .foregroundColor: UIColor.tertiaryLabel,
-                        .paragraphStyle: tagStyle,
-                    ]
-                ))
-            }
             // 字体：优先 Menlo。SF Mono 对制表框线（┌ ─ │ └ ▼）覆盖不全，
             // fallback 字宽不一致 → ASCII 图错位。
             let mono = UIFont(name: "Menlo", size: 12.5)
                 ?? UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
             let fill = UIColor.secondarySystemFill
-            // 正文
-            let bodyStart = out.length
+
+            // ── 内边距用**真实段落**实现（架构上唯一干净的做法）──────────────
+            // 之前是在布局管理器里把矩形往外画（insetBy 负值）：padding 是画上去的，
+            // 不是布局的一部分 —— 于是遇到相邻元素就必然重叠，只能靠调数字躲，
+            // 补丁越打越多（用户连着三次实拍「碰到别的元素」）。
+            // 现在整块 = [上空白段][语言标签][正文][下空白段]，四段同属一块底色：
+            //   · padding 由空白段的高度提供（真布局），不会越界；
+            //   · 块外间距由这两个空白段的段前/段后距提供（也是真布局）；
+            //   · 底色矩形仍由布局管理器按片段并集画，但因为不再外扩，永远不会碰到别人。
+            let padFont = UIFont.systemFont(ofSize: 5)
+            let padTopStyle = Self.style(
+                spacingAfter: 0, spacingBefore: max(before, 12),
+                lineSpacing: 0, headIndent: 8, tailIndent: -8
+            )
+            let padBottomStyle = Self.style(
+                spacingAfter: 14, spacingBefore: 0,
+                lineSpacing: 0, headIndent: 8, tailIndent: -8
+            )
+
+            let out = NSMutableAttributedString()
+            out.append(NSAttributedString(
+                string: "\n",
+                attributes: [.font: padFont, .paragraphStyle: padTopStyle]
+            ))
+            if let lang, !lang.isEmpty {
+                out.append(NSAttributedString(
+                    string: lang + "\n",
+                    attributes: [
+                        .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                        .foregroundColor: UIColor.tertiaryLabel,
+                        .paragraphStyle: style,
+                    ]
+                ))
+            }
             out.append(NSAttributedString(
                 string: body,
                 attributes: [
@@ -217,27 +231,12 @@ enum MarkdownNS {
                     .paragraphStyle: style,
                 ]
             ))
-            // 首行/末行单独补段距：只在这两处留白，行间保持 0 —— 这样 ASCII 图
-            // 的竖线才连得上，同时整块底色上下仍有呼吸空间。
-            var cursor = bodyStart
-            for (idx, line) in rawLines.enumerated() {
-                let len = (" " + line).utf16.count
-                if idx == 0 || idx == rawLines.count - 1 {
-                    let edge = Self.style(
-                        // 末行段后 18：色块向下外扩 4pt，下一个块向上也外扩 4pt，
-                        // 留 18 才能保证两块之间还有 ~10pt 的实际间距
-                        // （否则两块同色底会连在一起，看着像范围重合）。
-                        spacingAfter: idx == rawLines.count - 1 ? 18 : 0,
-                        spacingBefore: idx == 0 ? max(before, 18) : 0,
-                        lineSpacing: 0,
-                        headIndent: 8, tailIndent: -8
-                    )
-                    edge.lineBreakMode = .byTruncatingTail
-                    out.addAttribute(.paragraphStyle, value: edge, range: NSRange(location: cursor, length: len))
-                }
-                cursor += len + 1   // +1：行尾的 "\n"
-            }
-            // 整块底色 + 描边（一次画成一整块，行间不再有缝）
+            out.append(NSAttributedString(
+                string: "\n",
+                attributes: [.font: padFont, .paragraphStyle: padBottomStyle]
+            ))
+
+            // 整块底色 + 描边（一次画成一整块，行间不再有缝；不再向外扩）
             let blockRange = NSRange(location: 0, length: out.length)
             out.addAttribute(BlockFillAttribute.key, value: fill, range: blockRange)
             out.addAttribute(BlockFillAttribute.strokeKey, value: UIColor.separator, range: blockRange)
@@ -424,9 +423,9 @@ enum MarkdownNS {
                 style.lineHeightMultiple = isHeader ? 1.42 : 1.36
                 // 表格首行上方 / 末行下方各留一段：整块底色上下各外扩 4pt，
                 // 没有这段就会顶到 AI 前缀或下一段正文（用户实拍「碰到外部元素」）。
-                style.paragraphSpacingBefore = isHeader ? 8 : 0
-                // 表头下留 8pt 当「分隔」（原来那行「─」会压在表头第一行上）
-                style.paragraphSpacing = isLast ? 10 : (isHeader ? 8 : 4)
+                // 块外间距交给上下空白段；这里只保留表头与数据行之间的分隔
+                style.paragraphSpacingBefore = 0
+                style.paragraphSpacing = isHeader ? 8 : (isLast ? 0 : 4)
                 let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
                 // 行首留白（和 tabStops 的 leadChars 对应）
@@ -522,17 +521,33 @@ enum MarkdownNS {
             }
 
             let out = NSMutableAttributedString()
+            // 上下空白段：表格的内边距和块外间距都由它们提供（真布局，不靠外扩矩形）。
+            let tablePadFont = UIFont.systemFont(ofSize: 5)
+            out.append(NSAttributedString(
+                string: "\n",
+                attributes: [
+                    .font: tablePadFont,
+                    .paragraphStyle: Self.style(spacingAfter: 0, spacingBefore: max(before, 12), lineSpacing: 0),
+                ]
+            ))
             if !headers.isEmpty {
                 // 表头不再单独画「─」分隔线：
-                // 那一行本身是**一个段落**，它会和表头挤在同一段视觉区域里，
-                // 看起来像「横线压在第一行」（用户实拍）。
-                // 现在靠「表头加粗 + 表头下 8pt 段距」来区分，干净且不会错位。
+                // 那一行本身是**一个段落**，会挤在表头的视觉区域里，
+                // 看起来就是「横线压在第一行」（用户实拍）。
+                // 现在靠「表头加粗 + 表头下 8pt 段距」区分。
                 out.append(makeRow(headers, isHeader: true))
             }
             for (i, row) in shownRows.enumerated() {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
                 out.append(makeRow(row, isHeader: false, isLast: i == shownRows.count - 1))
             }
+            out.append(NSAttributedString(
+                string: "\n",
+                attributes: [
+                    .font: tablePadFont,
+                    .paragraphStyle: Self.style(spacingAfter: 14, spacingBefore: 0, lineSpacing: 0),
+                ]
+            ))
 
             // 整表一块底色：由 BlockFillLayoutManager 按行片段并集画（含 tab 空档），
             // 不像 .backgroundColor 那样被列间距切成一段段。

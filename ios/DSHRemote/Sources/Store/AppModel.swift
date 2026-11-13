@@ -622,6 +622,23 @@ final class AppModel: ObservableObject {
             }
             // 找不到对应调用就丢掉：电脑端也不会把"工具完成"单独列一行
 
+        case "file.output":
+            // 产出了文件（docx / pptx / pdf / ipa / zip …）。
+            // 图片和视频手机能直接预览，这类不行 —— 以前用户完全看不到
+            // 「电脑那边写了什么文件」。这里补一条轻量提示，只显示文件名，
+            // 完整路径放在 detail 里（点开消息可看）。
+            let path = (frame["path"] as? String) ?? ""
+            guard !path.isEmpty else { return }
+            let name = (path as NSString).lastPathComponent
+            append(sid, ChatEntry(
+                id: "\(sid)#file\(turn)_\(path)",
+                kind: .toolResult,
+                text: "📄 输出文件 · \(name.isEmpty ? path : name)",
+                detail: path,
+                at: Self.frameDate(frame),
+                turn: turn
+            ))
+
         case "approval.asked":
             let id = (frame["id"] as? String) ?? ""
             guard !id.isEmpty else { return }

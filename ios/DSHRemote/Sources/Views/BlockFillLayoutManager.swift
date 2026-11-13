@@ -42,10 +42,10 @@ final class BlockFillLayoutManager: NSLayoutManager {
                 width: union.width,
                 height: union.height
             )
-            // 横向**向内收一点**（dx: 2）：色块的 line fragment 宽度等于整列宽，
-            // 不内收就会顶到气泡内边（用户实拍「内部框碰到外部元素」）。
-            // 纵向外扩 4pt 当上下 padding，段距由 MarkdownNS 那边配好留白。
-            .insetBy(dx: 2, dy: -4)
+            // 横向向内收 2pt（离气泡内边留 2pt）；
+            // **纵向不再外扩**：上下 padding 由 MarkdownNS 里那两个「空白段」提供，
+            // 是真布局。以前在这里用负 insetBy 往外画，遇到相邻元素必然重叠。
+            .insetBy(dx: 2, dy: 0)
 
             color.setFill()
             let path = UIBezierPath(roundedRect: target, cornerRadius: 8)

@@ -113,6 +113,52 @@ function usageOf(data) {
   };
 }
 
+/** 手机端能直接展示的扩展名 */
+const INLINE_MEDIA_EXT = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "heic", "bmp",
+  "mp4", "mov", "m4v", "webm", "avi", "mkv",
+  "mp3", "m4a", "wav", "aac", "flac",
+]);
+
+/**
+ * 值得在手机上提示「产出了文件」的扩展名。
+ * 图片/视频本来就能预览，不需要再提示（提示反而吵）。
+ */
+const DELIVERABLE_EXT = new Set([
+  "docx", "doc", "xlsx", "xls", "pptx", "ppt", "pdf",
+  "ipa", "apk", "zip", "tar", "gz", "7z", "rar",
+  "md", "txt", "csv", "json", "yaml", "yml", "log",
+  "swift", "js", "ts", "py", "ps1", "sh", "html", "css",
+]);
+
+function fileExt(p) {
+  const m = String(p || "").match(/\.([A-Za-z0-9]{1,8})$/);
+  return m ? m[1].toLowerCase() : "";
+}
+
+/** 从工具参数里取文件路径（write/edit 用 file_path，present 用 path） */
+function extractOutputPath(data) {
+  let args = data?.arguments ?? data?.args ?? data?.input ?? null;
+  if (typeof args === "string") {
+    try { args = JSON.parse(args); } catch { return null; }
+  }
+  if (!args || typeof args !== "object") return null;
+  const raw = args.file_path || args.filePath || args.path || args.target || "";
+  const p = String(raw || "").trim();
+  return p.length > 0 ? p : null;
+}
+
+/** 值不值得提示：已知产物扩展名，且不是图片/视频，也不是临时目录里的东西 */
+function isDeliverableFile(path) {
+  const ext = fileExt(path);
+  if (!ext) return false;
+  if (INLINE_MEDIA_EXT.has(ext)) return false;
+  if (!DELIVERABLE_EXT.has(ext)) return false;
+  const normalized = String(path).replace(/\\/g, "/").toLowerCase();
+  const noisy = ["/_diag/", "/tmp/", "/temp/", "/.git/", "/node_modules/", "/build/", "/deriveddata/"];
+  return !noisy.some((seg) => normalized.includes(seg));
+}
+
 function toolCallId(data) {
   return (
     data?.callId ||
@@ -186,16 +232,30 @@ export function normalizeEvent(session, event) {
     }
 
     case "tool/call":
-    case "tool/call/start":
+    case "tool/call/start": {
+      const toolName = String(data.name || data.toolName || data.message?.name || "");
       frames.push({
         ...base,
         type: "tool.call",
         turn,
         callId: toolCallId(data),
-        name: String(data.name || data.toolName || data.message?.name || ""),
+        name: toolName,
         args: clip(data.arguments ?? data.args ?? data.input ?? null, RAW_LIMIT),
       });
+      // 产物提示：手机端只渲染图片/视频，docx/pptx/pdf/ipa 这类文件以前完全看不见。
+      // 这里给 write/edit/present 的文件路径补一帧轻量提示（不含正文，只带路径）。
+      const outputPath = extractOutputPath(data);
+      if (outputPath && isDeliverableFile(outputPath)) {
+        frames.push({
+          ...base,
+          type: "file.output",
+          turn,
+          path: outputPath,
+          tool: toolName,
+        });
+      }
       break;
+    }
 
     case "tool/result":
       frames.push({
