@@ -41,10 +41,13 @@ final class BlockFillLayoutManager: NSLayoutManager {
                 y: origin.y + union.minY,
                 width: union.width,
                 height: union.height
-            ).insetBy(dx: 0, dy: 1)
+            )
+            // insetBy 用**负值**才是向外扩：给文字和圆角边之间留 padding。
+            // 之前是 dy: 1（往里收），字直接贴着上下边（用户实拍：上下边离字太近）。
+            .insetBy(dx: -2, dy: -5)
 
             color.setFill()
-            let path = UIBezierPath(roundedRect: target, cornerRadius: 7)
+            let path = UIBezierPath(roundedRect: target, cornerRadius: 8)
             path.fill()
 
             // 描边（同一 run 上给了 stroke 才画）

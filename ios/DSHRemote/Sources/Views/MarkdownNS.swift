@@ -169,7 +169,9 @@ enum MarkdownNS {
             // 现在底色交给布局管理器画（见 BlockFillLayoutManager），
             // 这里只需要保证行高是**字体默认值**、文本宽度正常，ASCII 图才对得齐。
             let style = Self.style(
-                spacingAfter: 6, spacingBefore: before, lineSpacing: 0,
+                // 段后距给足：整块底色的 rect 上下各外扩 5pt 当 padding，
+                // 段距太小会和下一段文字贴在一起。
+                spacingAfter: 12, spacingBefore: before, lineSpacing: 0,
                 headIndent: 8, tailIndent: -8
             )
             style.lineBreakMode = .byTruncatingTail
