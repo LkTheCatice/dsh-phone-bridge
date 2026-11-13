@@ -85,6 +85,8 @@ struct ChatList: UIViewRepresentable {
         private var lastBottomValue: Bool?
         /// 上一次 apply 的内容指纹：没变就整段跳过
         private var lastFingerprint = ""
+        /// 上一次的快照 id 序列：用来识别「只有末条文本在长」这种最常见的流式更新
+        private var lastIds: [String] = []
         /// 角色切换（我 ↔ AI）的条目 id，在 apply() 里一次算好
         private var roleChangeIds: Set<String> = []
         /// 手指还在拖：这时候往头部插内容会把列表在手指底下顶走
@@ -184,6 +186,29 @@ struct ChatList: UIViewRepresentable {
             let wasAtTop = beforeOffset < 90
 
             lookup = Dictionary(unique.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+
+            // 流式最常见的形态：**只有末条的文本在变长**，id 序列完全没动。
+            // 这种时候没必要重建整份 snapshot 再让 diffable 全量比一遍
+            // （300 条时一次 apply 会把主线程压住几百毫秒，用户反馈上划/流式发涩）。
+            // 只 reconfigure 末条，其余条目保持原样。
+            let ids = unique.map(\.id)
+            let tailOnly = !lastIds.isEmpty
+                && ids.count == lastIds.count
+                && ids.first == lastIds.first
+                && ids.dropLast().elementsEqual(lastIds.dropLast())
+            lastIds = ids
+            if tailOnly, let cv, let tailId = ids.last {
+                var current = dataSource.snapshot()
+                if current.itemIdentifiers.contains(tailId) {
+                    current.reconfigureItems([tailId])
+                    UIView.performWithoutAnimation {
+                        dataSource.apply(current, animatingDifferences: false)
+                    }
+                    appliedHeight = cv.contentSize.height
+                    return
+                }
+            }
+
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             snapshot.appendSections(["main"])
             snapshot.appendItems(unique.map(\.id), toSection: "main")
