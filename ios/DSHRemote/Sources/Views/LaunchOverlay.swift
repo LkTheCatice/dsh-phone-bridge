@@ -41,16 +41,17 @@ struct LaunchOverlay: View {
             .ignoresSafeArea()
 
             VStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.14))
-                        .frame(width: 96, height: 96)
-                        .scaleEffect(markScale)
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 38, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .scaleEffect(markScale)
-                }
+                // 真实 App 图标（Assets.xcassets/AppMark）。
+                // 之前用的是 SF Symbol 画的对话气泡，和 App 图标不是一回事；
+                // 宣传片里的开屏也是这张图，两边必须一致（用户要求）。
+                Image("AppMark")
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 96, height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
+                    .scaleEffect(markScale)
 
                 VStack(spacing: 4) {
                     Text("DSH Helm")
