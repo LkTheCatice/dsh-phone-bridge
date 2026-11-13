@@ -184,12 +184,14 @@ enum MarkdownNS {
             style.lineBreakMode = .byTruncatingTail
             let maxChars = mode == .compact ? 46 : 96
             let rawLines = clampCode(code).components(separatedBy: "\n")
-            let target = min(maxChars, rawLines.map { Self.displayWidth($0) }.max() ?? 0)
+            // 每行都补到**满宽**（maxChars），而不是只补到本块最长那行：
+            // .backgroundColor 是按字符范围画的，行尾没有字符就没有底色 ——
+            // 只补到最长行的话，右边缘会一块块参差（用户要求「直接上完整底色」）。
+            let target = maxChars
             // 这一块里是否有行被截断：有的话要给出「点开看整行」的入口，
             // 否则长命令/长日志只能看到前 46 个字符（用户实拍：省略号后面没了）。
             let truncated = rawLines.contains { Self.displayWidth($0) > maxChars }
-            // 每行前面补一个空格当内边距，尾部补到统一宽度：
-            // 等宽字体下宽度可精确计算，底色于是连成一整块矩形。
+            // 每行前面补一个空格当内边距，尾部补满
             let padded = rawLines.map { line -> String in
                 let width = Self.displayWidth(line)
                 let body = " " + line
@@ -197,11 +199,8 @@ enum MarkdownNS {
                 return body + String(repeating: " ", count: target - width)
             }.joined(separator: "\n")
 
-            // 整体外框：TextKit 没有边框 API（NSTextTable 是 AppKit 专属），
-            // 所以用同一套等宽字符画上下两条「─」，底色当填充 ——
-            // 视觉上就是一整块带框的代码区（用户要求「再加一个整体外框」）。
-            let ruleWidth = max(8, target + 3)
-            let rule = String(repeating: "─", count: ruleWidth)
+            // 上下两条「─」撑满整宽，作为整体外框的上/下边
+            let rule = String(repeating: "─", count: target + 1)
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
                 out.append(NSAttributedString(
@@ -415,14 +414,16 @@ enum MarkdownNS {
                 stops.append(NSTextTab(textAlignment: .left, location: location))
             }
 
+            // 整表铺满宽度：底色按字符范围画，行尾必须补空格才铺满
+            let totalChars = columnWidths.reduce(0, +) + (columnCount - 1) * gutterChars
+
             func makeRow(_ row: [String], isHeader: Bool) -> NSAttributedString {
                 let style = NSMutableParagraphStyle()
                 style.tabStops = stops
                 // lineSpacing 必须 0：表格现在有整段底色（当边框用），
-            // 行距一留空隙，底色就会被切成一条条（和代码块同一类问题）。
-            // 行高改由 lineHeightMultiple 撑。
-            style.lineSpacing = 0
-            style.lineHeightMultiple = isHeader ? 1.42 : 1.36
+                // 行距一留空隙，底色就会被切成一条条（和代码块同一类问题）。
+                style.lineSpacing = 0
+                style.lineHeightMultiple = isHeader ? 1.42 : 1.36
                 style.paragraphSpacing = isHeader ? 5 : 3
                 let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
@@ -436,7 +437,27 @@ enum MarkdownNS {
                         .foregroundColor: isHeader ? UIColor.label : UIColor.secondaryLabel,
                     ]))
                 }
+                // 行尾补空格到整表宽度：底色按字符范围绘制，不补就只铺到最后一个字
+                // （用户要求「表格也直接上完整底色」）。
+                // 宽度按 tabStops 算：最后一个 tab 停靠点 + 末列实际内容宽度。
+                let lastCellText = columnCount > 0 && columnCount - 1 < row.count
+                    ? clampCell(row[columnCount - 1], maxWidth: columnWidths[columnCount - 1])
+                    : ""
+                let lastColumnStart = columnWidths.dropLast().reduce(0, +) + (columnCount - 1) * gutterChars
+                let usedChars = lastColumnStart + displayWidth(lastCellText)
+                if totalChars > usedChars {
+                    line.append(NSAttributedString(
+                        string: String(repeating: " ", count: totalChars - usedChars),
+                        attributes: [.font: base]
+                    ))
+                }
                 line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
+                // 整行底色：表头略深，正文更淡
+                line.addAttribute(
+                    .backgroundColor,
+                    value: isHeader ? UIColor.secondarySystemFill : UIColor.tertiarySystemFill,
+                    range: NSRange(location: 0, length: line.length)
+                )
                 return line
             }
 
