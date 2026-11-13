@@ -12,6 +12,29 @@ struct ToolDetailSheet: View {
     let entry: ChatEntry
     @Environment(\.dismiss) private var dismiss
 
+    var body: some View {
+        NavigationStack {
+            ToolDetailContent(entry: entry)
+                .navigationTitle("工具详情")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("关闭") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
+/// 工具详情的**内容**（参数 / 结果 / 它读过的图）。
+///
+/// 抽出来是为了两处共用，而不是复制一份：
+///   · 直接点工具行 → ToolDetailSheet（sheet）
+///   · 在「本轮过程」页里点某一步 → 同一份内容（push 进导航栈）
+/// 复制两份的话，将来改图片展示/截断策略必然漏改一处。
+struct ToolDetailContent: View {
+    let entry: ChatEntry
+
     private static let limit = 8_000
 
     private var shown: String {
@@ -21,36 +44,33 @@ struct ToolDetailSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(entry.text)
-                        .font(.system(size: 13, weight: .medium))
-                    if let summary = entry.summary, !summary.isEmpty {
-                        Text(summary)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(entry.text)
+                    .font(.system(size: 13, weight: .medium))
+                if let summary = entry.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                if entry.detail == nil || entry.detail?.isEmpty == true {
+                    Text("这一步没有可查看的输出")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                } else {
                     Text(shown)
                         .font(.system(size: 11, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .selectableText()
+                }
 
-                    // 工具读过的图：只在前 20000 字里找（正则扫全文在主线程很贵）
-                    let images = ToolSummary.imagePaths(from: String((entry.detail ?? "").prefix(20_000)))
-                    ForEach(images, id: \.self) { path in
-                        RemoteImage(path: path)
-                    }
-                }
-                .padding(14)
-            }
-            .navigationTitle("工具详情")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                // 工具读过的图：只在前 20000 字里找（正则扫全文在主线程很贵）
+                let images = ToolSummary.imagePaths(from: String((entry.detail ?? "").prefix(20_000)))
+                ForEach(images, id: \.self) { path in
+                    RemoteImage(path: path)
                 }
             }
+            .padding(14)
         }
     }
 }

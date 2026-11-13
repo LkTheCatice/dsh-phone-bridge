@@ -75,6 +75,9 @@ struct ChatView: View {
     /// 首屏/跳转时会把可见范围整体测量一遍（真机实测 20 条就能卡 19 秒）。
     /// 把上限压到 40 条以后，再糟也有限；要看更早的点顶部那一行。
 
+    /// 正在查看「本轮过程」的折叠条目
+    @State private var turnLogEntry: ChatEntry?
+
     /// 正在查看完整内容的条目（表格折叠时说这里看全）
     @State private var detailEntry: ChatEntry?
     /// 正在查看附件的条目（附件面板 sheet）
@@ -184,6 +187,9 @@ struct ChatView: View {
                         // 点工具行走的是 EntryDetailSheet（只渲染文本），图片看不到。
                         if target.kind == .toolCall {
                             detailPresenter.entry = target
+                        } else if target.kind == .collapsedSteps {
+                            // 「▸ 本轮过程 · N 步」→ 打开过程页（按顺序列出每一步，可再点开）
+                            turnLogEntry = target
                         } else {
                             // 其余条目：看完整内容（列表里的表格/代码是截断的）
                             detailEntry = target
@@ -435,6 +441,9 @@ struct ChatView: View {
         }
         .sheet(item: $detailEntry) { item in
             EntryDetailSheet(entry: item)
+        }
+        .sheet(item: $turnLogEntry) { item in
+            TurnLogSheet(entry: item)
         }
     }
 

@@ -82,9 +82,20 @@ function collectText(node, out = { text: "", thinking: "" }, depth = 0) {
   if (typeof node !== "object") return out;
 
   const type = typeof node.type === "string" ? node.type : "";
-  if (type.includes("thinking") && typeof node.thinking === "string") {
-    out.thinking += node.thinking;
-    return out;
+  // 思考片段。DSH 实际发的是 {"type":"reasoning","text":"…"} ——
+  // 之前只认 {"type":"thinking","thinking":"…"}，于是思考被**整段丢掉**，
+  // 手机上从来没见过「思考」行（扫会话日志确认：reasoning=1349，
+  // 而桥日志里 thinking 出现 0 次）。
+  if (/think|reason/i.test(type)) {
+    const body =
+      typeof node.thinking === "string" ? node.thinking
+      : typeof node.reasoning === "string" ? node.reasoning
+      : typeof node.text === "string" ? node.text
+      : null;
+    if (body) {
+      out.thinking += body;
+      return out;
+    }
   }
   if (type === "text" && typeof node.text === "string") {
     out.text += node.text;
