@@ -186,12 +186,19 @@ enum MarkdownNS {
 
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
+                // 语言标签是本块的第一段：段前距给足，
+                // 否则上一个块的底色（向下外扩 4pt）会和它的顶边贴到一起
+                // （用户实拍：两个临近的内框范围重合）。
+                let tagStyle = Self.style(
+                    spacingAfter: 0, spacingBefore: max(before, 18), lineSpacing: 0,
+                    headIndent: 8, tailIndent: -8
+                )
                 out.append(NSAttributedString(
                     string: lang + "\n",
                     attributes: [
                         .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                         .foregroundColor: UIColor.tertiaryLabel,
-                        .paragraphStyle: style,
+                        .paragraphStyle: tagStyle,
                     ]
                 ))
             }
@@ -217,8 +224,11 @@ enum MarkdownNS {
                 let len = (" " + line).utf16.count
                 if idx == 0 || idx == rawLines.count - 1 {
                     let edge = Self.style(
-                        spacingAfter: idx == rawLines.count - 1 ? 12 : 0,
-                        spacingBefore: idx == 0 ? max(before, 10) : 0,
+                        // 末行段后 18：色块向下外扩 4pt，下一个块向上也外扩 4pt，
+                        // 留 18 才能保证两块之间还有 ~10pt 的实际间距
+                        // （否则两块同色底会连在一起，看着像范围重合）。
+                        spacingAfter: idx == rawLines.count - 1 ? 18 : 0,
+                        spacingBefore: idx == 0 ? max(before, 18) : 0,
                         lineSpacing: 0,
                         headIndent: 8, tailIndent: -8
                     )
@@ -415,7 +425,8 @@ enum MarkdownNS {
                 // 表格首行上方 / 末行下方各留一段：整块底色上下各外扩 4pt，
                 // 没有这段就会顶到 AI 前缀或下一段正文（用户实拍「碰到外部元素」）。
                 style.paragraphSpacingBefore = isHeader ? 8 : 0
-                style.paragraphSpacing = isLast ? 10 : (isHeader ? 5 : 3)
+                // 表头下留 8pt 当「分隔」（原来那行「─」会压在表头第一行上）
+                style.paragraphSpacing = isLast ? 10 : (isHeader ? 8 : 4)
                 let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
                 // 行首留白（和 tabStops 的 leadChars 对应）
@@ -512,26 +523,11 @@ enum MarkdownNS {
 
             let out = NSMutableAttributedString()
             if !headers.isEmpty {
+                // 表头不再单独画「─」分隔线：
+                // 那一行本身是**一个段落**，它会和表头挤在同一段视觉区域里，
+                // 看起来像「横线压在第一行」（用户实拍）。
+                // 现在靠「表头加粗 + 表头下 8pt 段距」来区分，干净且不会错位。
                 out.append(makeRow(headers, isHeader: true))
-                // 表头分隔线：用一整行「─」而不是 .underlineStyle。
-                // underlineStyle 是逐字符的，tabStops 留下的空白覆盖不到，
-                // 看起来会断成几截（用户实拍）。
-                // 「─」在等宽字体下宽度正好一个字符，按列宽总和铺满即可连续。
-                let totalChars = columnWidths.reduce(0, +) + (columnCount - 1) * gutterChars
-                let ruleStyle = NSMutableParagraphStyle()
-                ruleStyle.tabStops = stops
-                ruleStyle.lineSpacing = 0
-                ruleStyle.lineHeightMultiple = 1.0
-                ruleStyle.paragraphSpacing = isFull ? 6 : 3
-                out.append(NSAttributedString(
-                    string: String(repeating: " ", count: leadChars)
-                        + String(repeating: "─", count: max(4, totalChars)) + "\n",
-                    attributes: [
-                        .font: UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
-                        .foregroundColor: UIColor.separator,
-                        .paragraphStyle: ruleStyle,
-                    ]
-                ))
             }
             for (i, row) in shownRows.enumerated() {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
