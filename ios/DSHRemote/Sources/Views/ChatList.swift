@@ -359,6 +359,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     }()
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
+    /// 产物卡片（「📄 输出文件 · xxx」）。
+    /// 用真视图而不是富文本：内外边距和垂直居中由约束保证，见 FileChipView 顶部注释。
+    private let fileChip = FileChipView()
     /// 气泡背景：垫在文字下面，靠圆角 + 底色区分消息与消息之间
     /// （用户反馈「分割不是很明显」—— 之前只有 ▍我 / ▍AI 前缀）。
     private let bubble = UIView()
@@ -412,7 +415,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         bubble.backgroundColor = .clear
         contentView.addSubview(bubble)
 
-        let stack = UIStackView(arrangedSubviews: [textView, attachmentLabel])
+        let stack = UIStackView(arrangedSubviews: [fileChip, textView, attachmentLabel])
         stack.axis = .vertical
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -457,9 +460,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     override func prepareForReuse() {
         super.prepareForReuse()
         textView.attributedText = nil
+        textView.isHidden = false
         currentEntry = nil
         attachmentLabel.text = nil
         attachmentLabel.isHidden = true
+        // 产物卡片：复用前必须清空，否则会带着上一条的文件名（cell 复用的经典坑）
+        fileChip.text = nil
+        fileChip.isHidden = true
         onTapAttachments = nil
         onOpenLink = nil
     }
@@ -512,13 +519,26 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         switch entry.kind {
         case .toolCall, .collapsedSteps, .toolResult:
             stackTopSpacing = isRoleChange ? 12 : 2
+        case .fileOutput:
+            stackTopSpacing = isRoleChange ? 12 : 6
         default:
             stackTopSpacing = isRoleChange ? 14 : 4
         }
         // 用户消息把内容块整体右移（不是文字缩进）：左边界 56pt，
         // 这样右边界贴着屏幕右边，看起来才像「我说的」，与微信/QQ 一致。
         leadingConstraint?.constant = (entry.kind == .user) ? 56 : 0
-        textView.attributedText = MessageRender.attributed(entry)
+        // 产物卡片：这一条**不用 textView**，交给 FileChipView（真视图 + 约束）。
+        if entry.kind == .fileOutput {
+            fileChip.isHidden = false
+            fileChip.text = entry.text
+            textView.isHidden = true
+            textView.attributedText = nil
+        } else {
+            fileChip.isHidden = true
+            fileChip.text = nil
+            textView.isHidden = false
+            textView.attributedText = MessageRender.attributed(entry)
+        }
         self.onTapAttachments = onTapAttachments
 
         // 气泡配色 + 布局：
@@ -711,61 +731,10 @@ enum MessageRender {
                     .foregroundColor: UIColor.secondaryLabel,
                 ]
             )
+        case .fileOutput:
+            // 产物卡片走 FileChipView（真视图 + 约束），不该进这里；空串兜底
+            body = NSAttributedString(string: entry.text)
         case .system, .toolResult:
-            // 「📄 输出文件 · xxx」是**产物行**，跟普通系统灰字不一样：
-            // 用户要能一眼看到"刚才产出了什么文件" → 做成一条通栏浅色卡片
-            // （BlockFill 画的圆角底色），正文色 + 13pt 中等字重。
-            if entry.text.hasPrefix("📄") {
-                // 卡片 = [上空白段 5pt][正文 13pt][下空白段 5pt]，三段同属一块底色。
-                // 之前用 minimumLineHeight + baselineOffset 硬凑居中 —— 那是在猜
-                // TextKit 把多出来的空间分到基线上方还是下方，猜错就不居中（用户连拍两次）。
-                // 现在 padding 由**真实段落**提供，文字天然落在正中间，
-                // 布局管理器会把这相邻三段合并成一个圆角矩形。
-                let cardFont = UIFont.systemFont(ofSize: 13, weight: .medium)
-                let padFont = UIFont.systemFont(ofSize: 5)
-
-                let textStyle = NSMutableParagraphStyle()
-                textStyle.lineSpacing = 0
-                textStyle.paragraphSpacing = 0
-                textStyle.headIndent = 10
-                textStyle.firstLineHeadIndent = 10
-                textStyle.tailIndent = -10
-
-                let topStyle = NSMutableParagraphStyle()
-                topStyle.paragraphSpacingBefore = 6
-                topStyle.paragraphSpacing = 0
-                topStyle.headIndent = 10
-                topStyle.firstLineHeadIndent = 10
-                topStyle.tailIndent = -10
-
-                let bottomStyle = NSMutableParagraphStyle()
-                bottomStyle.paragraphSpacingBefore = 0
-                bottomStyle.paragraphSpacing = 6
-                bottomStyle.headIndent = 10
-                bottomStyle.firstLineHeadIndent = 10
-                bottomStyle.tailIndent = -10
-
-                let card = NSMutableAttributedString()
-                card.append(NSAttributedString(
-                    string: "\n",
-                    attributes: [.font: padFont, .paragraphStyle: topStyle, BlockFillAttribute.key: UIColor.tertiarySystemFill]
-                ))
-                card.append(NSAttributedString(
-                    string: entry.text,
-                    attributes: [
-                        .font: cardFont,
-                        .foregroundColor: UIColor.label,
-                        .paragraphStyle: textStyle,
-                        BlockFillAttribute.key: UIColor.tertiarySystemFill,
-                    ]
-                ))
-                card.append(NSAttributedString(
-                    string: "\n",
-                    attributes: [.font: padFont, .paragraphStyle: bottomStyle, BlockFillAttribute.key: UIColor.tertiarySystemFill]
-                ))
-                body = card
-                break
-            }
             // 系统行是背景信息，居中 + 更淡更小，让它退到正文之后
             let centered = NSMutableParagraphStyle()
             centered.alignment = .center

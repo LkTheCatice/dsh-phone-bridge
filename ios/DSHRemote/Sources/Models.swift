@@ -68,6 +68,12 @@ struct ChatEntry: Identifiable, Hashable {
         case system
         /// 一轮跑完后把该轮的思考/工具调用收成一行，点开才展开
         case collapsedSteps
+        /// 产物行（「📄 输出文件 · xxx」）。**独立一种 kind**：
+        /// 它是带底色的卡片，用真正的 UIView 画（FileChipView），
+        /// 而不是靠 NSAttributedString 的段落间距/行高去凑 ——
+        /// 那套凑法试三版都没能把文字在卡片里对齐（用户三次实拍）。
+        /// 架构上这样也更对：卡片是布局元素，不是文本。
+        case fileOutput
     }
 
     let id: String

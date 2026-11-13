@@ -274,10 +274,13 @@ final class AppModel: ObservableObject {
         for hint in hints {
             append(sessionId, ChatEntry(
                 id: "\(sessionId)#file\(hint.turn)_\(hint.path)",
-                kind: .toolResult,
+                kind: .fileOutput,
                 text: "📄 输出文件 · \(Self.fileName(hint.path))",
                 detail: hint.path,
-                at: hint.at,
+                // 时间用**落位这一刻**（turn.end），不是写文件那一刻：
+                // 列表按 (turn, at) 排序，用写文件的时间会让卡片插到回答前面
+                // （用户实拍：卡片又跑到过程中间去了）。
+                at: Date(),
                 turn: hint.turn
             ))
         }
@@ -666,7 +669,7 @@ final class AppModel: ObservableObject {
                 // （用户实拍：加载旧消息后文件提示出现在最上方）。
                 append(sid, ChatEntry(
                     id: "\(sid)#file\(turn)_\(path)",
-                    kind: .toolResult,
+                    kind: .fileOutput,
                     text: "📄 输出文件 · \(Self.fileName(path))",
                     detail: path,
                     at: Self.frameDate(frame),
