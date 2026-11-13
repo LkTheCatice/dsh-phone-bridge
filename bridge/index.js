@@ -1098,7 +1098,17 @@ function applyBridge(ctx, config) {
     const client = { id: clientId || randomUUID(), send, res };
     streamClients.add(client);
 
-    const since = Number(url.searchParams.get("since")) || 0;
+    // 续传游标：手机把 seq 存在本地（UserDefaults），**跨桥重启依然是旧值**。
+    // 桥一重启 seq 从 1 重新数，于是 since=820 这种值永远大于 lastSeq →
+    // frames.since(820) 返回空，等于「重启前那段全丢」。
+    // 实测：11:17 重启后手机带 since=820 连上来，紧接着写的文件推不出提示。
+    // 判断依据：since 比当前末尾还大，说明这个游标来自上一轮进程 —— 当作 0 处理，
+    // 把缓冲区里现有的帧都补一遍（手机端按条目 id 去重，重复应用无害）。
+    const rawSince = Number(url.searchParams.get("since")) || 0;
+    const since = rawSince > frames.lastSeq ? 0 : rawSince;
+    if (since !== rawSince) {
+      logLine({ step: "stream.since-reset", asked: rawSince, lastSeq: frames.lastSeq });
+    }
     for (const frame of frames.since(since)) send(frame);
 
     const beat = setInterval(() => {
