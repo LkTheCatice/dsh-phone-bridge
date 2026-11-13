@@ -361,9 +361,22 @@ struct ChatList: UIViewRepresentable {
             guard items > 0, cv.numberOfSections > 0,
                   cv.numberOfItems(inSection: 0) >= items,
                   cv.contentSize.height > cv.bounds.height else { return }
+
+            // ① 直接压到底（快）
             let maxY = max(0, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
             if abs(cv.contentOffset.y - maxY) > 1 {
                 cv.setContentOffset(CGPoint(x: 0, y: maxY), animated: false)
+            }
+            // ② 再按"最后一条"定位一次：自适应高度下 contentSize 是估算的，
+            //    ①算出来的 maxY 可能比真实底部小半屏。
+            let target = IndexPath(item: items - 1, section: 0)
+            cv.scrollToItem(at: target, at: .bottom, animated: false)
+            // ③ 150ms 后补一次：给估算高度收敛留时间（仍然只在"贴底"状态下做）
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.keepAtBottom, let cv = self.collectionView else { return }
+                let count = self.dataSource.snapshot().itemIdentifiers.count
+                guard count > 0, cv.numberOfItems(inSection: 0) >= count else { return }
+                cv.scrollToItem(at: IndexPath(item: count - 1, section: 0), at: .bottom, animated: false)
             }
         }
 

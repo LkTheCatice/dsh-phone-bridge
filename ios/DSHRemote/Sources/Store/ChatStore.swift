@@ -66,6 +66,15 @@ final class ChatStore: ObservableObject {
         streaming = value
     }
 
+    /// 「请滚到底」令牌：外部（例如开屏动画结束时）只 +1，
+    /// ChatView 观察到就发一次滚动请求。
+    /// 这样"开屏撤场后再贴底"由事件驱动，不依赖"内容恰好又 apply 了一次"。
+    @Published private(set) var scrollToBottomToken: Int = 0
+
+    func requestScrollToBottom() {
+        scrollToBottomToken &+= 1
+    }
+
     func bumpHistoryVersion() {
         historyVersion &+= 1
     }

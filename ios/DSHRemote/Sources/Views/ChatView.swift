@@ -239,6 +239,13 @@ struct ChatView: View {
                     if !jump.atBottom { jump.atBottom = true }
                     if jump.hasNewBelow { jump.hasNewBelow = false }
                 }
+                .onChange(of: chat.scrollToBottomToken) { _ in
+                    // 开屏动画撤场后贴底（见 MainView 的 onFinish）
+                    if !jump.atBottom { jump.atBottom = true }
+                    if jump.hasNewBelow { jump.hasNewBelow = false }
+                    lastSeenTurn = latestContentTurn
+                    scrollRequest += 1
+                }
                 .onChange(of: chat.historyVersion) { _ in
                     // 历史重建完成后：
                     //   首次进入会话 → 滚到底（否则会停在顶部）

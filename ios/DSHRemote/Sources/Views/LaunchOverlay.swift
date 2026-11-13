@@ -81,9 +81,9 @@ struct LaunchOverlay: View {
             // 「中间元素刚显现白屏就结束了」）。现在主体 ~0.4s 就位，
             // 至少停到 2.0s 才退场，给首屏布局留足时间。
             let started = CFAbsoluteTimeGetCurrent()
-            // 用户连续三次反馈"太短"，这次给足：最短 3.2s，最多等到 4.8s。
-            let minDwell: Double = 3.2
-            let maxWait: Double = 4.8
+            // 用户定为 2.3s（观感确认过）；上限给 3.5s，仅用于等历史回放。
+            let minDwell: Double = 2.3
+            let maxWait: Double = 3.5
             while CFAbsoluteTimeGetCurrent() - started < maxWait {
                 let elapsed = CFAbsoluteTimeGetCurrent() - started
                 if elapsed >= minDwell, isReady() { break }

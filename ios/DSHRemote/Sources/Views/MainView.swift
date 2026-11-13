@@ -43,7 +43,13 @@ struct MainView: View {
         .overlay {
             if showLaunch {
                 LaunchOverlay(
-                    onFinish: { showLaunch = false },
+                    onFinish: {
+                        showLaunch = false
+                        // 开屏撤场后**主动**再贴一次底：
+                        // 覆盖"启动期间内容还在长、贴底发生在它长完之前"的情况
+                        // （冷启动停在离底部固定一段的根因）。
+                        model.chat.requestScrollToBottom()
+                    },
                     // 历史回放完成 → 首屏布局基本落定
                     isReady: { model.chat.historyVersion > 0 }
                 )
