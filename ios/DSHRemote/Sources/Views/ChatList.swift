@@ -44,7 +44,9 @@ struct ChatList: UIViewRepresentable {
                 subitems: [item]
             )
             let section = NSCollectionLayoutSection(group: group)
-            section.interGroupSpacing = 10
+            // 行间距：从 10 收到 7。工具行本来就密（一轮里十几条），
+            // 10pt 加上 cell 内部 4pt，读起来像散开的日志（用户反馈「行间距大了一点」）。
+            section.interGroupSpacing = 7
             section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
             return section
         }
@@ -504,8 +506,15 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     ) {
         currentEntry = entry
         self.onOpenLink = onOpenLink
-        // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强
-        stackTopSpacing = isRoleChange ? 14 : 4
+        // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强。
+        // 工具行（运行命令 / 读取 / 写入…）属于「过程」，和上一行贴紧一点，
+        // 否则一轮十几条读起来像散开的日志（用户反馈行距偏大）。
+        switch entry.kind {
+        case .toolCall, .collapsedSteps, .toolResult:
+            stackTopSpacing = isRoleChange ? 12 : 2
+        default:
+            stackTopSpacing = isRoleChange ? 14 : 4
+        }
         // 用户消息把内容块整体右移（不是文字缩进）：左边界 56pt，
         // 这样右边界贴着屏幕右边，看起来才像「我说的」，与微信/QQ 一致。
         leadingConstraint?.constant = (entry.kind == .user) ? 56 : 0
