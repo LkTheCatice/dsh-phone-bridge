@@ -908,9 +908,12 @@ enum MessageRender {
             // 那样换行位置和省略号都会和实际排版对不上。
             // 内容仍做尾部限长：CoT 动辄几千字且流式增长，整段重排会把主线程按住
             // （真机 STUCK 曾累积到 2.8s）。两行 ≈ 60 字，留 240 字足够排版。
-            let tailLimit = 240
-            let text = entry.text.count > tailLimit
-                ? "…" + String(entry.text.suffix(tailLimit))
+            // 取**开头**而不是结尾：思考行看的是"这一步打算做什么"，
+            // 结尾那几行往往是半句（用户实拍：显示成 "...y're confirming. Short..."）。
+            // 截断交给 TextKit（两行 + 行尾省略号），这里只做长度上限。
+            let charLimit = 240
+            let text = entry.text.count > charLimit
+                ? String(entry.text.prefix(charLimit))
                 : entry.text
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail

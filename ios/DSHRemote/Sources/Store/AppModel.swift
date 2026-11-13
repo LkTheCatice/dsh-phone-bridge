@@ -1027,7 +1027,8 @@ final class AppModel: ObservableObject {
     }
 
     /// 把某一轮里的思考 + 工具调用折叠成单个可展开条目。
-    /// 少于 3 步就不折 —— 只有一两步时折起来反而多一次点击。
+    /// **只要有步骤就折**（不足 3 步也折）：结束时统一收成一行，
+    /// 详情在「本轮过程」页里看；运行中才逐条显示在主列表。
     /// 把本轮的思考/工具调用折成一行，返回折叠了几步（0 表示没折）。
     /// 返回步数是为了让「本轮结束」那一行能带上它 —— 用户要求
     /// 「本轮步数位置改成和本轮同时一起」，即合并成一条系统行。
@@ -1038,7 +1039,10 @@ final class AppModel: ObservableObject {
         let stepIndexes = list.indices.filter {
             processKinds.contains(list[$0].kind) && list[$0].turn == turn
         }
-        guard stepIndexes.count >= 3, let firstIdx = stepIndexes.first else { return 0 }
+        // 阈值从 3 降到 1：**只要有步骤就折成一行**。
+        // 以前不足 3 步就留在对话框里，于是只跑了一步的轮次会留下一条
+        // "> 思考 · …" 孤零零挂在消息流里（用户实拍），和"结束时统一收起"的预期不符。
+        guard stepIndexes.count >= 1, let firstIdx = stepIndexes.first else { return 0 }
 
         // 折叠出来的拷贝必须清掉 running：turn.end 里"清 running"的循环在
         // 折叠**之后**才跑，否则拷贝会永远停在 running=true，
