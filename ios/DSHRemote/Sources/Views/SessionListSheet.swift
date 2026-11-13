@@ -29,14 +29,25 @@ struct SessionListSheet: View {
                 Section {
                     Button {
                         Task {
+                            // 只有"选中项真的换成了一个新 id"才关面板；
+                            // 建失败（未连接 / 服务端没回 id）就留在这里看错误。
+                            let before = model.selectedSessionId
                             await model.newSession()
-                            dismiss()
+                            if model.selectedSessionId != before { dismiss() }
                         }
                     } label: {
-                        Label("新建对话", systemImage: "square.and.pencil")
+                        HStack(spacing: 8) {
+                            Label("新建对话", systemImage: "square.and.pencil")
+                            Spacer(minLength: 0)
+                            if model.isCreatingSession {
+                                ProgressView().controlSize(.mini)
+                            }
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
+                    .disabled(model.isCreatingSession)
                 }
 
                 Section {

@@ -1450,26 +1450,61 @@ final class AppModel: ObservableObject {
         trace("s9-total=\(Int((tEnd - t0) * 1000))ms")
     }
 
+    /// 新建会话。
+    ///
+    /// ⚠️ 这以前是"假的"：只把选中项清空，然后取 `rows.first` ——
+    /// 而列表按最近活动排序，第一条通常就是**正在跑的那个会话**，
+    /// 于是点「新建对话」看起来像"跳回了正在执行的会话"（用户实报）。
+    /// 现在必须真的在电脑上建一个，失败就明确报错，绝不偷偷改选中项。
     func newSession() async {
-        selectedSessionId = nil
-        await refreshSessions()
-        if let first = sessionList.rows.first { selectedSessionId = first.id }
+        await createNewSession()
     }
+
+    /// 正在新建会话（按钮转圈、防连点）
+    @Published private(set) var isCreatingSession = false
 
     /// 在电脑上真的新建一个会话（不是只清空本地选择）
     func createNewSession() async {
-        guard let client else { return }
+        guard let client else {
+            lastError = "未连接电脑，无法新建会话"
+            return
+        }
+        guard !isCreatingSession else { return }
+        isCreatingSession = true
+        defer { isCreatingSession = false }
+
         do {
             let result = try await client.newSession(cwd: roots.first)
             guard let sid = result["sessionId"] as? String, !sid.isEmpty else {
                 lastError = "服务端没有返回新会话 id"
                 return
             }
-            selectedSessionId = sid
+
+            // ① 先本地置顶插入：新会话在服务端列表里可能排不到第一，
+            //    先插一条能保证"点完立刻就是它"，也不必等 refresh 往返。
+            if !sessionList.rows.contains(where: { $0.id == sid }) {
+                sessionList.rows.insert(
+                    SessionRow(
+                        id: sid,
+                        title: result["title"] as? String,
+                        cwd: result["cwd"] as? String ?? roots.first,
+                        running: false,
+                        updatedAt: Date().timeIntervalSince1970 * 1000
+                    ),
+                    at: 0
+                )
+            }
+
+            // ② 清掉这个会话的本地缓存，再切过去
             entries[sid] = []
-            await refreshSessions()
+            resetTurnState(sid)
+            selectedSessionId = sid
+            markRead(sid)
+
+            // ③ 再从服务端校准一次（force 绕过 2 秒节流）
+            await refreshSessions(force: true)
         } catch {
-            lastError = error.localizedDescription
+            lastError = "新建会话失败：\(error.localizedDescription)"
         }
     }
 
