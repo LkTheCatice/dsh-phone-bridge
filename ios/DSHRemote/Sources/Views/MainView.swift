@@ -4,6 +4,11 @@ struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
+    /// 冷启动动画：只放一次。
+    /// MainView 在 App 生命周期里常驻，这个 @State 不会被重置 ——
+    /// 所以从后台切回来时它已经是 false，动画不会再放（用户要求）。
+    @State private var showLaunch = true
+
 
     var body: some View {
         // 保留 TabView（两个页面的状态都活着，切回来草稿/滚动位置不丢），
@@ -34,6 +39,13 @@ struct MainView: View {
         // 内容跟着重算。BannerHost 自己订阅、自己重算，TabView 不受影响。
         .overlay(alignment: .top) {
             BannerHost()
+        }
+        .overlay {
+            if showLaunch {
+                LaunchOverlay { showLaunch = false }
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         .onChange(of: scenePhase) { newPhase in
             // 从后台回来时恢复连接。

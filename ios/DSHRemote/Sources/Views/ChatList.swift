@@ -258,6 +258,7 @@ struct ChatList: UIViewRepresentable {
                 }
                 appliedHeight = cv.contentSize.height
             }
+            if pendingBottomScroll { attemptBottomScroll(animated: false) }
             Diag.ping("apply n=\(unique.count) top=\(insertedAtTop ? 1 : 0)"
                       + " snap=\(Int((CFAbsoluteTimeGetCurrent() - snapStart) * 1000))"
                       + " total=\(Int((CFAbsoluteTimeGetCurrent() - applyStart) * 1000))")
@@ -317,21 +318,61 @@ struct ChatList: UIViewRepresentable {
             return "\(entries.count)|\(first.id)|\(last.id)|\(last.text.count)"
         }
 
+        /// 待落实的「滚到底」请求。
+        ///
+        /// 冷启动时 `scrollRequest` 往往比数据先到：那一刻 items=0 或布局还没完成，
+        /// 旧实现直接 return，**请求就这么丢了** —— 于是启动后停在顶部
+        /// （用户实拍「启动软件时不在最下方」）。
+        /// 现在挂起这个意图，等 apply 之后或下一帧再兑现。
+        private var pendingBottomScroll = false
+        private var pendingBottomTries = 0
+
         func handleScrollRequest(_ token: Int) {
             guard token != lastScrollRequest else { return }
             lastScrollRequest = token
-            scrollToBottom(animated: false)
+            pendingBottomScroll = true
+            pendingBottomTries = 0
+            attemptBottomScroll(animated: false)
         }
 
         func scrollToBottom(animated: Bool) {
-            guard let cv = collectionView else { return }
+            pendingBottomScroll = true
+            pendingBottomTries = 0
+            attemptBottomScroll(animated: animated)
+        }
+
+        /// 真正执行；数据没就绪就留到下一帧（最多 30 次，约 0.5 秒，够了）
+        private func attemptBottomScroll(animated: Bool) {
+            guard pendingBottomScroll, let cv = collectionView else { return }
             let items = dataSource.snapshot().itemIdentifiers.count
-            guard items > 0 else { return }
+            let ready = items > 0
+                && cv.numberOfSections > 0
+                && cv.numberOfItems(inSection: 0) >= items
+                && cv.bounds.height > 1
+            guard ready else {
+                pendingBottomTries += 1
+                guard pendingBottomTries < 30 else {
+                    pendingBottomScroll = false
+                    return
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.attemptBottomScroll(animated: animated)
+                }
+                return
+            }
+            cv.layoutIfNeeded()
             let target = IndexPath(item: items - 1, section: 0)
-            // 防御：布局尚未完成时 scrollToItem 会抛异常
-            guard cv.numberOfSections > 0,
-                  cv.numberOfItems(inSection: 0) > target.item else { return }
             cv.scrollToItem(at: target, at: .bottom, animated: animated)
+            pendingBottomScroll = false
+            // 自适应高度（.estimated）下第一次定位会差一点：
+            // 下一个 runloop 再补一次无动画定位，避免"差半屏"。
+            if !animated {
+                DispatchQueue.main.async { [weak cv] in
+                    guard let cv, cv.numberOfSections > 0,
+                          cv.numberOfItems(inSection: 0) >= items else { return }
+                    cv.scrollToItem(at: target, at: .bottom, animated: false)
+                }
+            }
         }
 
         // MARK: UIScrollViewDelegate（通过 collectionView.delegate 转发）
