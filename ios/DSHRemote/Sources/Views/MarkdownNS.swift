@@ -168,10 +168,12 @@ enum MarkdownNS {
             //  ③ 行尾没字符 → 右边缘参差
             // 现在底色交给布局管理器画（见 BlockFillLayoutManager），
             // 这里只需要保证行高是**字体默认值**、文本宽度正常，ASCII 图才对得齐。
+            // ⚠️ 关键：代码块的每一行都是一个「段落」（用 \n 分隔），
+            // paragraphSpacing 是按段落生效的 —— 给 12 就等于**每行之间空 12pt**，
+            // 于是 ASCII 图的竖线全被拉开、框看起来是断的（用户实拍）。
+            // 这里行间必须是 0；上下留白只给「首行之前 / 末行之后」。
             let style = Self.style(
-                // 段前/段后给足：整块底色的 rect 上下各外扩 4pt 当 padding，
-                // 段距不够就会顶到上一段的 AI 前缀或下一段正文（用户实拍）。
-                spacingAfter: 12, spacingBefore: max(before, 10), lineSpacing: 0,
+                spacingAfter: 0, spacingBefore: 0, lineSpacing: 0,
                 headIndent: 8, tailIndent: -8
             )
             style.lineBreakMode = .byTruncatingTail
@@ -199,6 +201,7 @@ enum MarkdownNS {
                 ?? UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
             let fill = UIColor.secondarySystemFill
             // 正文
+            let bodyStart = out.length
             out.append(NSAttributedString(
                 string: body,
                 attributes: [
@@ -207,6 +210,23 @@ enum MarkdownNS {
                     .paragraphStyle: style,
                 ]
             ))
+            // 首行/末行单独补段距：只在这两处留白，行间保持 0 —— 这样 ASCII 图
+            // 的竖线才连得上，同时整块底色上下仍有呼吸空间。
+            var cursor = bodyStart
+            for (idx, line) in rawLines.enumerated() {
+                let len = (" " + line).utf16.count
+                if idx == 0 || idx == rawLines.count - 1 {
+                    let edge = Self.style(
+                        spacingAfter: idx == rawLines.count - 1 ? 12 : 0,
+                        spacingBefore: idx == 0 ? max(before, 10) : 0,
+                        lineSpacing: 0,
+                        headIndent: 8, tailIndent: -8
+                    )
+                    edge.lineBreakMode = .byTruncatingTail
+                    out.addAttribute(.paragraphStyle, value: edge, range: NSRange(location: cursor, length: len))
+                }
+                cursor += len + 1   // +1：行尾的 "\n"
+            }
             // 整块底色 + 描边（一次画成一整块，行间不再有缝）
             let blockRange = NSRange(location: 0, length: out.length)
             out.addAttribute(BlockFillAttribute.key, value: fill, range: blockRange)
