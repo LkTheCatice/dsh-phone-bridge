@@ -729,12 +729,19 @@ enum MessageRender {
                 // 于是底色上下各有约 5pt 留白，像一张正常 chip。
                 cardStyle.minimumLineHeight = 26
                 cardStyle.maximumLineHeight = 26
+                // 行高变大后，多出来的空间默认全在**基线下方**，字就贴在上沿
+                // （用户实拍「没有上下居中」）。
+                // baselineOffset 取负值把基线下移「(行高 - 字体行高)/2」，
+                // 视觉上就是垂直居中。
+                let cardFont = UIFont.systemFont(ofSize: 13, weight: .medium)
+                let cardBaseline = -(26 - cardFont.lineHeight) / 2
                 body = NSAttributedString(
                     string: entry.text,
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 13, weight: .medium),
+                        .font: cardFont,
                         .foregroundColor: UIColor.label,
                         .paragraphStyle: cardStyle,
+                        .baselineOffset: cardBaseline,
                         BlockFillAttribute.key: UIColor.tertiarySystemFill,
                     ]
                 )
