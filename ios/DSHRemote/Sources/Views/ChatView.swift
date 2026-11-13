@@ -372,25 +372,9 @@ struct ChatView: View {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
-                // ComfyUI 状态点单独成视图：它每 8 秒被轮询更新，
-                // 直接在这里读 model.comfy 会让整个 ChatView（composer/toolbar/列表）跟着重算。
-                ToolbarItem(placement: .topBarTrailing) {
-                    ComfyBadge()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    // 连接状态：正常时只留 wifi 图标（不占地方），
-                    // 不正常时才补上文字 —— 免得和左边 ComfyUI 的「画图离线」看混
-                    HStack(spacing: 3) {
-                        Image(systemName: connectionIcon)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(statusColor)
-                        if model.phase != .connected {
-                            Text(connectionShort)
-                                .font(.system(size: 10))
-                                .foregroundStyle(statusColor)
-                        }
-                    }
-                }
+                // 连接 / 画图状态**不再占顶栏**：顶栏只留「列表 · 标题 · ⋯」，
+                // 标题因此能完整显示。状态挪到输入区下方那条细状态栏
+                // （用户要求：下栏的空白放一些显示信息）。
             }
             .alert("重命名对话", isPresented: $renaming) {
                 TextField("标题", text: $renameText)
@@ -602,7 +586,7 @@ struct ChatView: View {
                         .background(.quaternary, in: Capsule())
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
             }
             .frame(height: attachments.isEmpty ? 0 : 44)
             .opacity(attachments.isEmpty ? 0 : 1)
@@ -666,6 +650,31 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+
+            // 状态条：占住输入区下方的空白，把顶栏挤掉的信息收在这里。
+            // 一条 16pt 高的细行，左连接点、右用量 —— 不抢注意力但一直在。
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                if model.phase != .connected {
+                    Text(connectionShort)
+                        .foregroundStyle(statusColor)
+                }
+                ComfyBadge(quietWhenIdle: true)
+                Spacer(minLength: 8)
+                if !chat.queue.isEmpty {
+                    Text("队列 \(chat.queue.count)")
+                }
+                if chat.streaming {
+                    Text("生成中")
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 2)
+            .frame(height: 16)
         }
         .background(.bar)
     }
@@ -907,7 +916,19 @@ struct ComfyBadge: View {
     /// 不要再把 ChatView 拖进来（那样 composer/列表都会白算）。
     @EnvironmentObject private var comfy: ComfyStore
 
+    /// 空闲且在线时不显示 —— 状态栏里常驻「画图空闲」是噪声，
+    /// 只有离线/作图时才需要占用那一格。
+    var quietWhenIdle: Bool = false
+
     var body: some View {
+        if quietWhenIdle, comfy.status.online, !comfy.status.generating {
+            EmptyView()
+        } else {
+            badge
+        }
+    }
+
+    private var badge: some View {
         Menu {
             Label(comfy.status.label, systemImage: "flame")
             if let version = comfy.status.version {
