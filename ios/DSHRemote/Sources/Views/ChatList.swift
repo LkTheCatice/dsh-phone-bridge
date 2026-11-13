@@ -172,6 +172,10 @@ struct ChatList: UIViewRepresentable {
                 return
             }
 
+            // 后台预渲染：真机上"上拉加载 120 帧卡 5 秒"的时间几乎全在
+            // cell configure 里重新渲染 markdown；这里先把它挪到后台。
+            MessageRender.prefetch(unique)
+
             // 角色切换一次算好，cell provider 只查表（O(1)）
             var changes = Set<String>()
             changes.reserveCapacity(unique.count / 4)
@@ -743,7 +747,47 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
 // MARK: - 渲染（第一版：纯文本 + 角色区分）
 
 enum MessageRender {
+    /// 渲染结果缓存。
+    ///
+    /// 真机数据（.86 打点）：apply 的快照只要 54ms、测量 avg 0ms/worst 2ms，
+    /// 但主线程仍连续卡 5.4s —— 时间全花在**每个新 cell 的 configure 里重新
+    /// 渲染 markdown**（40 条长消息 × 几十毫秒）。所以必须缓存渲染结果，
+    /// 并且能在后台预渲染。
+    private static let cache: NSCache<NSString, NSAttributedString> = {
+        let cache = NSCache<NSString, NSAttributedString>()
+        cache.countLimit = 400
+        return cache
+    }()
+
+    private static let prefetchQueue = DispatchQueue(label: "dsh.render.prefetch", qos: .userInitiated)
+
+    private static func cacheKey(_ entry: ChatEntry) -> NSString {
+        "\(entry.id)|\(entry.text.count)|\(entry.summary?.count ?? 0)|\(entry.running ? 1 : 0)"
+    }
+
+    /// 后台预渲染：把还没进缓存的条目排进后台队列。
+    /// 主线程 configure 时直接命中缓存 —— 那 5 秒就是这么省下来的。
+    static func prefetch(_ entries: [ChatEntry]) {
+        let missing = entries.filter { cache.object(forKey: cacheKey($0)) == nil }
+        guard !missing.isEmpty else { return }
+        prefetchQueue.async {
+            for entry in missing {
+                let key = cacheKey(entry)
+                guard cache.object(forKey: key) == nil else { continue }
+                cache.setObject(build(entry), forKey: key)
+            }
+        }
+    }
+
     static func attributed(_ entry: ChatEntry) -> NSAttributedString {
+        let key = cacheKey(entry)
+        if let hit = cache.object(forKey: key) { return hit }
+        let built = build(entry)
+        cache.setObject(built, forKey: key)
+        return built
+    }
+
+    private static func build(_ entry: ChatEntry) -> NSAttributedString {
         let out = NSMutableAttributedString()
 
         // 角色前缀（一条小字），正文用 markdown 富文本

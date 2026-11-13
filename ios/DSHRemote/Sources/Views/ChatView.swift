@@ -101,6 +101,9 @@ struct ChatView: View {
     /// 也会被当成新消息（用户实拍：划到最顶冒出「新消息」）。
     /// 尾部锚点不受头部插入/裁剪影响，是最稳的判据。
     @State private var bottomTailId = ""
+    /// 是否已经做过「首次进入会话时滚到底」。
+    /// 之后每次历史重建都不再自动滚动 —— 否则用户正翻历史会被拽回底部。
+    @State private var didInitialScroll = false
     @State private var bottomTailLen = -1
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
@@ -214,9 +217,22 @@ struct ChatView: View {
                 }
                 // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
                 .onChange(of: chat.historyVersion) { _ in
-                    if !jump.atBottom { jump.atBottom = true }
-                    if jump.hasNewBelow { jump.hasNewBelow = false }
-                    scrollRequest += 1
+                    // 历史重建完成后：
+                    //   首次进入会话 → 滚到底（否则会停在顶部）
+                    //   之后再重建（重连 / 刷新 / 切回会话）→ **不动位置**，
+                    //   只把尾部锚点对齐。原来这里无条件 scrollRequest += 1，
+                    //   用户正上翻历史时会被强行拽到底，看起来就像「又跳新消息」。
+                    if !didInitialScroll {
+                        didInitialScroll = true
+                        if !jump.atBottom { jump.atBottom = true }
+                        if jump.hasNewBelow { jump.hasNewBelow = false }
+                        scrollRequest += 1
+                        return
+                    }
+                    // 对齐锚点：重建后末条可能变了（产物卡片落位等），
+                    // 不做这一步会被误判成「来了新消息」。
+                    bottomTailId = entries.last?.id ?? ""
+                    bottomTailLen = entries.last?.text.count ?? -1
                 }
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active, jump.atBottom else { return }
