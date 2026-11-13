@@ -164,8 +164,18 @@ struct ChatView: View {
                         }
                     },
                     onTapEntry: { id in
-                        // 点消息看完整内容：列表里的表格是截断的，完整版在这里
-                        detailEntry = visibleEntries.first { $0.id == id }
+                        guard let target = visibleEntries.first(where: { $0.id == id }) else { return }
+                        // 工具行：打开「工具详情」——里面有参数/结果，以及**它读过的图片**
+                        // （ToolDetailSheet 会用 ToolSummary.imagePaths 从 detail 里扫路径，
+                        //  再用 RemoteImage 拉电脑那边的预览图）。
+                        // 这条入口之前是断的：detailPresenter 只注入、没人调用，
+                        // 点工具行走的是 EntryDetailSheet（只渲染文本），图片看不到。
+                        if target.kind == .toolCall {
+                            detailPresenter.entry = target
+                        } else {
+                            // 其余条目：看完整内容（列表里的表格/代码是截断的）
+                            detailEntry = target
+                        }
                     },
                     onTapAttachments: { id in
                         attachmentEntry = visibleEntries.first { $0.id == id }
