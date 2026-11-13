@@ -321,6 +321,17 @@ final class AppModel: ObservableObject {
         return a.id < b.id
     }
 
+    /// FNV-1a 稳定哈希：`String.hashValue` 每次进程启动都会变（Swift 随机种子），
+    /// 不能拿来做跨回放的条目 id。
+    static func stableHash(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return hash
+    }
+
     /// 取文件名：按 **/ 和 \ 两种分隔符**切（NSString.lastPathComponent 只认 "/"，
     /// Windows 路径 D:\a\b.md 会整条返回，提示里就是一大串全路径）。
     static func fileName(_ path: String) -> String {
@@ -810,9 +821,6 @@ final class AppModel: ObservableObject {
                 || text.contains("[status: failed, exit code:")
                 || text.hasPrefix("agent/inbox")
             guard !injected else { return }
-            // 每来一条真正的用户消息就开新一段回答：插队（next-step）就是靠这个
-            // 把「插队那条的输出」从上一个气泡里分出来，落到自己下面。
-            advanceSegment(sid)
             // 去重：send() 已经本地乐观插入过同一条，服务端回显时不能再插一次。
             //
             // ① 首选：找本地那条 local- 前缀且文本相同的，直接替换成服务端的正式 id。
@@ -831,19 +839,29 @@ final class AppModel: ObservableObject {
                 entries[sid]![idx] = item
                 return
             }
-            // ② 兜底：万一 local- 那条已经被别的路径消费掉（例如切会话重载），
-            //    再用「文本相同 + 近距离」判断一次。
-            let recent = entries[sid]?.suffix(3) ?? []
-            let duplicated = recent.contains { item in
+            // ② 兜底去重：**整段会话里找**同一轮 + 同一文本，不再只看最后 3 条、
+            //    也不再限定 15 秒。冷启动时历史回放与实时回显会各送一次同一条消息，
+            //    回放那条的 at 是历史时间戳，15 秒窗口必然失效 → 同一个提问显示两次
+            //    （用户实拍）。用 (turn, 归一化文本) 判等才是稳的。
+            let alreadyThere = entries[sid]?.contains { item in
                 item.kind == .user
+                    && item.turn == turn
                     && Self.sameMessage(item.text, text)
-                    && abs(item.at.timeIntervalSinceNow) < 15
-            }
-            guard !duplicated else { return }
+            } ?? false
+            guard !alreadyThere else { return }
             // 帧时间而不是 Date()：回填时所有条目都用 Date() 会挤在同一毫秒，
             // 按 at 排序就退化成插入顺序（历史里提问/回答会错位）。
             // turn 也要带：0 会被排序推到最前面。
-            append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Self.frameDate(frame), turn: turn))
+            // id 必须是**确定性**的：以前用 UUID()，同一条消息每次回放都换一个 id，
+            // append 的"同 id 替换"因此永远失效，重复帧就只能靠上面那段去重挡，
+            // 挡不住就出现两条一样的提问（用户实拍：冷启动同一请求显示两次）。
+            // 确认是**新**消息之后才开新段：
+            // 重复帧如果也 advanceSegment，回答会被分到多出来的段里，
+            // 气泡 id 跟着错位（插队那套分段逻辑依赖这里）。
+            advanceSegment(sid)
+            let at = Self.frameDate(frame)
+            let id = "\(sid)#u\(turn)_\(Self.stableHash(text))_\(Int(at.timeIntervalSince1970 * 1000))"
+            append(sid, ChatEntry(id: id, kind: .user, text: text, at: at, turn: turn))
 
         default:
             break
