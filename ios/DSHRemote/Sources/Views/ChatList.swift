@@ -703,6 +703,28 @@ enum MessageRender {
                 ]
             )
         case .system, .toolResult:
+            // 「📄 输出文件 · xxx」是**产物行**，跟普通系统灰字不一样：
+            // 用户要能一眼看到"刚才产出了什么文件" → 做成一条通栏浅色卡片
+            // （BlockFill 画的圆角底色），正文色 + 13pt 中等字重。
+            if entry.text.hasPrefix("📄") {
+                let cardStyle = NSMutableParagraphStyle()
+                cardStyle.paragraphSpacing = 6
+                cardStyle.paragraphSpacingBefore = 4
+                cardStyle.lineSpacing = 2
+                cardStyle.headIndent = 10
+                cardStyle.firstLineHeadIndent = 10
+                cardStyle.tailIndent = -10
+                body = NSAttributedString(
+                    string: entry.text,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 13, weight: .medium),
+                        .foregroundColor: UIColor.label,
+                        .paragraphStyle: cardStyle,
+                        BlockFillAttribute.key: UIColor.tertiarySystemFill,
+                    ]
+                )
+                break
+            }
             // 系统行是背景信息，居中 + 更淡更小，让它退到正文之后
             let centered = NSMutableParagraphStyle()
             centered.alignment = .center

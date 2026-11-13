@@ -629,11 +629,16 @@ final class AppModel: ObservableObject {
             // 完整路径放在 detail 里（点开消息可看）。
             let path = (frame["path"] as? String) ?? ""
             guard !path.isEmpty else { return }
-            let name = (path as NSString).lastPathComponent
+            // 文件名按 **/ 和 \ 两种分隔符**取：NSString.lastPathComponent 只认 "/"，
+            // Windows 路径（D:\a\b.md）会整条返回 —— 提示里就是一大串全路径（用户实拍）。
+            let name = path
+                .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+                .last
+                .map(String.init) ?? path
             append(sid, ChatEntry(
                 id: "\(sid)#file\(turn)_\(path)",
                 kind: .toolResult,
-                text: "📄 输出文件 · \(name.isEmpty ? path : name)",
+                text: "📄 输出文件 · \(name)",
                 detail: path,
                 at: Self.frameDate(frame),
                 turn: turn
