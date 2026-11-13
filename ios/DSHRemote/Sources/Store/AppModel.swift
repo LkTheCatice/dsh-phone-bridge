@@ -1474,7 +1474,9 @@ final class AppModel: ObservableObject {
         defer { isCreatingSession = false }
 
         do {
-            let result = try await client.newSession(cwd: roots.first)
+            // 不传 cwd：交给 DSH 用桌面端当前的工作区，
+            // 传了白名单根会另建一个工作区，桌面端列表里看不到这个会话。
+            let result = try await client.newSession()
             guard let sid = result["sessionId"] as? String, !sid.isEmpty else {
                 lastError = "服务端没有返回新会话 id"
                 return

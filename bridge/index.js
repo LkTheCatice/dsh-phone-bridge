@@ -2121,11 +2121,30 @@ function applyBridge(ctx, config) {
       const body = await readJsonBody();
       const ctrl = sessionController || ctx.sessionController;
       if (!ctrl) throw new HttpError(503, "not-ready", "sessionController 尚未就绪");
-      const made = await ctrl.create(body.cwd ? { cwd: String(body.cwd) } : {});
+
+      /**
+       * cwd 只在「它确实是 DSH 已注册的工作区」时才传。
+       *
+       * 以前手机把 `roots.first`（那是**文件白名单根**，不一定是工作区）直接塞进来，
+       * DSH 会按这个路径另建一个工作区分组 —— 会话确实建了，也回了一个 id，
+       * 但桌面端当前工作区的列表里根本看不到（用户实报："手机能建，电脑没更新"）。
+       * 不传 cwd 时走的就是桌面端默认工作区，和 /v1/answer 里自动建会话那条路径一致。
+       */
+      /* 只认 **DSH 已注册的工作区**；cfg.roots 是手机的文件白名单，
+         拿它当 cwd 会把会话建到别的工作区分组里去（这正是"电脑看不到"的原因）。*/
+      const known = new Set(
+        detectWorkspaceRoots()
+          .map((r) => String(r || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase())
+          .filter(Boolean),
+      );
+      const wanted = body.cwd ? String(body.cwd).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() : "";
+      const useCwd = wanted && known.has(wanted) ? String(body.cwd) : null;
+
+      const made = await ctrl.create(useCwd ? { cwd: useCwd } : {});
       const sessionId = String(made?.sessionId || "");
       if (!sessionId) throw new HttpError(500, "create-failed", "新建会话失败");
-      logLine({ step: "session/new", sessionId });
-      return sendJson(res, 200, { ok: true, sessionId }, ctxEnc);
+      logLine({ step: "session/new", sessionId, cwd: useCwd || "(default workspace)", requested: body.cwd || null });
+      return sendJson(res, 200, { ok: true, sessionId, cwd: useCwd || null }, ctxEnc);
     }
 
     if (method === "POST" && pathname === "/v1/session/rename") {
