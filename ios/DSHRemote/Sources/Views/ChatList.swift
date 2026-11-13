@@ -799,7 +799,7 @@ enum MessageRender {
         case .thinking: return "思考\n"
         case .toolCall: return "> "
         case .collapsedSteps: return "▸ "
-        case .system, .toolResult: return nil
+        case .system, .toolResult, .fileOutput: return nil
         }
     }
 }
