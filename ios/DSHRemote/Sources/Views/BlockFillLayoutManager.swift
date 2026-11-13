@@ -42,9 +42,10 @@ final class BlockFillLayoutManager: NSLayoutManager {
                 width: union.width,
                 height: union.height
             )
-            // insetBy 用**负值**才是向外扩：给文字和圆角边之间留 padding。
-            // 之前是 dy: 1（往里收），字直接贴着上下边（用户实拍：上下边离字太近）。
-            .insetBy(dx: -2, dy: -5)
+            // 横向**向内收一点**（dx: 2）：色块的 line fragment 宽度等于整列宽，
+            // 不内收就会顶到气泡内边（用户实拍「内部框碰到外部元素」）。
+            // 纵向外扩 4pt 当上下 padding，段距由 MarkdownNS 那边配好留白。
+            .insetBy(dx: 2, dy: -4)
 
             color.setFill()
             let path = UIBezierPath(roundedRect: target, cornerRadius: 8)

@@ -169,9 +169,9 @@ enum MarkdownNS {
             // 现在底色交给布局管理器画（见 BlockFillLayoutManager），
             // 这里只需要保证行高是**字体默认值**、文本宽度正常，ASCII 图才对得齐。
             let style = Self.style(
-                // 段后距给足：整块底色的 rect 上下各外扩 5pt 当 padding，
-                // 段距太小会和下一段文字贴在一起。
-                spacingAfter: 12, spacingBefore: before, lineSpacing: 0,
+                // 段前/段后给足：整块底色的 rect 上下各外扩 4pt 当 padding，
+                // 段距不够就会顶到上一段的 AI 前缀或下一段正文（用户实拍）。
+                spacingAfter: 12, spacingBefore: max(before, 10), lineSpacing: 0,
                 headIndent: 8, tailIndent: -8
             )
             style.lineBreakMode = .byTruncatingTail
@@ -386,14 +386,16 @@ enum MarkdownNS {
                 stops.append(NSTextTab(textAlignment: .left, location: location))
             }
 
-            func makeRow(_ row: [String], isHeader: Bool) -> NSAttributedString {
+            func makeRow(_ row: [String], isHeader: Bool, isLast: Bool = false) -> NSAttributedString {
                 let style = NSMutableParagraphStyle()
                 style.tabStops = stops
-                // lineSpacing 必须 0：表格现在有整段底色（当边框用），
-                // 行距一留空隙，底色就会被切成一条条（和代码块同一类问题）。
+                // lineSpacing 必须 0：底色是按行片段画的，行距会在片段之间留缝。
                 style.lineSpacing = 0
                 style.lineHeightMultiple = isHeader ? 1.42 : 1.36
-                style.paragraphSpacing = isHeader ? 5 : 3
+                // 表格首行上方 / 末行下方各留一段：整块底色上下各外扩 4pt，
+                // 没有这段就会顶到 AI 前缀或下一段正文（用户实拍「碰到外部元素」）。
+                style.paragraphSpacingBefore = isHeader ? 8 : 0
+                style.paragraphSpacing = isLast ? 10 : (isHeader ? 5 : 3)
                 let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
                 // 行首留白（和 tabStops 的 leadChars 对应）
@@ -442,7 +444,7 @@ enum MarkdownNS {
             }
             for (i, row) in shownRows.enumerated() {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
-                out.append(makeRow(row, isHeader: false))
+                out.append(makeRow(row, isHeader: false, isLast: i == shownRows.count - 1))
             }
 
             // 整表一块底色：由 BlockFillLayoutManager 按行片段并集画（含 tab 空档），
