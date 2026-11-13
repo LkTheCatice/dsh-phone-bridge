@@ -264,6 +264,31 @@ final class AppModel: ObservableObject {
     /// turn.start 的时间，用来在 turn.end 显示"用时 N 秒"
     private var turnStartedAt: [String: Date] = [:]
 
+    /// 本轮的「输出文件」提示先攒着，等 turn.end 统一落到列表末尾。
+    /// 用户要求：产物提示跟着当轮走，不要夹在工具行中间（那样像日志噪声）。
+    private var pendingFileHints: [String: [(path: String, at: Date, turn: Int)]] = [:]
+
+    /// 把攒着的产物提示写进列表（在「本轮结束」之前调用，保持结束行最后）
+    private func flushFileHints(_ sessionId: String) {
+        guard let hints = pendingFileHints.removeValue(forKey: sessionId), !hints.isEmpty else { return }
+        for hint in hints {
+            // 文件名按 **/ 和 \ 两种分隔符**取：NSString.lastPathComponent 只认 "/"，
+            // Windows 路径（D:\a\b.md）会整条返回（用户实拍）。
+            let name = hint.path
+                .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+                .last
+                .map(String.init) ?? hint.path
+            append(sessionId, ChatEntry(
+                id: "\(sessionId)#file\(hint.turn)_\(hint.path)",
+                kind: .toolResult,
+                text: "📄 输出文件 · \(name)",
+                detail: hint.path,
+                at: hint.at,
+                turn: hint.turn
+            ))
+        }
+    }
+
     /// 一轮里的「第几段回答」。
     ///
     /// 插队（steer）在 DSH 里是把消息塞进**当前轮的下一步**，所以插队那条的
@@ -625,24 +650,17 @@ final class AppModel: ObservableObject {
         case "file.output":
             // 产出了文件（docx / pptx / pdf / ipa / zip …）。
             // 图片和视频手机能直接预览，这类不行 —— 以前用户完全看不到
-            // 「电脑那边写了什么文件」。这里补一条轻量提示，只显示文件名，
-            // 完整路径放在 detail 里（点开消息可看）。
+            // 「电脑那边写了什么文件」。
+            //
+            // 位置：**先攒着，等 turn.end 再统一落到本轮末尾**
+            // （用户要求：别夹在工具行中间）。见 flushFileHints。
             let path = (frame["path"] as? String) ?? ""
             guard !path.isEmpty else { return }
-            // 文件名按 **/ 和 \ 两种分隔符**取：NSString.lastPathComponent 只认 "/"，
-            // Windows 路径（D:\a\b.md）会整条返回 —— 提示里就是一大串全路径（用户实拍）。
-            let name = path
-                .split(whereSeparator: { $0 == "/" || $0 == "\\" })
-                .last
-                .map(String.init) ?? path
-            append(sid, ChatEntry(
-                id: "\(sid)#file\(turn)_\(path)",
-                kind: .toolResult,
-                text: "📄 输出文件 · \(name)",
-                detail: path,
-                at: Self.frameDate(frame),
-                turn: turn
-            ))
+            var hints = pendingFileHints[sid] ?? []
+            if !hints.contains(where: { $0.path == path }) {
+                hints.append((path: path, at: Self.frameDate(frame), turn: turn))
+            }
+            pendingFileHints[sid] = hints
 
         case "approval.asked":
             let id = (frame["id"] as? String) ?? ""
@@ -689,6 +707,8 @@ final class AppModel: ObservableObject {
             // 和本轮同时一起」—— 之前是「本轮结束 · 用时 N 秒」和
             // 「本轮过程 · M 步」分成两行，看着散）。
             let foldedSteps = foldSteps(sid, turn: turn)
+            // 产物提示落在本轮末尾（结束行之前），别夹在工具行中间
+            flushFileHints(sid)
             var endText = elapsed.isEmpty ? label : "\(label) · \(elapsed)"
             if foldedSteps > 0 { endText += " · \(foldedSteps) 步" }
             append(sid, ChatEntry(
