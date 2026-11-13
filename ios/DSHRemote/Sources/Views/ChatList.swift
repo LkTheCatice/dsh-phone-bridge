@@ -343,7 +343,18 @@ struct ChatList: UIViewRepresentable {
 final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     static let reuseID = "MessageCell"
 
-    private let textView = UITextView()
+    private let textView: UITextView = {
+        // 代码块 / 表格的整块底色由 BlockFillLayoutManager 画（见那个文件）。
+        // UITextView() 默认的布局管理器画不了「整块」，只能按字符填色。
+        let storage = NSTextStorage()
+        let layout = BlockFillLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        return UITextView(frame: .zero, textContainer: container)
+    }()
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
     /// 气泡背景：垫在文字下面，靠圆角 + 底色区分消息与消息之间

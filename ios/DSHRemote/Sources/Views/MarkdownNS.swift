@@ -159,48 +159,27 @@ enum MarkdownNS {
             return out
 
         case let .code(code, lang):
-            // 代码块：等宽 + 整块底色，**不许出现「一行一个灰胶囊」**
+            // 代码块：等宽 + **整块**底色（由 BlockFillLayoutManager 按行片段画）
             //
-            // 用户实拍过的三种坏样子：
-            //  ① `lineSpacing > 0` → 底色按行绘制，被行距切成一条条
-            //  ② `lineHeightMultiple` → 即使 lineSpacing=0，行高被撑大后底色只覆盖
-            //     字形带（glyph band），行与行之间照样留白，看起来像每行一个灰胶囊
-            //  ③ 不给行尾补空格 → 每行底色只画到该行最后一个字符，右边缘参差不齐
-            // 现在的做法：行高用默认值（不撑）+ 每行按显示宽度补空格到统一宽度
-            // （等宽字体下宽度可精确计算），底色于是连成一整块规整矩形。
+            // 走过的错路都在 `.backgroundColor` 上：它按字符填色，
+            //  ① lineSpacing > 0 → 一条条断开
+            //  ② lineHeightMultiple / 负 lineSpacing → 底色勉强连上，但行高被压，
+            //     ASCII 图的框线和箭头会错位（用户实拍：图看着不对）
+            //  ③ 行尾没字符 → 右边缘参差
+            // 现在底色交给布局管理器画（见 BlockFillLayoutManager），
+            // 这里只需要保证行高是**字体默认值**、文本宽度正常，ASCII 图才对得齐。
             let style = Self.style(
                 spacingAfter: 6, spacingBefore: before, lineSpacing: 0,
                 headIndent: 8, tailIndent: -8
             )
-            // 行距给一点点负值：`.backgroundColor` 画的是**字形带**，
-            // 字体自带的 leading 会让相邻两条底色之间留一道白缝
-            // （用户实拍「还是有一些缝隙」）。lineSpacing 允许为负，
-            // 这里收掉那点 leading，底色就连成整块。
-            style.lineSpacing = -2
-            style.lineHeightMultiple = 1.0
-            style.minimumLineHeight = 0
-            style.maximumLineHeight = 0
-            // 气泡里一行大约放得下 46 个半角字符；详情页外层有横向滚动，可以放宽。
             style.lineBreakMode = .byTruncatingTail
             let maxChars = mode == .compact ? 46 : 96
             let rawLines = clampCode(code).components(separatedBy: "\n")
-            // 每行都补到**满宽**（maxChars），而不是只补到本块最长那行：
-            // .backgroundColor 是按字符范围画的，行尾没有字符就没有底色 ——
-            // 只补到最长行的话，右边缘会一块块参差（用户要求「直接上完整底色」）。
-            let target = maxChars
-            // 这一块里是否有行被截断：有的话要给出「点开看整行」的入口，
-            // 否则长命令/长日志只能看到前 46 个字符（用户实拍：省略号后面没了）。
             let truncated = rawLines.contains { Self.displayWidth($0) > maxChars }
-            // 每行前面补一个空格当内边距，尾部补满
-            let padded = rawLines.map { line -> String in
-                let width = Self.displayWidth(line)
-                let body = " " + line
-                guard target > width else { return body }
-                return body + String(repeating: " ", count: target - width)
-            }.joined(separator: "\n")
+            // 左侧一个空格当内边距；不再往行尾补空格（那是给 .backgroundColor 用的，
+            // 现在也不该把空格塞进可复制的内容里）。
+            let body = rawLines.map { " " + $0 }.joined(separator: "\n")
 
-            // 上下两条「─」撑满整宽，作为整体外框的上/下边
-            let rule = String(repeating: "─", count: target + 1)
             let out = NSMutableAttributedString()
             if let lang, !lang.isEmpty {
                 out.append(NSAttributedString(
@@ -212,41 +191,24 @@ enum MarkdownNS {
                     ]
                 ))
             }
-            // 字体：优先 Menlo。SF Mono 对制表符/制表框线（┌ ─ │ └ ▼）覆盖不全，
-            // fallback 字体的字宽和等宽字体不一致 → ASCII 图会错位、框线断（用户实拍）。
+            // 字体：优先 Menlo。SF Mono 对制表框线（┌ ─ │ └ ▼）覆盖不全，
+            // fallback 字宽不一致 → ASCII 图错位。
             let mono = UIFont(name: "Menlo", size: 12.5)
                 ?? UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
             let fill = UIColor.secondarySystemFill
-            // 上边框
+            // 正文
             out.append(NSAttributedString(
-                string: rule + "\n",
-                attributes: [
-                    .font: mono,
-                    .foregroundColor: UIColor.tertiaryLabel,
-                    .backgroundColor: fill,
-                    .paragraphStyle: style,
-                ]
-            ))
-            // 正文（每行已带左侧内边距 + 尾部对齐；padded 本身就是用 \n 连好的整段）
-            out.append(NSAttributedString(
-                string: padded,
+                string: body,
                 attributes: [
                     .font: mono,
                     .foregroundColor: UIColor.label,
-                    .backgroundColor: fill,
                     .paragraphStyle: style,
                 ]
             ))
-            // 下边框
-            out.append(NSAttributedString(
-                string: "\n" + rule,
-                attributes: [
-                    .font: mono,
-                    .foregroundColor: UIColor.tertiaryLabel,
-                    .backgroundColor: fill,
-                    .paragraphStyle: style,
-                ]
-            ))
+            // 整块底色 + 描边（一次画成一整块，行间不再有缝）
+            let blockRange = NSRange(location: 0, length: out.length)
+            out.addAttribute(BlockFillAttribute.key, value: fill, range: blockRange)
+            out.addAttribute(BlockFillAttribute.strokeKey, value: UIColor.separator, range: blockRange)
             // 有行被截断 → 给一个入口点开看整行（详情页 96 字符 + 横向滚动）。
             // 之前只有「…」没有任何办法看到后半句（用户实拍）。
             if truncated, mode == .compact, let url = URL(string: "dsh://detail") {
@@ -414,9 +376,6 @@ enum MarkdownNS {
                 stops.append(NSTextTab(textAlignment: .left, location: location))
             }
 
-            // 整表铺满宽度：底色按字符范围画，行尾必须补空格才铺满
-            let totalChars = columnWidths.reduce(0, +) + (columnCount - 1) * gutterChars
-
             func makeRow(_ row: [String], isHeader: Bool) -> NSAttributedString {
                 let style = NSMutableParagraphStyle()
                 style.tabStops = stops
@@ -437,27 +396,7 @@ enum MarkdownNS {
                         .foregroundColor: isHeader ? UIColor.label : UIColor.secondaryLabel,
                     ]))
                 }
-                // 行尾补空格到整表宽度：底色按字符范围绘制，不补就只铺到最后一个字
-                // （用户要求「表格也直接上完整底色」）。
-                // 宽度按 tabStops 算：最后一个 tab 停靠点 + 末列实际内容宽度。
-                let lastCellText = columnCount > 0 && columnCount - 1 < row.count
-                    ? clampCell(row[columnCount - 1], maxWidth: columnWidths[columnCount - 1])
-                    : ""
-                let lastColumnStart = columnWidths.dropLast().reduce(0, +) + (columnCount - 1) * gutterChars
-                let usedChars = lastColumnStart + displayWidth(lastCellText)
-                if totalChars > usedChars {
-                    line.append(NSAttributedString(
-                        string: String(repeating: " ", count: totalChars - usedChars),
-                        attributes: [.font: base]
-                    ))
-                }
                 line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
-                // 整行底色：表头略深，正文更淡
-                line.addAttribute(
-                    .backgroundColor,
-                    value: isHeader ? UIColor.secondarySystemFill : UIColor.tertiarySystemFill,
-                    range: NSRange(location: 0, length: line.length)
-                )
                 return line
             }
 
@@ -486,6 +425,17 @@ enum MarkdownNS {
             for (i, row) in shownRows.enumerated() {
                 if i > 0 { out.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 3)])) }
                 out.append(makeRow(row, isHeader: false))
+            }
+
+            // 整表一块底色：由 BlockFillLayoutManager 按行片段并集画（含 tab 空档），
+            // 不像 .backgroundColor 那样被列间距切成一段段。
+            let tableRange = NSRange(location: 0, length: out.length)
+            if tableRange.length > 0 {
+                out.addAttribute(
+                    BlockFillAttribute.key,
+                    value: UIColor.tertiarySystemFill,
+                    range: tableRange
+                )
             }
 
             // 折叠提示只在列表（compact）里出现；详情页本身就是完整内容。
