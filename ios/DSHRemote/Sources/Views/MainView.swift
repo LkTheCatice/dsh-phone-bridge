@@ -20,13 +20,17 @@ struct MainView: View {
                 .environmentObject(model.comfyStore)
                 .environmentObject(model.walletStore)
                 .tag(0)
+                // ⚠️ 隐藏系统 tab bar 的修饰符必须挂在**子页面**上。
+                // 挂在 TabView 上时 iOS 26 只隐藏了按钮，浮动胶囊的玻璃背景
+                // 仍然留着 —— 界面上就是一个空胶囊（用户实拍）。
+                .toolbar(.hidden, for: .tabBar)
             SettingsView()
                 // SettingsView 订阅了 WalletStore（余额区），
                 // 不注入就会在打开设置页时崩 —— 缺 @EnvironmentObject 是运行时崩溃。
                 .environmentObject(model.walletStore)
                 .tag(1)
+                .toolbar(.hidden, for: .tabBar)
         }
-        .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomBar(selection: $tab)
                 .environmentObject(model)
