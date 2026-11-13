@@ -123,6 +123,9 @@ struct ChatList: UIViewRepresentable {
                         onOpenLink: { [weak self] url in
                             self?.parent.onOpenLink(id, url)
                         },
+                        onTapEntry: { [weak self] rowId in
+                            self?.parent.onTapEntry(rowId)
+                        },
                         isRoleChange: isRoleChange
                     )
                 }
@@ -403,6 +406,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     }()
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
+    /// 点整行（工具行）→ 打开工具详情。
+    ///
+    /// 之前**根本没有点击入口**：cell 只处理 `dsh://` 链接，
+    /// `onTapEntry` 这个闭包从声明起就没被调用过 ——
+    /// 所以"点工具行看它读过的图片"永远打不开（用户实拍：并不能）。
+    var onTapEntry: ((String) -> Void)?
+
     /// 产物卡片（「📄 输出文件 · xxx」）。
     /// 用真视图而不是富文本：内外边距和垂直居中由约束保证，见 FileChipView 顶部注释。
     private let fileChip = FileChipView()
@@ -497,6 +507,18 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         ])
         bubbleWidth = bubble.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 20)
         bubbleWidth?.isActive = true
+
+        // 工具行整行可点：打开「工具详情」（含它读过的图片）。
+        // 只对 .toolCall 生效 —— 其它行里的 dsh:// 链接靠 UITextView 自己的
+        // delegate 处理，不要让一个手势去抢点击。
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleRowTap))
+        tap.cancelsTouchesInView = false
+        textView.addGestureRecognizer(tap)
+    }
+
+    @objc private func handleRowTap() {
+        guard let entry = currentEntry, entry.kind == .toolCall else { return }
+        onTapEntry?(entry.id)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -513,6 +535,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         fileChip.isHidden = true
         onTapAttachments = nil
         onOpenLink = nil
+        onTapEntry = nil
     }
 
     // MARK: - UITextViewDelegate（链接与自定义 scheme）
@@ -553,6 +576,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         streaming: Bool,
         onTapAttachments: (() -> Void)?,
         onOpenLink: ((URL) -> Void)? = nil,
+        onTapEntry: ((String) -> Void)? = nil,
         isRoleChange: Bool = false
     ) {
         currentEntry = entry
@@ -584,6 +608,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             textView.attributedText = MessageRender.attributed(entry)
         }
         self.onTapAttachments = onTapAttachments
+        self.onTapEntry = onTapEntry
 
         // 气泡配色 + 布局：
         //   用户 → 淡主题色气泡，按内容收缩，整体靠右（文字在气泡内左对齐）
@@ -863,7 +888,8 @@ enum MessageRender {
         case .toolCall:
             var text = entry.text
             if let summary = entry.summary, !summary.isEmpty { text += " · " + summary }
-            text += "  ›"   // 可点开的提示（颜色保持灰，避免整屏发蓝）
+            // 不再在末尾加 "›"：每行都挂一个看着像漏字（用户问"结尾那个 > 是什么"）。
+            // 整行可点这件事由手势承担，不需要字符提示。
             body = NSAttributedString(
                 string: text,
                 attributes: [
