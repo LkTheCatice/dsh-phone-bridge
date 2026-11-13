@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>DSH Helm · 镜头素材渲染器</title>
+<style>
+/* ────────────────────────────────────────────────────────────────
+   镜头素材渲染器：把脚本里的 12 个镜头用代码复刻出来，
+   用 URL 参数定位到「第几镜 + 第几秒」，得到的画面就是可用的素材。
+   设计令牌与 App 一致（见 docs/ui-demo/README.md 的表）。
+   ──────────────────────────────────────────────────────────────── */
+:root{
+  --accent:#0a84ff;
+  --bg:#ffffff;
+  --bg2:#f2f2f7;
+  --fill:rgba(118,118,128,.12);
+  --label:#000;
+  --sub:rgba(60,60,67,.6);
+  --tert:rgba(60,60,67,.3);
+  --sep:rgba(60,60,67,.18);
+  --green:#34c759;
+  --stage-w:1920px;
+  --stage-h:1080px;
+}
+*{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{margin:0;background:#000;height:100%}
+body{font-family:-apple-system,"SF Pro Display","PingFang SC","Segoe UI",Roboto,sans-serif;color:#fff}
+
+/* ── 舞台：1920×1080 纯黑，手机居中 ── */
+#stage{
+  position:relative;width:var(--stage-w);height:var(--stage-h);
+  background:#000;overflow:hidden;
+}
+#device{
+  position:absolute;top:50%;left:var(--device-x, 68%);
+  transform:translate(-50%,-50%);
+  /* 按**高度**定尺寸：1080 的舞台里手机高 880px，宽自动 393:852 */
+  height:var(--phone-h);
+  width:calc(var(--phone-h) * 393 / 852);
+  transition:none;
+}
+#screen{
+  position:absolute;inset:0;border-radius:calc(var(--phone-h) * 44 / 852);
+  overflow:hidden;background:var(--bg);color:var(--label);
+}
+
+/* ── 手机屏幕内部（与真机一致的比例与字号）──
+   这里用 em 相对单位：1em = 屏宽 / 39.3 → 393pt 宽时 1em ≈ 10px，
+   于是"16pt 正文"写成 1.6em，视觉上等价于真机。 */
+.screen-wrap{
+  font-size:calc(var(--phone-h) * 393 / 852 / 39.3);
+  width:100%;height:100%;display:flex;flex-direction:column;
+  background:var(--bg);
+}
+.statusbar{height:5.4em;display:flex;align-items:center;justify-content:space-between;padding:0 3em;font-size:1.5em;font-weight:600;flex:0 0 auto}
+.statusbar .r{display:flex;gap:.6em;font-size:.86em;align-items:center}
+.nav{height:6.2em;display:flex;align-items:center;justify-content:space-between;padding:0 1.8em;flex:0 0 auto}
+.nav .ic{width:3.8em;height:3.8em;border-radius:1.9em;background:var(--fill);display:grid;place-items:center;font-size:1.6em}
+.nav .ti{font-size:1.7em;font-weight:600;max-width:21em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.body{flex:1;overflow:hidden;padding:0 1.6em;display:flex;flex-direction:column;gap:.7em}
+.row-sys{text-align:center;font-size:1.05em;color:var(--sub);opacity:.62;padding:.6em 0}
+.bubble{border-radius:1.4em;padding:.8em 1.2em;font-size:1.6em;line-height:1.5;background:var(--bg2)}
+.bubble.me{align-self:flex-end;margin-left:5.6em;background:rgba(10,132,255,.11)}
+.pfx{font-size:1.2em;font-weight:600;color:var(--tert);margin-bottom:.7em}
+.bubble.me .pfx{color:rgba(10,132,255,.55);text-align:right}
+.log{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:1.2em;line-height:1.35;color:var(--sub)}
+.log .c{color:var(--tert);font-weight:600}
+.log.think .b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.chip{min-height:3.2em;border-radius:.9em;background:var(--fill);display:flex;align-items:center;gap:.6em;padding:.8em 1.2em;font-size:1.3em;font-weight:500}
+.chip .tag{margin-left:auto;font-size:.85em;color:var(--tert)}
+.chip.pre .tag{color:var(--accent)}
+.chip.fold{color:var(--accent);transform-origin:left center}
+.codeblk{background:var(--fill);border-radius:.8em;padding:.8em 1em;font-family:ui-monospace,Menlo;font-size:1.2em;line-height:1.45;white-space:pre-wrap}
+.tbl{background:var(--fill);border-radius:.8em;padding:.8em 1em;font-family:ui-monospace,Menlo;font-size:1.1em;line-height:1.5;color:var(--sub)}
+.tbl .th{color:var(--label);font-weight:600;border-bottom:1px solid var(--sep);padding-bottom:.5em;margin-bottom:.5em;display:grid;grid-template-columns:1.1fr 1fr 1.4fr;gap:.6em}
+.tbl .tr{display:grid;grid-template-columns:1.1fr 1fr 1.4fr;gap:.6em}
+.composer{flex:0 0 auto;background:#f9f9f9;padding:.8em 1.2em .4em}
+.inp{display:flex;align-items:center;gap:.8em}
+.plus{width:2.6em;height:2.6em;border-radius:1.3em;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:1.7em}
+.field{flex:1;height:3.6em;border-radius:1.8em;background:var(--fill);display:flex;align-items:center;padding:0 1.4em;color:var(--tert);font-size:1.6em}
+.send{width:3em;height:3em;border-radius:1.5em;background:var(--fill);display:grid;place-items:center;color:var(--tert)}
+.bbar{display:flex;align-items:center;justify-content:space-between;padding:.4em .4em .2em}
+.st{display:flex;flex-direction:column;gap:.3em}
+.st .l{display:flex;align-items:center;gap:.5em;font-size:1.05em;color:var(--sub)}
+.dot{width:.6em;height:.6em;border-radius:.3em;background:var(--green)}
+.dot.off{background:#8e8e93}
+.tabs{display:flex;gap:.2em;padding:.3em;background:rgba(118,118,128,.10);border-radius:2.2em}
+.tab{width:5.8em;height:3.6em;border-radius:1.8em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2em;font-size:1em;color:var(--sub)}
+.tab.on{background:rgba(10,132,255,.12);color:var(--accent)}
+
+/* ── 本轮过程页 / 详情页（覆盖整屏）── */
+.sheet{position:absolute;inset:0;background:var(--bg2);display:flex;flex-direction:column}
+.sheet .head{height:5.6em;display:flex;align-items:center;justify-content:center;font-size:1.6em;font-weight:600;position:relative}
+.sheet .head .cl{position:absolute;right:1.6em;font-size:.92em;color:var(--accent);font-weight:500}
+.card{background:var(--bg);border-radius:1.2em;margin:.8em 1.6em}
+.card .r{display:flex;align-items:center;gap:.8em;padding:.9em 1.4em;font-size:1.3em}
+.card .r+.r{border-top:.5px solid var(--sep)}
+.card .r .ix{font-family:ui-monospace;font-size:.85em;color:var(--tert);width:1.6em;text-align:right}
+.card .r .ic2{width:1.4em;font-size:.85em;color:var(--sub)}
+.card .r .tx{flex:1;min-width:0}
+.card .r .nm{font-size:.92em;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .r .sm{font-size:.85em;color:var(--sub);margin-top:.15em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .r .ok{color:var(--green);font-size:.85em}
+.hl{position:absolute;left:.6em;right:.6em;border-radius:1.2em;background:rgba(10,132,255,.10);pointer-events:none}
+.sect{font-size:1.3em;color:var(--sub);padding:.3em 2.8em .5em}
+.detail{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column}
+.dbody{padding:1.6em;font-size:1.3em;display:flex;flex-direction:column;gap:1em}
+.mono{font-family:ui-monospace,Menlo;font-size:.85em;background:var(--fill);border-radius:.8em;padding:1em;white-space:pre-wrap;line-height:1.5}
+.imgbox{border-radius:1em;overflow:hidden;background:linear-gradient(135deg,#cfe4ff,#eef3f8);display:grid;place-items:center;color:#5a7fa8;font-size:1.1em}
+
+/* ── 字幕（Apple 风格：左边 1/8，纯白细体）── */
+#caption{position:absolute;left:calc(var(--stage-w) / 8);top:50%;transform:translateY(-50%);
+  width:38%;opacity:0}
+#caption .t1{font-size:56px;font-weight:400;letter-spacing:.02em;line-height:1.25}
+#caption .t2{font-size:28px;font-weight:300;color:rgba(255,255,255,.62);margin-top:24px;letter-spacing:.02em}
+#brand{position:absolute;inset:0;display:grid;place-items:center;opacity:0}
+#brand .b1{font-size:40px;font-weight:500;letter-spacing:.06em}
+#brand .b2{font-size:28px;font-weight:300;color:rgba(255,255,255,.6);margin-top:16px;text-align:center;letter-spacing:.04em}
+
+/* ── 高亮圈（代替手指）── */
+#cursor{position:absolute;width:44px;height:44px;border-radius:22px;background:rgba(255,255,255,.25);
+  border:1px solid rgba(255,255,255,.5);opacity:0;transform:translate(-50%,-50%)}
+
+/* ── 舞台缩放（配合 ?scale=）── */
+body.zoom{zoom:var(--zoom,1)}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="device">
+    <div id="screen">
+      <div class="screen-wrap" id="sw"></div>
+      <div id="overlay"></div>
+    </div>
+  </div>
+  <div id="cursor"></div>
+  <div id="caption"><div class="t1"></div><div class="t2"></div></div>
+  <div id="brand"><div class="b1">DSH Helm</div><div class="b2">端到端加密 · 电脑执行</div></div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   用法（不需要任何依赖，浏览器直接开）：
+     shots.html?shot=03&t=1.4          第 3 镜、第 1.4 秒
+     shots.html?shot=03&t=1.4&wide=1   手机占画面 55%（脚本 11 镜用）
+     shots.html?shot=08&t=1.0&phone=1  只渲染手机屏幕（无黑场/无字幕）
+
+   shot 与脚本的对应：
+     01 黑场起  02 开屏  03 运行中  04 收成卡片  05 点开过程页
+     06 逐条    07 步骤详情  08 图放大  09 产物三连  10 能看/不能看
+     11 黑场后退  12 品牌收尾
+   ══════════════════════════════════════════════════════════════ */
+const q = new URLSearchParams(location.search);
+const SHOT = (q.get('shot') || '03').padStart(2, '0');
+let T = parseFloat(q.get('t') || '0');
+const WIDE = q.get('wide') === '1';
+const PHONE_ONLY = q.get('phone') === '1';
+const ZOOM = parseFloat(q.get('zoom') || '1');
+
+const stage = document.getElementById('stage');
+const device = document.getElementById('device');
+const sw = document.getElementById('sw');
+const overlay = document.getElementById('overlay');
+const caption = document.getElementById('caption');
+const brand = document.getElementById('brand');
+const cursor = document.getElementById('cursor');
+
+if (PHONE_ONLY) {
+  // 只导屏幕：945×2048，与真机截图同比例（可直接贴进手机模型）
+  stage.style.width = '945px';
+  stage.style.height = '2048px';
+  stage.style.background = '#fff';
+  document.documentElement.style.setProperty('--phone-h', '2048px');
+  device.style.position = 'static';
+  device.style.transform = 'none';
+  document.getElementById('screen').style.borderRadius = '0';
+} else {
+  // 舞台模式：手机高度 880（画面 81%），横向偏右 68%，左边留给字幕
+  document.documentElement.style.setProperty('--phone-h', (WIDE ? 760 : 880) + 'px');
+  document.documentElement.style.setProperty('--device-x', WIDE ? '72%' : '68%');
+}
+if (ZOOM !== 1) document.body.classList.add('zoom') || document.body.style.setProperty('--zoom', ZOOM);
+if (q.get('zoom')) { document.body.classList.add('zoom'); document.body.style.setProperty('--zoom', q.get('zoom')); }
+
+/* ── 屏幕内容的通用骨架 ─────────────────────────────────── */
+function shell(bodyHTML, opts = {}) {
+  const { queue = null, active = 0 } = opts;
+  return `
+  <div class="statusbar"><span>9:41</span><span class="r">▮▮▮ ⌁ 100%</span></div>
+  <div class="nav"><div class="ic">▤</div><div class="ti">检查并修复最近的工作流</div><div class="ic">⋯</div></div>
+  <div class="body">${bodyHTML}</div>
+  <div class="composer">
+    ${queue ? `<div class="log" style="padding:0 1.2em .6em">${queue}</div>` : ''}
+    <div class="inp"><div class="plus">+</div><div class="field">让它跑点什么…</div><div class="send">↑</div></div>
+    <div class="bbar">
+      <div class="st">
+        <div class="l"><span class="dot"></span><span>已连接</span></div>
+        <div class="l"><span class="dot"></span><span>画图空闲</span></div>
+      </div>
+      <div class="tabs">
+        <div class="tab ${active === 0 ? 'on' : ''}"><span>💬</span><span>对话</span></div>
+        <div class="tab ${active === 1 ? 'on' : ''}"><span>⚙</span><span>设置</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+const LOGS = [
+  ['思考', '先确认这一轮的日志结构，再看产物落在哪'],
+  ['运行命令', 'Verify the build artifact'],
+  ['读取', 'uploads/1794560546-image-1794560546-0.jpg'],
+  ['写入', 'docs/KNOWN-GOOD.md'],
+  ['运行命令', 'Commit and push'],
+];
+
+function logHTML(i) {
+  const [name, summary] = LOGS[i];
+  const isThink = name === '思考';
+  return `<div class="log ${isThink ? 'think' : ''}"><span class="c">&gt; </span>${
+    isThink ? '<span class="b">思考 · ' + summary + '</span>' : name + ' · ' + summary
+  }</div>`;
+}
+
+/* ── 12 个镜头 ─────────────────────────────────────────── */
+function shot02(t) {
+  // 开屏：图标第一帧就在，只做 0.94→1 的轻微缩放；标题 0.06s 后淡入
+  const p = Math.min(1, t / 0.42);
+  const scale = 0.94 + 0.06 * p;
+  const title = t > 0.06 ? Math.min(1, (t - 0.06) / 0.22) : 0;
+  return `
+    <div style="position:absolute;inset:0;background:var(--bg);display:grid;place-items:center">
+      <div style="position:absolute;inset:0;background:linear-gradient(135deg,rgba(10,132,255,.10),rgba(255,255,255,0) 55%,rgba(10,132,255,.06))"></div>
+      <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:1.4em;transform:scale(${scale})">
+        <div style="width:9.6em;height:9.6em;border-radius:4.8em;background:rgba(10,132,255,.14);display:grid;place-items:center;font-size:3.8em;color:var(--accent)">💬</div>
+        <div style="text-align:center;opacity:${title}">
+          <div style="font-size:1.7em;font-weight:600">DSH Helm</div>
+          <div style="font-size:1.2em;color:var(--sub);margin-top:.4em">连接你的 DeepSeek Harness</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function shot03(t) {
+  // 运行中：log 每 0.35s 落一条；t 越大越多
+  const n = Math.min(LOGS.length, Math.floor(t / 0.35) + 1);
+  let html = `<div class="row-sys">开始第 121 轮</div>
+    <div class="bubble me"><div class="pfx">▍我</div>我看下今天的改动</div>`;
+  for (let i = 0; i < n; i++) html += logHTML(i);
+  return shell(html);
+}
+
+function shot04(t) {
+  // 收成卡片：t<0.35 显示 log 收拢中，之后卡片 + 回弹
+  const folded = t >= 0.35;
+  const pop = folded ? 1 + 0.02 * Math.max(0, 1 - (t - 0.35) / 0.2) : 1;
+  let html = `<div class="row-sys">开始第 121 轮</div>
+    <div class="bubble me"><div class="pfx">▍我</div>我看下今天的改动</div>`;
+  if (folded) {
+    html += `<div class="chip fold" style="transform:scale(${pop})">▸ 本轮过程 · 10 步 ›</div>`;
+  } else {
+    const n = Math.round(LOGS.length * (1 - t / 0.35));
+    for (let i = 0; i < Math.max(0, n); i++) {
+      html += `<div style="opacity:${1 - t / 0.35};transform:scale(${1 - 0.02 * (t / 0.35)})">${logHTML(i)}</div>`;
+    }
+  }
+  html += `<div class="row-sys">本轮结束 · 用时 3 分 12 秒 · 10 步</div>`;
+  return shell(html);
+}
+
+function shot05(t) {
+  // 点开过程页：页面从下方推入（0.34s）
+  const p = Math.min(1, t / 0.34);
+  const ease = 1 - Math.pow(1 - p, 3);
+  return shell(`<div class="row-sys">开始第 121 轮</div>
+      <div class="chip fold">▸ 本轮过程 · 10 步 ›</div>`) +
+    `<div class="sheet" style="transform:translateY(${(1 - ease) * 100}%)">${turnLogHTML()}</div>`;
+}
+
+function turnLogHTML(highlight = -1) {
+  const rows = [
+    ['思考', '先确认这一轮的日志结构', true],
+    ['运行命令', 'Verify the build artifact', true],
+    ['读取', 'uploads/1794560546-image-1794560546-0.jpg', true],
+    ['写入', 'docs/KNOWN-GOOD.md', true],
+  ];
+  return `
+    <div class="head">本轮过程<span class="cl">关闭</span></div>
+    <div class="card"><div class="r"><span class="ix">#</span><span style="flex:1">第 121 轮</span>
+      <span style="font-size:.85em;color:var(--tert)">思考 1 · 工具 3</span></div></div>
+    <div class="sect">过程 · 4 步</div>
+    <div class="card">
+      ${rows.map(([n, s, ok], i) => `
+        <div class="r" ${highlight === i ? 'style="background:rgba(10,132,255,.10)"' : ''}>
+          <span class="ix">${i + 1}</span>
+          <span class="ic2">${n === '思考' ? '🧠' : '🔧'}</span>
+          <span class="tx"><div class="nm">${n}</div><div class="sm">${s}</div></span>
+          <span class="ok">${ok ? '✔' : ''}</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+function shot06(t) {
+  // 逐条高亮：每 0.5s 走一行
+  const idx = Math.min(3, Math.floor(t / 0.5));
+  return shell('') + `<div class="sheet">${turnLogHTML(idx)}</div>`;
+}
+
+function shot07(t) {
+  // 详情页从左滑入
+  const p = Math.min(1, t / 0.28);
+  const ease = 1 - Math.pow(1 - p, 3);
+  return shell('') + `<div class="sheet">${turnLogHTML(2)}</div>` +
+    `<div class="detail" style="transform:translateX(${(1 - ease) * 100}%)">
+      <div class="sheet-head" style="height:5.6em;display:flex;align-items:center;justify-content:center;font-size:1.6em;font-weight:600;position:relative;padding:0 2.4em">步骤详情<span style="position:absolute;right:2.4em;font-size:.92em;color:var(--accent);font-weight:500">返回</span></div>
+      <div class="dbody">
+        <div><div style="font-size:1em;font-weight:500">读取</div>
+          <div style="font-size:.85em;color:var(--sub);margin-top:.3em">uploads/1794560546-image-1794560546-0.jpg</div></div>
+        <div class="mono">{ "type": "image", "width": 1408, "height": 2048 }</div>
+        <div class="imgbox" style="height:17em">它读过的图片 · 900px 预览</div>
+      </div>
+    </div>`;
+}
+
+function shot08(t) {
+  // 图放大：0.3s 缩放入场（0.96→1）
+  const p = Math.min(1, t / 0.3);
+  const scale = 0.96 + 0.04 * p;
+  return `<div style="position:absolute;inset:0;background:#fff;display:grid;place-items:center">
+      <div style="width:100%;height:100%;transform:scale(${scale});background:linear-gradient(135deg,#cfe4ff,#eef3f8);display:grid;place-items:center;color:#5a7fa8;font-size:1.1em">
+        它读过的图片 · 全屏
+      </div>
+    </div>`;
+}
+
+function shot09(t) {
+  // 产物三连：每 0.4s 落一张
+  const cards = [
+    ['🖼', '案例图.png', '可预览', true],
+    ['📝', '晨报.md', '可预览', true],
+    ['🗜', '素材.zip', '下载', false],
+  ];
+  const n = Math.min(3, Math.floor(t / 0.4) + 1);
+  let html = `<div class="row-sys">本轮结束 · 用时 3 分 12 秒 · 10 步</div>`;
+  for (let i = 0; i < n; i++) {
+    const [ic, nm, tag, pre] = cards[i];
+    html += `<div class="chip ${pre ? 'pre' : ''}">${ic} ${nm}<span class="tag">${tag}</span></div>`;
+  }
+  return shell(html);
+}
+
+function shot10(t) {
+  // 先看 md，再回退看 zip
+  const viewingMd = t < 1.2;
+  const sheet = t >= 1.2 && t < 2.0;
+  let html = `<div class="row-sys">本轮结束 · 用时 3 分 12 秒 · 10 步</div>
+    <div class="chip pre">🖼 案例图.png<span class="tag">可预览</span></div>
+    <div class="chip pre">📝 晨报.md<span class="tag">可预览</span></div>
+    <div class="chip">🗜 素材.zip<span class="tag">下载</span></div>`;
+  let extra = '';
+  if (viewingMd) {
+    extra = `<div class="sheet" style="background:#fff">
+      <div style="height:5.6em;display:flex;align-items:center;justify-content:center;font-size:1.6em;font-weight:600">晨报.md</div>
+      <div class="dbody"><div class="mono"># 产物卡片测试
+
+这个文件用来验证手机端的「产物卡片」：
+
+- .md  → 可预览，点开能看正文
+- .zip → 下载，取回后分享
+- .png → 可预览，点开是大图</div></div>
+    </div>`;
+  } else if (sheet) {
+    extra = `<div style="position:absolute;left:0;right:0;bottom:0;background:#f2f2f7;border-radius:1.6em 1.6em 0 0;padding:1.6em">
+        <div style="font-size:1.4em;font-weight:600;margin-bottom:1em">素材.zip</div>
+        <div class="chip" style="margin-bottom:1em">⬇️  下载到「文件」<span class="tag">58 KB</span></div>
+        <div class="chip">📤  分享给其他 App</div>
+      </div>`;
+  }
+  return shell(html) + extra;
+}
+
+function shot11(t) {
+  // 后退 + 只留底栏绿点呼吸
+  const p = Math.min(1, t / 3);
+  const sc = 1 - 0.08 * p;
+  device.style.transform = `translate(-50%,-50%) scale(${sc})`;
+  const breathe = 0.6 + 0.4 * Math.abs(Math.sin(t * 1.2));
+  return shell(`<div class="row-sys">本轮结束 · 用时 3 分 12 秒 · 10 步</div>`,
+    { }) .replace('<span class="dot"></span>', `<span class="dot" style="opacity:${breathe}"></span>`);
+}
+
+/* ── 字幕与品牌 ─────────────────────────────────────────── */
+const CAPTIONS = {
+  '03': ['不用回头问电脑', ''],
+  '04': ['结束，也不消失', ''],
+  '06': ['每一步，都在', ''],
+  '07': ['连它看过的图', ''],
+  '09': ['产出，一眼看到', ''],
+  '10': ['能看的直接看，不能看的取回', ''],
+  '11': ['电脑在跑 · 手机在看', ''],
+};
+
+function render() {
+  let html = '';
+  switch (SHOT) {
+    case '01': html = ''; break;                       // 纯黑
+    case '02': html = shot02(T); break;
+    case '03': html = shot03(T); break;
+    case '04': html = shot04(T); break;
+    case '05': html = shot05(T); break;
+    case '06': html = shot06(T); break;
+    case '07': html = shot07(T); break;
+    case '08': html = shot08(T); break;
+    case '09': html = shot09(T); break;
+    case '10': html = shot10(T); break;
+    case '11': html = shot11(T); break;
+    case '12': html = ''; break;                       // 纯黑 + 品牌
+  }
+  sw.innerHTML = html;
+
+  // 字幕：出现 0.4s 淡入，按镜头给固定文案
+  const cap = CAPTIONS[SHOT];
+  if (cap && !PHONE_ONLY) {
+    caption.querySelector('.t1').textContent = cap[0];
+    caption.querySelector('.t2').textContent = cap[1];
+    caption.style.opacity = Math.min(1, T / 0.4);
+  }
+
+  // 品牌：只有 12 镜
+  if (SHOT === '12') brand.style.opacity = Math.min(1, T / 0.5);
+
+  // 11 镜：黑场后退（device scale 已在 shot11 里设置）
+  if (SHOT === '01') { device.style.opacity = 0; }
+}
+
+/* ── 播放模式：?play=1 自动推进时间轴（录屏用）──
+   每镜的时长与脚本一致；到末尾停在最后一帧。 */
+const DUR = {
+  '01': 4, '02': 8, '03': 5, '04': 5, '05': 5, '06': 5,
+  '07': 5, '08': 4, '09': 5, '10': 4, '11': 6, '12': 8,
+};
+
+if (q.get('play') === '1') {
+  const dur = parseFloat(q.get('dur') || DUR[SHOT] || 5);
+  const started = performance.now();
+  const tick = () => {
+    const t = Math.min(dur, (performance.now() - started) / 1000);
+    // 重新计算 T 并渲染（保持与静态帧完全一致）
+    const prev = window.__T__;
+    if (prev !== t) {
+      window.__T__ = t;
+      rerender(t);
+    }
+    if (t < dur) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+render();
+
+/* 允许外部（录屏脚本）在任意时刻指定 t，得到与静态截图一致的画面 */
+function rerender(t) {
+  const saved = T;
+  try {
+    // eslint-disable-next-line no-global-assign
+    T = t;
+    render();
+  } finally {
+    T = saved;
+  }
+}
+window.setShotTime = (t) => { if (typeof t === 'number') { rerender(t); } };
+window.__shot = { shot: SHOT, duration: (DUR[SHOT] || 5) };
+</script>
+</body>
+</html>
