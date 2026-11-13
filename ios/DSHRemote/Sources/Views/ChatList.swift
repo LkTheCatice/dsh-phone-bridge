@@ -259,6 +259,7 @@ struct ChatList: UIViewRepresentable {
                 appliedHeight = cv.contentSize.height
             }
             if pendingBottomScroll { attemptBottomScroll(animated: false) }
+            if keepAtBottom, !pendingBottomScroll { silentBottomScroll() }
             Diag.ping("apply n=\(unique.count) top=\(insertedAtTop ? 1 : 0)"
                       + " snap=\(Int((CFAbsoluteTimeGetCurrent() - snapStart) * 1000))"
                       + " total=\(Int((CFAbsoluteTimeGetCurrent() - applyStart) * 1000))")
@@ -327,18 +328,43 @@ struct ChatList: UIViewRepresentable {
         private var pendingBottomScroll = false
         private var pendingBottomTries = 0
 
+        /// **持续贴底**：冷启动/自己发消息后置位，用户手动往上翻才清除。
+        ///
+        /// 一次性的 scrollToItem 不够：启动时内容会分好几批到达
+        /// （历史回放 + 实时帧 + 自适应高度收敛），每次插入都把"底"往下推一屏，
+        /// 于是最终停在离底部固定一段的位置（用户实拍：位置一致但不在最底下）。
+        /// 只要这个标志还在，每次 apply 之后都会静默贴一次底，
+        /// 直到用户真的往上划 —— 那才是他想要的位置。
+        private var keepAtBottom = true
+
         func handleScrollRequest(_ token: Int) {
             guard token != lastScrollRequest else { return }
             lastScrollRequest = token
+            keepAtBottom = true
             pendingBottomScroll = true
             pendingBottomTries = 0
             attemptBottomScroll(animated: false)
         }
 
         func scrollToBottom(animated: Bool) {
+            keepAtBottom = true
             pendingBottomScroll = true
             pendingBottomTries = 0
             attemptBottomScroll(animated: animated)
+        }
+
+        /// 静默贴底：不触发动画、不改 lastScrollRequest，纯粹把位置压到底部。
+        /// 内容还在长的时候用它，避免"来回跳"的观感。
+        private func silentBottomScroll() {
+            guard let cv = collectionView else { return }
+            let items = dataSource.snapshot().itemIdentifiers.count
+            guard items > 0, cv.numberOfSections > 0,
+                  cv.numberOfItems(inSection: 0) >= items,
+                  cv.contentSize.height > cv.bounds.height else { return }
+            let maxY = max(0, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
+            if abs(cv.contentOffset.y - maxY) > 1 {
+                cv.setContentOffset(CGPoint(x: 0, y: maxY), animated: false)
+            }
         }
 
         /// 真正执行；数据没就绪就留到下一帧（最多 30 次，约 0.5 秒，够了）
@@ -390,6 +416,11 @@ struct ChatList: UIViewRepresentable {
                 parent.onLoadOlder()
             } else if offset > 200 {
                 olderArmed = true
+            }
+            // 用户往上翻离开底部 → 取消持续贴底（否则会把他拽回去）
+            let distanceToBottom = height - (offset + viewport)
+            if distanceToBottom > 200 {
+                keepAtBottom = false
             }
             guard height > viewport else { report(bottom: true); return }
             let distance = height - (offset + viewport)

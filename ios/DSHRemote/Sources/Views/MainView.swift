@@ -42,7 +42,11 @@ struct MainView: View {
         }
         .overlay {
             if showLaunch {
-                LaunchOverlay { showLaunch = false }
+                LaunchOverlay(
+                    onFinish: { showLaunch = false },
+                    // 历史回放完成 → 首屏布局基本落定
+                    isReady: { model.chat.historyVersion > 0 }
+                )
                     .transition(.opacity)
                     .zIndex(10)
             }

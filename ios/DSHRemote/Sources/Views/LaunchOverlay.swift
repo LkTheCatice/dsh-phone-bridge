@@ -11,6 +11,10 @@ import SwiftUI
 struct LaunchOverlay: View {
     /// 动画放完后由 MainView 清掉
     let onFinish: () -> Void
+    /// 首屏是否已经就绪（历史回放完成 = 布局基本落定）。
+    /// 之前固定 ~0.8s 就撤场，经常盖不住"内容还在排"的那一段，
+    /// 用户要求：多留一点时间，刚好把页面布局走完。
+    let isReady: () -> Bool
 
     @State private var markScale: CGFloat = 0.86
     @State private var markOpacity: Double = 0
@@ -56,7 +60,7 @@ struct LaunchOverlay: View {
             .opacity(leaving ? 0 : 1)
         }
         .task {
-            // 入场：0.35s 放大 + 淡入，然后停 0.45s，最后 0.35s 退场。
+            // 入场
             withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
                 markScale = 1
                 markOpacity = 1
@@ -64,7 +68,20 @@ struct LaunchOverlay: View {
             withAnimation(.easeOut(duration: 0.30).delay(0.16)) {
                 titleOpacity = 1
             }
-            try? await Task.sleep(nanoseconds: 800_000_000)
+
+            // 退场时机 = max(最短停留, 首屏就绪)，上限兜底：
+            //   · 最短 1.2s：让开场本身看得完整
+            //   · 就绪：历史回放完成（布局落定）
+            //   · 上限 2.4s：万一网络慢，不能一直挡着界面
+            let started = CFAbsoluteTimeGetCurrent()
+            let minDwell: Double = 1.2
+            let maxWait: Double = 2.4
+            while CFAbsoluteTimeGetCurrent() - started < maxWait {
+                let elapsed = CFAbsoluteTimeGetCurrent() - started
+                if elapsed >= minDwell, isReady() { break }
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            }
+
             withAnimation(.easeIn(duration: 0.30)) {
                 leaving = true
             }
