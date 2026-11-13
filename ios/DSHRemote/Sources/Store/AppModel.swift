@@ -908,6 +908,8 @@ final class AppModel: ObservableObject {
         default:
             break
         }
+        // 每帧处理完都做一次兜底清理（O(n)，只在本轮有折叠条目时才动手）
+        pruneFoldedRows(sid)
         stallWatcher.setMark("apply:done")
     }
 
@@ -1084,6 +1086,26 @@ final class AppModel: ObservableObject {
             }
         }
         entries[sessionId] = list.filter { $0.turn >= keepFrom || $0.turn == 0 }
+    }
+
+    /// 兜底清理：某几轮已经有了折叠条目，就不该再在主列表里出现它们的 log 行。
+    ///
+    /// 这样做是为了挡住"折叠之后又冒出来"的竞态：
+    ///   · turn.end 先到 → 折叠完成 → 之后又收到同一轮的 tool.call / thinking 帧
+    ///   · 历史回放时本页没有 turn.end，回放出来的 log 行留在流里
+    /// 无论哪种，只要同轮存在折叠条目，这些行就不该再显示（用户实报：折叠出来了，
+    /// 但会话框里的 log 还挂在上面）。
+    private func pruneFoldedRows(_ sessionId: String) {
+        guard var list = entries[sessionId], !list.isEmpty else { return }
+        let foldedTurns = Set(list.filter { $0.kind == .collapsedSteps }.map { $0.turn })
+        guard !foldedTurns.isEmpty else { return }
+        let before = list.count
+        list.removeAll { entry in
+            (entry.kind == .thinking || entry.kind == .toolCall) && foldedTurns.contains(entry.turn)
+        }
+        if list.count != before {
+            entries[sessionId] = list
+        }
     }
 
     /// 把某一轮里的思考 + 工具调用折叠成单个可展开条目。
@@ -1819,6 +1841,9 @@ final class AppModel: ObservableObject {
             trimIfNeeded(sessionId)
             // 历史回放里攒下的产物提示就地落位（同一 turn 内顺序由 append 保证）。
             flushFileHints(sessionId, except: currentTurn[sessionId])
+            // 回放页里可能只有 tool.call 而 turn.end 在页外：已经折叠过的轮次
+            // 不该再把 log 行摊在流里（用户实报：折叠块出现了，log 还挂在上面）。
+            pruneFoldedRows(sessionId)
             // 历史回填完成后清掉残留的 running。
             // 拉的是最近 N 帧，很可能截在某一轮中间 —— 那些没有 turn.end 收尾的
             // 工具条会永远 running=true，界面上永远转着「进行中」。
