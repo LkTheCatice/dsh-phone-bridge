@@ -268,18 +268,32 @@ final class AppModel: ObservableObject {
     /// 用户要求：产物提示跟着当轮走，不要夹在工具行中间（那样像日志噪声）。
     private var pendingFileHints: [String: [(path: String, at: Date, turn: Int)]] = [:]
 
-    /// 把攒着的产物提示写进列表（在「本轮结束」之前调用，保持结束行最后）
-    private func flushFileHints(_ sessionId: String) {
-        guard let hints = pendingFileHints.removeValue(forKey: sessionId), !hints.isEmpty else { return }
-        for hint in hints {
+    /// 每个 (会话, 轮次) 的「顺序时钟」，见 append 里的说明。
+    private var turnClock: [String: Date] = [:]
+
+    /// 把攒着的产物提示写进列表。
+    ///
+    /// 位置由**插入顺序**决定（append 里对同一 turn 做单调时钟），
+    /// 所以只要在合适时机调用即可：
+    ///   - 实时：turn.end 里调用（在「本轮结束」之前）
+    ///   - 历史回放：这一页加载完后调用（有些轮次的 turn.end 不在本页）
+    private func flushFileHints(_ sessionId: String, turn only: Int? = nil, except: Int? = nil) {
+        guard var hints = pendingFileHints[sessionId], !hints.isEmpty else { return }
+        let ready = hints.filter { hint in
+            if let only, hint.turn != only { return false }
+            if let except, hint.turn == except { return false }   // 还在跑的那一轮先不落位
+            return true
+        }
+        guard !ready.isEmpty else { return }
+        hints.removeAll { h in ready.contains { $0.path == h.path && $0.turn == h.turn } }
+        pendingFileHints[sessionId] = hints.isEmpty ? nil : hints
+
+        for hint in ready {
             append(sessionId, ChatEntry(
                 id: "\(sessionId)#file\(hint.turn)_\(hint.path)",
                 kind: .fileOutput,
                 text: "📄 输出文件 · \(Self.fileName(hint.path))",
                 detail: hint.path,
-                // 时间用**落位这一刻**（turn.end），不是写文件那一刻：
-                // 列表按 (turn, at) 排序，用写文件的时间会让卡片插到回答前面
-                // （用户实拍：卡片又跑到过程中间去了）。
                 at: Date(),
                 turn: hint.turn
             ))
@@ -657,28 +671,15 @@ final class AppModel: ObservableObject {
             // 图片和视频手机能直接预览，这类不行 —— 以前用户完全看不到
             // 「电脑那边写了什么文件」。
             //
-            // 位置：**先攒着，等 turn.end 再统一落到本轮末尾**
-            // （用户要求：别夹在工具行中间）。见 flushFileHints。
+            // 位置：**一律先攒着**，由调用方在「这一轮结束」时 flush：
+            //   - 实时 → turn.end
+            //   - 历史回放 → 这一页加载完（老轮次的 turn.end 可能不在本页）
+            // 两种路径走同一套逻辑，位置只由插入顺序决定（append 里的本轮时钟），
+            // 不依赖帧时间戳 —— 那正是之前"重载后卡片跑到正文上方"的根因。
             let path = (frame["path"] as? String) ?? ""
             guard !path.isEmpty else { return }
-            if isHistory {
-                // 回放历史时**当场落位**，不要进 pending：
-                // 上拉加载更早的消息时，桥会把老轮次的 tool/call 也回放成 file.output；
-                // 那些轮次的 turn.end 可能不在这一页里，于是提示一直攒着，
-                // 等到某个更晚的 turn.end 才 flush，按 turn 排序就跑到历史最前面去了
-                // （用户实拍：加载旧消息后文件提示出现在最上方）。
-                append(sid, ChatEntry(
-                    id: "\(sid)#file\(turn)_\(path)",
-                    kind: .fileOutput,
-                    text: "📄 输出文件 · \(Self.fileName(path))",
-                    detail: path,
-                    at: Self.frameDate(frame),
-                    turn: turn
-                ))
-                return
-            }
             var hints = pendingFileHints[sid] ?? []
-            if !hints.contains(where: { $0.path == path }) {
+            if !hints.contains(where: { $0.path == path && $0.turn == turn }) {
                 hints.append((path: path, at: Self.frameDate(frame), turn: turn))
             }
             pendingFileHints[sid] = hints
@@ -729,7 +730,7 @@ final class AppModel: ObservableObject {
             // 「本轮过程 · M 步」分成两行，看着散）。
             let foldedSteps = foldSteps(sid, turn: turn)
             // 产物提示落在本轮末尾（结束行之前），别夹在工具行中间
-            flushFileHints(sid)
+            flushFileHints(sid, turn: turn)
             var endText = elapsed.isEmpty ? label : "\(label) · \(elapsed)"
             if foldedSteps > 0 { endText += " · \(foldedSteps) 步" }
             append(sid, ChatEntry(
@@ -935,9 +936,25 @@ final class AppModel: ObservableObject {
         // 重复插入会让列表侧的去重/快照处理变复杂，也会在界面上显示两条「开始第 N 轮」。
         if let idx = entries[sessionId]?.firstIndex(where: { $0.id == item.id }) {
             entries[sessionId]?[idx] = item
-        } else {
-            entries[sessionId, default: []].append(item)
+            trimIfNeeded(sessionId)
+            return
         }
+        // ── 本轮内的顺序时钟 ───────────────────────────────────────────
+        // 排序键是 (turn, at)。**同一个 turn 内，显示顺序必须等于插入顺序**：
+        // 历史回放的帧时间和实时帧时间不可比（回放时 assistant 消息的时间戳
+        // 往往晚于同一轮的工具帧），光靠帧时间会让同一轮里的条目互相插队 ——
+        // 用户多次实拍：重新加载会话后「📄 输出文件」跑到正文上方。
+        // 所以在唯一入口这里做单调递增：插入顺序即显示顺序。
+        let clockKey = "\(sessionId)#\(item.turn)"
+        if let last = turnClock[clockKey] {
+            if item.at <= last {
+                item.at = last.addingTimeInterval(0.001)
+            }
+            turnClock[clockKey] = item.at
+        } else {
+            turnClock[clockKey] = item.at
+        }
+        entries[sessionId, default: []].append(item)
         trimIfNeeded(sessionId)
     }
 
@@ -1587,6 +1604,10 @@ final class AppModel: ObservableObject {
                 trace("older.shrink from=\(existing.count) to=\(merged.count) page=\(frames.count)")
             }
             trimIfNeeded(sessionId)
+            // 这一页里攒下的产物提示就地落位（老轮次的 turn.end 往往不在本页）。
+            // append 会对同一 turn 做单调时钟，所以它们仍落在各自那一轮的末尾。
+            // except：正在跑的那一轮不提前落位（它自己的 turn.end 会处理）。
+            flushFileHints(sessionId, except: currentTurn[sessionId])
             endBatch()
         } catch {
             trace("older-failed=\(error.localizedDescription.prefix(40))")
@@ -1677,6 +1698,8 @@ final class AppModel: ObservableObject {
                 entriesStorage[sessionId] = merged
             }
             trimIfNeeded(sessionId)
+            // 历史回放里攒下的产物提示就地落位（同一 turn 内顺序由 append 保证）。
+            flushFileHints(sessionId, except: currentTurn[sessionId])
             // 历史回填完成后清掉残留的 running。
             // 拉的是最近 N 帧，很可能截在某一轮中间 —— 那些没有 turn.end 收尾的
             // 工具条会永远 running=true，界面上永远转着「进行中」。
@@ -1714,6 +1737,15 @@ final class AppModel: ObservableObject {
             }
         }
         entries[sessionId] = []
+        // 会话内容清空时，相关状态一起清 —— 否则重建历史时 turnClock 还停在旧值，
+        // 新插入的条目会被顶到很后面；pending 里的提示也会跑到下一次 turn.end 去。
+        resetTurnState(sessionId)
+    }
+
+    /// 清掉某个会话的「本轮时钟 + 攒着的产物提示」
+    private func resetTurnState(_ sessionId: String) {
+        turnClock = turnClock.filter { !$0.key.hasPrefix("\(sessionId)#") }
+        pendingFileHints[sessionId] = nil
     }
 
     /// 临时诊断：给服务端日志打一个标记，用来确认「按钮点击到底有没有被接收」。
