@@ -632,7 +632,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         self.onTapEntry = onTapEntry
         // 思考行最多 6 行：TextKit 只排这么多，界面给个「大概在想什么」；
         // 其余行不限制（0 = 不限）。
-        textView.textContainer.maximumNumberOfLines = (entry.kind == .thinking) ? 6 : 0
+        textView.textContainer.maximumNumberOfLines = (entry.kind == .thinking) ? 2 : 0
 
         // 气泡配色 + 布局：
         //   用户 → 淡主题色气泡，按内容收缩，整体靠右（文字在气泡内左对齐）
@@ -902,21 +902,23 @@ enum MessageRender {
             // 完成态回答走 markdown → 单个 NSAttributedString（代码块/列表/引用都在里面）
             body = MarkdownNS.render(entry.text)
         case .thinking:
-            // 思考（CoT）动辄几千字，而且是**流式**增长的：
-            // 每来一条 assistant.thinking 就整段重排 + 重新测量，会把主线程按住
-            // （真机实测 STUCK 728→2810ms 连续累积，就是开思考之后出现的）。
-            // 这里只排「尾部 TAIL 字」，配合 textContainer 的 6 行上限，
-            // 单帧排版量恒定；全文仍在 entry.text 里，「本轮过程」页可看。
-            let tailLimit = 900
+            // 思考行按**工具行同一套排版**：等宽 12pt、灰色、随行折行。
+            // 只是显示上最多两行，第二行放不下才打省略号（截断交给 TextKit，
+            // 见 cell 里的 maximumNumberOfLines = 2）—— 不做"截字符"的手工处理，
+            // 那样换行位置和省略号都会和实际排版对不上。
+            // 内容仍做尾部限长：CoT 动辄几千字且流式增长，整段重排会把主线程按住
+            // （真机 STUCK 曾累积到 2.8s）。两行 ≈ 60 字，留 240 字足够排版。
+            let tailLimit = 240
             let text = entry.text.count > tailLimit
                 ? "…" + String(entry.text.suffix(tailLimit))
                 : entry.text
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
+            style.lineSpacing = 1
             body = NSAttributedString(
                 string: text,
                 attributes: [
-                    .font: UIFont.italicSystemFont(ofSize: 13),
+                    .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel,
                     .paragraphStyle: style,
                 ]
@@ -998,7 +1000,9 @@ enum MessageRender {
             if entry.steering { return "▍我 · 已插队，等当前任务完成\n" }
             return entry.queued ? "▍我 · 排队中\n" : "▍我\n"
         case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
-        case .thinking: return "思考\n"
+        // 和工具行同一形态：行首 "> "，内容跟在后面。
+        // 之前是单独一行 "思考"，视觉上像一个小标题，和 log 列表不是一类东西。
+        case .thinking: return "> 思考 · "
         case .toolCall: return "> "
         case .collapsedSteps: return "▸ "
         case .system, .toolResult, .fileOutput: return nil
