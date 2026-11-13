@@ -984,18 +984,20 @@ enum MessageRender {
             // 结尾那几行往往是半句（用户实拍：显示成 "...y're confirming. Short..."）。
             // 截断交给 TextKit（两行 + 行尾省略号），这里只做长度上限。
             let charLimit = 240
-            let text = entry.text.count > charLimit
+            let head = entry.text.count > charLimit
                 ? String(entry.text.prefix(charLimit))
                 : entry.text
-            let style = NSMutableParagraphStyle()
-            style.lineBreakMode = .byTruncatingTail
-            style.lineSpacing = 1
+            // 标签并进正文，字形/灰度与工具行一致
+            let text = "思考 · " + head
+            // 属性必须**和工具行完全一致**：同样的字体/颜色，并且**不设 paragraphStyle**。
+            // 之前这里多了一个 lineSpacing = 1，行高比工具行高 1pt —— 就是用户看到的
+            // "思考行和别的 log 有轻微差别"。行数上限与省略号交给 cell 的
+            // textContainer.maximumNumberOfLines（TextKit 会在末行自动截断）。
             body = NSAttributedString(
                 string: text,
                 attributes: [
                     .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel,
-                    .paragraphStyle: style,
                 ]
             )
         case .toolCall:
@@ -1075,9 +1077,12 @@ enum MessageRender {
             if entry.steering { return "▍我 · 已插队，等当前任务完成\n" }
             return entry.queued ? "▍我 · 排队中\n" : "▍我\n"
         case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
-        // 和工具行同一形态：行首 "> "，内容跟在后面。
-        // 之前是单独一行 "思考"，视觉上像一个小标题，和 log 列表不是一类东西。
-        case .thinking: return "> 思考 · "
+        // 和工具行**完全一致**：前缀只有 "> "，
+        // "思考 · " 这个标签放进正文 run（工具行的"运行命令 · "就是这样来的）。
+        // 之前把"思考 · "放在前缀 run 里 —— 那是 system semibold + tertiary，
+        // 而正文是等宽 + secondary，于是同一行里两种字形/两种灰度，
+        // 看起来"和别的 log 有轻微差别"（用户实拍）。
+        case .thinking: return "> "
         case .toolCall: return "> "
         case .collapsedSteps: return "▸ "
         case .system, .toolResult, .fileOutput: return nil
