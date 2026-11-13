@@ -13,6 +13,40 @@ const RAW_LIMIT = 8 * 1024;
 const TEXT_LIMIT = 32 * 1024;
 
 /**
+ * 手机端**不渲染**的 DSH 事件：直接不产帧。
+ *
+ * 这些类型以前走 default 分支变成 `event` 帧（raw 还要裁到 8KB）推给手机，
+ * 而手机 apply() 对 `event` 只是 break —— 白传、白解析、白占环形缓冲。
+ * 一次历史回填 200 帧里这类占三成以上（`request/header` 单条 44KB、
+ * `system/message` 是整份系统提示词、`job/*` 每步两条）。
+ *
+ * 判断依据：Swift 侧没有任何 `dshType` / `assistant.raw` 的消费点
+ * （在 Sources 里 grep 0 命中），所以丢掉是安全的。
+ */
+const DROPPED_DSH_EVENTS = new Set([
+  "request/header",
+  "request/context",
+  "system/message",
+  "job/registered",
+  "job/settled",
+  "session-log-deepseek/delivery-accepted",
+  "workspace/changes",
+  "step/start",
+  "step/end",
+  "session/title",
+  "session/title-llm-request",
+  "session/end-seed",
+  "permission/preset",
+  "sandbox/mode",
+  "approval/policy",
+]);
+
+/** 这个 DSH 事件是不是"手机端不会用到"的（给 /v1/diag 统计用） */
+export function isDroppedEvent(type) {
+  return DROPPED_DSH_EVENTS.has(String(type || ""));
+}
+
+/**
  * 剥掉 `<system-reminder>…</system-reminder>` / `<system>…</system>` 这类系统包裹块。
  *
  * 这些是给模型看的注入内容（技能目录变更、hook 提醒之类），
@@ -120,6 +154,9 @@ export function normalizeEvent(session, event) {
   const eventAt = typeof event.time === "number" ? event.time : null;
   const base = eventAt ? { sessionId, at: eventAt } : { sessionId };
   const turn = Number(data.turn ?? 0) || null;
+
+  // 手机端用不到的事件：不产帧（见 DROPPED_DSH_EVENTS 的说明）
+  if (DROPPED_DSH_EVENTS.has(type)) return [];
 
   switch (type) {
     case "turn/start":

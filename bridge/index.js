@@ -47,7 +47,7 @@ import {
   unseal,
 } from "./lib/seal.js";
 import { createSafeFs, FsDenied } from "./lib/fs-safe.js";
-import { FrameBuffer, normalizeEvent, sessionIdOf } from "./lib/events.js";
+import { FrameBuffer, isDroppedEvent, normalizeEvent, sessionIdOf } from "./lib/events.js";
 import { createNotifier } from "./lib/notify.js";
 
 export const name = "dsh-phone-bridge";
@@ -192,8 +192,26 @@ function applyBridge(ctx, config) {
   // 请求 / 错误日志写文件：DSH 桌面版没有日志目录，console 输出拿不到，
   // 手机端出问题时这是唯一的现场证据。
   let logPath = null;
+  // 进程内诊断计数：给 /v1/diag 用（省得每次都翻几千行 bridge.log）
+  const diagStats = {
+    startedAt: Date.now(),
+    frames: Object.create(null),   // frame.type -> count
+    dropped: Object.create(null),  // 被过滤掉的 DSH 事件类型 -> count
+    stalls: { count: 0, maxMs: 0, over1s: 0, last: [] },
+    queue: { items: null, at: null, target: null },
+  };
   function logLine(entry) {
     try {
+      // 顺手把手机报上来的卡顿记进统计（logLine 里就有一行 STUCK …ms mark=…）
+      const d = typeof entry?.d === "string" ? entry.d : "";
+      if (d.startsWith("STUCK ")) {
+        const ms = Number((d.match(/STUCK (\d+)ms/) || [])[1] || 0);
+        diagStats.stalls.count += 1;
+        diagStats.stalls.maxMs = Math.max(diagStats.stalls.maxMs, ms);
+        if (ms > 1000) diagStats.stalls.over1s += 1;
+        diagStats.stalls.last.push({ at: Date.now(), ms, mark: (d.match(/mark=(\S+)/) || [])[1] || "" });
+        if (diagStats.stalls.last.length > 12) diagStats.stalls.last.shift();
+      }
       if (!logPath) logPath = path.join(stateDir(), "bridge.log");
       fs.mkdirSync(path.dirname(logPath), { recursive: true });
       try {
@@ -251,6 +269,9 @@ function applyBridge(ctx, config) {
     seq += 1;
     const full = { v: 1, seq, at: Date.now(), ...frame };
     frames.push(full);
+    // 帧类型分布（/v1/diag）：判断「少推了哪些帧」用
+    const t = String(full.type || "?");
+    diagStats.frames[t] = (diagStats.frames[t] || 0) + 1;
     const line = JSON.stringify(full);
     for (const client of streamClients) {
       try {
@@ -340,6 +361,8 @@ function applyBridge(ctx, config) {
           removed: frame.removed,
           itemCount: items.length,
         });
+        // 诊断：队列状态也记一份（/v1/diag 里能直接看到「现在排了几条」）
+        diagStats.queue = { items: items.length, at: Date.now(), target: frame.target };
       } catch (e) {
         logLine({ step: "queue.changed/failed", error: String(e?.message || e).slice(0, 160) });
       }
@@ -347,7 +370,12 @@ function applyBridge(ctx, config) {
     if (seenEvents.has(event)) return;
     seenEvents.add(event);
     try {
-      for (const frame of normalizeEvent(session, event)) broadcast(frame);
+      if (isDroppedEvent(event.type)) {
+        // 手机端不渲染的事件：只记数，不产帧（/v1/diag 里能看到少了什么）
+        diagStats.dropped[String(event.type)] = (diagStats.dropped[String(event.type)] || 0) + 1;
+      } else {
+        for (const frame of normalizeEvent(session, event)) broadcast(frame);
+      }
       if (event.type === "turn/end") {
         const sid = sessionIdOf(session, event.data);
         const reason = event.data?.reason?.kind || event.data?.status || "end";
@@ -1308,6 +1336,34 @@ function applyBridge(ctx, config) {
         phoneOnline: phoneOnline(),
         lastSeq: frames.lastSeq,
         sessions: (await listSessions()).length,
+      });
+    }
+
+    // 1.5) 诊断摘要：只允许本机回环（和 /admin/* 同一套规则）。
+    //
+    // 为什么要它：排查手机端问题过去全靠翻 bridge.log（已经 2500+ 行），
+    // 一次「卡不卡、少了哪些帧、卡在哪个 mark」要 grep 好几遍。
+    // 这里把进程内计数直接吐出来：帧类型分布、被丢掉的事件、卡顿次数/最长值、队列长度。
+    // 明文是为了能用 curl 直接看；内容不含任何 token/正文，且只对本机开放。
+    if (pathname === "/v1/diag") {
+      const remote = String(req.socket?.remoteAddress || "");
+      const loopback =
+        remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+      if (!loopback) throw new HttpError(403, "forbidden", "诊断接口只允许在本机访问");
+      const uptimeSec = Math.round((Date.now() - diagStats.startedAt) / 1000);
+      return sendJson(res, 200, {
+        ok: true,
+        bridge: name,
+        version: VERSION,
+        uptimeSec,
+        phoneOnline: phoneOnline(),
+        clients: streamClients.size,
+        lastSeq: frames.lastSeq,
+        buffered: frames.items.length,
+        frames: diagStats.frames,
+        droppedEvents: diagStats.dropped,
+        stalls: diagStats.stalls,
+        queue: diagStats.queue,
       });
     }
 
