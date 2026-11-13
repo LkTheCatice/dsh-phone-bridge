@@ -140,16 +140,27 @@ function fileExt(p) {
   return m ? m[1].toLowerCase() : "";
 }
 
-/** 从工具参数里取文件路径（write/edit 用 file_path，present 用 path） */
-function extractOutputPath(data) {
+/**
+ * 从工具参数里取「产出的文件路径」列表。
+ *   - write  ：{ file_path }
+ *   - present：{ files: [{ path, description }] }   ← 交付物通常走这个
+ * 返回去重后的路径数组。
+ */
+function extractOutputPaths(data) {
   let args = data?.arguments ?? data?.args ?? data?.input ?? null;
   if (typeof args === "string") {
-    try { args = JSON.parse(args); } catch { return null; }
+    try { args = JSON.parse(args); } catch { return []; }
   }
-  if (!args || typeof args !== "object") return null;
-  const raw = args.file_path || args.filePath || args.path || args.target || "";
-  const p = String(raw || "").trim();
-  return p.length > 0 ? p : null;
+  if (!args || typeof args !== "object") return [];
+  const out = [];
+  const push = (v) => {
+    const p = String(v || "").trim();
+    if (p) out.push(p);
+  };
+  push(args.file_path || args.filePath);
+  if (Array.isArray(args.files)) for (const f of args.files) push(f?.path || f?.file_path || f);
+  push(args.path || args.target);
+  return [...new Set(out)];
 }
 
 /** 值不值得提示：已知产物扩展名，且不是图片/视频，也不是临时目录里的东西 */
@@ -249,15 +260,18 @@ export function normalizeEvent(session, event) {
       // 产物提示：手机端只渲染图片/视频，docx/pptx/pdf/ipa 这类文件以前完全看不见。
       // 只有 write / present 且扩展名属于「产物类」才发（读源码、改 .swift 都不发，
       // 否则每条写入都会插一条，夹在工具行中间像噪声 —— 用户实拍）。
-      const outputPath = extractOutputPath(data);
-      if (OUTPUT_TOOLS.has(toolName) && outputPath && isDeliverableFile(outputPath)) {
-        frames.push({
-          ...base,
-          type: "file.output",
-          turn,
-          path: outputPath,
-          tool: toolName,
-        });
+      // present 的 files[] 可能有多条，逐个发。
+      if (OUTPUT_TOOLS.has(toolName)) {
+        for (const outputPath of extractOutputPaths(data)) {
+          if (!isDeliverableFile(outputPath)) continue;
+          frames.push({
+            ...base,
+            type: "file.output",
+            turn,
+            path: outputPath,
+            tool: toolName,
+          });
+        }
       }
       break;
     }
