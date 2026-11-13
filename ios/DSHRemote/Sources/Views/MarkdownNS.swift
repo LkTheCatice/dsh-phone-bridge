@@ -172,12 +172,22 @@ enum MarkdownNS {
                 spacingAfter: 6, spacingBefore: before, lineSpacing: 0,
                 headIndent: 8, tailIndent: -8
             )
+            // 行距给一点点负值：`.backgroundColor` 画的是**字形带**，
+            // 字体自带的 leading 会让相邻两条底色之间留一道白缝
+            // （用户实拍「还是有一些缝隙」）。lineSpacing 允许为负，
+            // 这里收掉那点 leading，底色就连成整块。
+            style.lineSpacing = -2
+            style.lineHeightMultiple = 1.0
+            style.minimumLineHeight = 0
+            style.maximumLineHeight = 0
             // 气泡里一行大约放得下 46 个半角字符；详情页外层有横向滚动，可以放宽。
-            // 超长行仍在本行末尾截断成 …（详情页能横向拖看全文）。
             style.lineBreakMode = .byTruncatingTail
             let maxChars = mode == .compact ? 46 : 96
             let rawLines = clampCode(code).components(separatedBy: "\n")
             let target = min(maxChars, rawLines.map { Self.displayWidth($0) }.max() ?? 0)
+            // 这一块里是否有行被截断：有的话要给出「点开看整行」的入口，
+            // 否则长命令/长日志只能看到前 46 个字符（用户实拍：省略号后面没了）。
+            let truncated = rawLines.contains { Self.displayWidth($0) > maxChars }
             // 每行前面补一个空格当内边距，尾部补到统一宽度：
             // 等宽字体下宽度可精确计算，底色于是连成一整块矩形。
             let padded = rawLines.map { line -> String in
@@ -203,7 +213,10 @@ enum MarkdownNS {
                     ]
                 ))
             }
-            let mono = UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+            // 字体：优先 Menlo。SF Mono 对制表符/制表框线（┌ ─ │ └ ▼）覆盖不全，
+            // fallback 字体的字宽和等宽字体不一致 → ASCII 图会错位、框线断（用户实拍）。
+            let mono = UIFont(name: "Menlo", size: 12.5)
+                ?? UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
             let fill = UIColor.secondarySystemFill
             // 上边框
             out.append(NSAttributedString(
@@ -235,6 +248,23 @@ enum MarkdownNS {
                     .paragraphStyle: style,
                 ]
             ))
+            // 有行被截断 → 给一个入口点开看整行（详情页 96 字符 + 横向滚动）。
+            // 之前只有「…」没有任何办法看到后半句（用户实拍）。
+            if truncated, mode == .compact, let url = URL(string: "dsh://detail") {
+                out.append(NSAttributedString(
+                    string: "\n",
+                    attributes: [.font: UIFont.systemFont(ofSize: 4)]
+                ))
+                out.append(NSAttributedString(
+                    string: "▦ 代码已截断 · 点按看完整行 ›",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+                        .foregroundColor: UIColor.tintColor,
+                        .link: url,
+                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 0, lineSpacing: 1),
+                    ]
+                ))
+            }
             return out
 
         case let .bullet(items):
