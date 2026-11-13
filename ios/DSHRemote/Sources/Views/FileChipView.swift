@@ -15,6 +15,9 @@ final class FileChipView: UIView {
     static let icon = "📄"
 
     private let label = UILabel()
+    /// 右侧标签：「可预览」/「下载」。把"能不能点开"直接写在卡片上，
+    /// 不用让用户点一下才知道。
+    private let accessory = UILabel()
 
     /// 文字内容（含图标，例如 "📄 输出文件 · a.zip"）
     var text: String? {
@@ -24,6 +27,21 @@ final class FileChipView: UIView {
 
     /// 文字颜色。折叠行（「本轮过程」）用主题色 —— 灰字太弱，
     /// 用户看不出这一行能点（实拍反馈）。
+    /// 右侧标签文本（nil = 不显示）
+    var accessoryText: String? {
+        get { accessory.text }
+        set {
+            accessory.text = newValue
+            accessory.isHidden = (newValue == nil || newValue?.isEmpty == true)
+        }
+    }
+
+    /// 标签颜色（可预览时用主题色）
+    var accessoryColor: UIColor {
+        get { accessory.textColor }
+        set { accessory.textColor = newValue }
+    }
+
     var textColor: UIColor {
         get { label.textColor }
         set { label.textColor = newValue }
@@ -46,13 +64,22 @@ final class FileChipView: UIView {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(label)
 
+        accessory.translatesAutoresizingMaskIntoConstraints = false
+        accessory.font = .systemFont(ofSize: 11, weight: .regular)
+        accessory.textColor = .tertiaryLabel
+        accessory.setContentHuggingPriority(.required, for: .horizontal)
+        accessory.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(accessory)
+
         NSLayoutConstraint.activate([
             // 上下 8pt、左右 12pt：这两组数就是"卡片内边距"，
             // 文字被约束垂直居中（上下等距），不需要任何基线技巧。
             label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            accessory.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            accessory.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.trailingAnchor.constraint(equalTo: accessory.leadingAnchor, constant: -8),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
         ])
     }

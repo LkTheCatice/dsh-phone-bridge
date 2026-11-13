@@ -20,6 +20,10 @@ struct ComposerTextView: UIViewRepresentable {
     var focused: FocusState<Bool>.Binding
     /// 内容高度变化（用于让外层按 1~5 行自适应）
     var onHeightChange: (CGFloat) -> Void = { _ in }
+    /// 高度上限：超过它就**启用内部滚动**（外层只给这么高）。
+    /// 之前 `isScrollEnabled = false` 是写死的，超过上限后多出来的文字
+    /// 既撑不开高度、也不滚动 → 输入的内容"消失"（用户实报）。
+    var maxHeight: CGFloat = 140
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -28,7 +32,8 @@ struct ComposerTextView: UIViewRepresentable {
         view.delegate = context.coordinator
         view.font = .systemFont(ofSize: 17)
         view.backgroundColor = .clear
-        view.isScrollEnabled = false          // 高度由内容决定，超过上限由外层限高
+        // 先关滚动（高度随内容长），达到上限后再打开 —— 见 reportHeight()
+        view.isScrollEnabled = false
         // 内边距直接采用原 TextField 的 padding(.horizontal 12 / .vertical 9)：
         // 外层不再叠加 padding，光标起点与 placeholder 才能对齐，
         // 单行高度也与旧样式一致（行高 ~20 + 上下 18 = 38）。
@@ -111,9 +116,21 @@ struct ComposerTextView: UIViewRepresentable {
             let height = view.sizeThatFits(
                 CGSize(width: width, height: .greatestFiniteMagnitude)
             ).height
-            guard abs(height - lastReportedHeight) >= 0.5 else { return }
-            lastReportedHeight = height
-            parent.onHeightChange(height)
+
+            // 到上限就切滚动：否则超出的文字看不到、也翻不到。
+            let capped = min(height, parent.maxHeight)
+            let needsScroll = height > parent.maxHeight + 0.5
+            if view.isScrollEnabled != needsScroll {
+                view.isScrollEnabled = needsScroll
+            }
+            if needsScroll {
+                // 光标始终可见（贴到当前输入位置）
+                view.scrollRangeToVisible(view.selectedRange)
+            }
+
+            guard abs(capped - lastReportedHeight) >= 0.5 || needsScroll else { return }
+            lastReportedHeight = capped
+            parent.onHeightChange(capped)
         }
     }
 }

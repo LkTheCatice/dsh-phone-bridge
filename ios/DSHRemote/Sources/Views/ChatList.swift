@@ -21,6 +21,8 @@ struct ChatList: UIViewRepresentable {
     let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
     let onTapEntry: (String) -> Void
+    /// 点开产物文件
+    let onTapFile: (String) -> Void
     /// 点击「📎 附件」提示行（打开媒体面板）
     let onTapAttachments: (String) -> Void
     /// 点击消息里的链接（dsh:// 自定义 scheme 或普通 URL）
@@ -125,6 +127,9 @@ struct ChatList: UIViewRepresentable {
                         },
                         onTapEntry: { [weak self] rowId in
                             self?.parent.onTapEntry(rowId)
+                        },
+                        onTapFile: { [weak self] rowId in
+                            self?.parent.onTapFile(rowId)
                         },
                         isRoleChange: isRoleChange
                     )
@@ -491,6 +496,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     }()
     /// 「📎 2 张图片 · 1 个视频」提示行；无附件时高度为 0
     private let attachmentLabel = UILabel()
+    /// 点开产物文件（预览 / 下载）
+    var onTapFile: ((String) -> Void)?
+
     /// 点整行（工具行）→ 打开工具详情。
     ///
     /// 之前**根本没有点击入口**：cell 只处理 `dsh://` 链接，
@@ -608,13 +616,16 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     }
 
     @objc private func handleRowTap() {
-        // 工具行 → 工具详情；折叠行（▸ 本轮过程 · N 步）→ 本轮过程页。
-        // 只放 .toolCall 是不够的：折叠行同样需要入口，
-        // 漏掉它就会出现「找不到本轮过程入口」（用户实拍）。
-        guard let entry = currentEntry,
-              entry.kind == .toolCall || entry.kind == .collapsedSteps
-        else { return }
-        onTapEntry?(entry.id)
+        // 工具行 → 工具详情；折叠行 → 本轮过程页；产物卡片 → 打开文件（预览/下载）
+        guard let entry = currentEntry else { return }
+        switch entry.kind {
+        case .toolCall, .collapsedSteps:
+            onTapEntry?(entry.id)
+        case .fileOutput:
+            onTapFile?(entry.id)
+        default:
+            break
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -673,6 +684,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         onTapAttachments: (() -> Void)?,
         onOpenLink: ((URL) -> Void)? = nil,
         onTapEntry: ((String) -> Void)? = nil,
+        onTapFile: ((String) -> Void)? = nil,
         isRoleChange: Bool = false
     ) {
         currentEntry = entry
@@ -695,8 +707,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         // （真视图 + 约束）—— 文字的垂直居中、内边距都由约束保证。
         if entry.kind == .fileOutput {
             fileChip.isHidden = false
-            fileChip.text = entry.text
+            // 卡片统一成：图标 + 文件名 + 右侧能力标签（可预览 / 下载）
+            let path = entry.detail ?? ""
+            let kind = FileKind(path: path)
+            fileChip.text = "\(kind.icon) \(AppModel.fileName(path))"
             fileChip.textColor = .label
+            fileChip.accessoryText = kind.tag
+            fileChip.accessoryColor = kind.canPreview ? .tintColor : .tertiaryLabel
             textView.isHidden = true
             textView.attributedText = nil
         } else if entry.kind == .collapsedSteps {
@@ -705,6 +722,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             fileChip.isHidden = false
             fileChip.text = "▸ " + entry.text + "  ›"
             fileChip.textColor = .tintColor
+            fileChip.accessoryText = nil
             textView.isHidden = true
             textView.attributedText = nil
         } else {
@@ -715,6 +733,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         }
         self.onTapAttachments = onTapAttachments
         self.onTapEntry = onTapEntry
+        self.onTapFile = onTapFile
         // 思考行最多 6 行：TextKit 只排这么多，界面给个「大概在想什么」；
         // 其余行不限制（0 = 不限）。
         textView.textContainer.maximumNumberOfLines = (entry.kind == .thinking) ? 2 : 0

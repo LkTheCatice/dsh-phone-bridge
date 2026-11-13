@@ -124,24 +124,43 @@ function usageOf(data) {
   };
 }
 
-/** 手机端能直接展示的扩展名 */
-const INLINE_MEDIA_EXT = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "heic", "bmp",
-  "mp4", "mov", "m4v", "webm", "avi", "mkv",
-  "mp3", "m4a", "wav", "aac", "flac",
-]);
-
 /**
- * 值得在手机上提示「产出了文件」的扩展名 —— **只留真正的产物**。
+ * 产物分类：手机端要据此决定「能不能点开预览」。
  *
- * 之前把 swift/js/py/md/txt 也算进来了，于是每次改源码都冒一条
- * 「📄 输出文件 · AppModel.swift」，夹在工具行中间像日志噪声（用户实拍）。
- * 现在只认办公文档 / 安装包 / 压缩包这类"能给出去的东西"。
+ * 之前只有一份「值得提示」的白名单，把 md 和 mp4 都排除掉了 ——
+ * 于是另一会话产出的 .md 和视频在手机上一个字都不显示（用户实报）。
+ * 现在按**类别**判：文档 / 图片 / 视频 / 音频 / 文本 / 压缩包 / 安装包都要提示，
+ * 只有源码（.swift/.ts/.py…）不提示，避免改代码时刷屏。
  */
-const DELIVERABLE_EXT = new Set([
-  "docx", "doc", "xlsx", "xls", "pptx", "ppt", "pdf",
-  "epub", "ipa", "apk", "dmg", "zip", "tar", "gz", "7z", "rar",
-]);
+const FILE_KIND_RULES = [
+  ["image", /^(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i],
+  ["video", /^(mp4|mov|m4v|webm|mkv|avi)$/i],
+  ["audio", /^(mp3|m4a|wav|aac|flac|ogg)$/i],
+  ["text", /^(md|markdown|txt|csv|tsv|json|log|ya?ml|html?|xml|ini|conf)$/i],
+  ["doc", /^(docx?|xlsx?|pptx?|pdf|epub|numbers|pages|key)$/i],
+  ["archive", /^(zip|tar|gz|tgz|7z|rar|bz2|xz)$/i],
+  ["package", /^(ipa|apk|dmg|pkg|exe|msi)$/i],
+];
+
+/** 源码/构建中间物：不算「产出」，提示它们只会变成噪声 */
+const SOURCE_EXT = /^(swift|m|mm|h|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|c|cc|cpp|cs|php|lua|sh|ps1|bat|sql|css|scss|less|lock|tmp|bak)$/i;
+
+function isNoisyDir(path) {
+  const normalized = String(path || "").replace(/\\/g, "/").toLowerCase();
+  const noisy = ["/_diag/", "/tmp/", "/temp/", "/.git/", "/node_modules/", "/build/", "/deriveddata/"];
+  return noisy.some((seg) => normalized.includes(seg));
+}
+
+function fileKind(path) {
+  const m = String(path || "").match(/\.([A-Za-z0-9]{1,8})$/);
+  const ext = m ? m[1] : "";
+  if (!ext) return null;
+  if (SOURCE_EXT.test(ext)) return null;
+  for (const [kind, re] of FILE_KIND_RULES) {
+    if (re.test(ext)) return kind;
+  }
+  return null;
+}
 
 /** 只有这些工具会「产出新文件」（read/grep 也有 file_path，不能算） */
 const OUTPUT_TOOLS = new Set(["write", "present"]);
@@ -274,12 +293,16 @@ export function normalizeEvent(session, event) {
       // present 的 files[] 可能有多条，逐个发。
       if (OUTPUT_TOOLS.has(toolName)) {
         for (const outputPath of extractOutputPaths(data)) {
-          if (!isDeliverableFile(outputPath)) continue;
+          if (isNoisyDir(outputPath)) continue;
+          const kind = fileKind(outputPath);
+          if (!kind) continue;
           frames.push({
             ...base,
             type: "file.output",
             turn,
             path: outputPath,
+            // kind 让手机决定卡片图标与「可预览 / 仅下载」
+            kind,
             tool: toolName,
           });
         }

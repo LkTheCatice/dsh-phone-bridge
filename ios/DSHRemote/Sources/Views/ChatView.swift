@@ -77,6 +77,8 @@ struct ChatView: View {
 
     /// 正在查看「本轮过程」的折叠条目
     @State private var turnLogEntry: ChatEntry?
+    /// 正在查看的产物文件（预览 / 下载）
+    @State private var fileEntry: ChatEntry?
 
     /// 正在查看完整内容的条目（表格折叠时说这里看全）
     @State private var detailEntry: ChatEntry?
@@ -194,6 +196,9 @@ struct ChatView: View {
                             // 其余条目：看完整内容（列表里的表格/代码是截断的）
                             detailEntry = target
                         }
+                    },
+                    onTapFile: { id in
+                        fileEntry = visibleEntries.first { $0.id == id }
                     },
                     onTapAttachments: { id in
                         attachmentEntry = visibleEntries.first { $0.id == id }
@@ -451,6 +456,10 @@ struct ChatView: View {
         }
         .sheet(item: $turnLogEntry) { item in
             TurnLogSheet(entry: item)
+        }
+        .sheet(item: $fileEntry) { item in
+            FileOutputSheet(entry: item)
+                .environmentObject(model)
         }
     }
 
