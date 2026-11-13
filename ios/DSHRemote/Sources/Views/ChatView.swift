@@ -651,6 +651,17 @@ struct ChatView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
+            // 底栏（状态两行 + 对话/设置）属于**这个页面自己的最后一行**。
+            // 放进 composer 而不是 MainView 的 safeAreaInset：
+            // 否则两个底部 inset 叠在一起，绘制顺序由系统决定，
+            // 状态行会压到输入框上（用户实拍"乱完了"）。
+            // 键盘弹起时让位：一是省空间，二是此时用户只关心输入。
+            BottomBar(selection: $model.tab)
+                .environmentObject(model)
+                .environmentObject(model.comfyStore)
+                .frame(height: focused ? 0 : nil)
+                .opacity(focused ? 0 : 1)
+                .clipped()
         }
         .background(.bar)
     }

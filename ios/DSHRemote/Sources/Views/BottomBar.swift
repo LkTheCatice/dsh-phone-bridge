@@ -2,18 +2,15 @@ import SwiftUI
 
 /// 底部栏：左边两行状态，右边两个页签按钮（同一行，状态上下排列）。
 ///
-/// 为什么自己做而不用系统 TabView 的 tab bar：
-/// 系统 tab bar 在 iOS 26 是浮动胶囊，**没有位置可以摆放附加信息**，
-/// 而用户要求"状态和两个按钮同一行、状态上下排列"。自己排一行最直接，
-/// 也不用去猜系统胶囊的内边距。
+/// **架构约定**：它不是"页面外面再加一条"，而是**每个页面自己的最底一行**。
+/// 之前把它当 MainView 的 safeAreaInset 挂上去，和 ChatView 自己的
+/// composer safeAreaInset 叠在一起 —— 两层 inset 的绘制顺序由系统决定，
+/// 结果状态行压到了输入框上、+ 号被挤到左边（用户实拍"乱完了"）。
+/// 现在：ChatView / SettingsView 各自在页面内部放这一行，全局只有一个底部 inset。
 ///
-/// 说明：两行状态点都用 6pt —— 之前一版是 6pt 连接点 + 7pt 画图点，
-/// 大小不一在同一行里很显眼（用户实拍）。
+/// 两行状态点都用 6pt —— 之前 6pt 连接点 + 7pt 画图点大小不一，很显眼。
 struct BottomBar: View {
     @Binding var selection: Int
-
-    /// 键盘弹起时整条让位（否则会浮在键盘上方，很怪）
-    @State private var keyboardUp = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -23,20 +20,11 @@ struct BottomBar: View {
                 tabButton(0, "对话", "bubble.left.and.bubble.right")
                 tabButton(1, "设置", "gearshape")
             }
-            .padding(4)
+            .padding(3)
             .background(.thinMaterial, in: Capsule())
         }
         .padding(.horizontal, 12)
-        .frame(height: keyboardUp ? 0 : 52)
-        .opacity(keyboardUp ? 0 : 1)
-        .clipped()
-        .animation(.easeOut(duration: 0.18), value: keyboardUp)
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardUp = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardUp = false
-        }
+        .padding(.vertical, 4)
     }
 
     private func tabButton(_ index: Int, _ title: String, _ icon: String) -> some View {
@@ -49,7 +37,7 @@ struct BottomBar: View {
                 Text(title)
                     .font(.system(size: 10))
             }
-            .frame(width: 62, height: 40)
+            .frame(width: 58, height: 36)
             .foregroundStyle(selection == index ? Color.accentColor : Color.secondary)
             .background(
                 selection == index ? Color.accentColor.opacity(0.12) : Color.clear,

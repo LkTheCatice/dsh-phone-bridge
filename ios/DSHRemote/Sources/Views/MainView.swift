@@ -4,15 +4,13 @@ struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
-    /// 0 = 对话，1 = 设置。
-    @State private var tab = 0
 
     var body: some View {
         // 保留 TabView（两个页面的状态都活着，切回来草稿/滚动位置不丢），
         // 但把**系统 tab bar 藏掉**，换成自己的底栏 ——
         // 系统那个是浮动胶囊，旁边没法摆状态信息，而用户要求
         // 「状态和两个按钮同一行、状态上下排列」。
-        TabView(selection: $tab) {
+        TabView(selection: $model.tab) {
             ChatView()
                 // ChatStore 单独注入：ChatView 只对「条目 / 流式心跳」高频更新重算，
                 // 不再因为 AppModel 上任何字段变化而整页重算
@@ -30,11 +28,6 @@ struct MainView: View {
                 .environmentObject(model.walletStore)
                 .tag(1)
                 .toolbar(.hidden, for: .tabBar)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            BottomBar(selection: $tab)
-                .environmentObject(model)
-                .environmentObject(model.comfyStore)
         }
         // 横幅交给独立子视图：MainView 包着 TabView，一旦在这里读 phase /
         // pendingApprovals / suppressDisconnect，任何一次变化都会让三个 tab 的

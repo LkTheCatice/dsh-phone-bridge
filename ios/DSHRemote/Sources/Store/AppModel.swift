@@ -225,6 +225,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var unreadSessions: Set<String> = []
     /// 每个会话各自的输入框草稿，切会话不会串
     @Published var drafts: [String: String] = [:]
+    /// 当前页签：0 = 对话，1 = 设置。
+    /// 放在这里是为了让「底栏」出现在**每个页面内部**（各自一个底部 inset），
+    /// 而不是在 TabView 外面再套一条 —— 那样会和 composer 的 inset 打架。
+    @Published var tab: Int = 0
+
     /// 轻量提示（3 秒自动消失），比 alert 不打断操作
     @Published var toast: String?
 

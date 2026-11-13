@@ -151,6 +151,16 @@ struct SettingsView: View {
                 Button("取消", role: .cancel) {}
             }
         }
+    
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // 设置页也要有底栏，否则切进来就回不到对话。
+            // 注意：这是**页面内部**的 inset（不是容器级的），
+            // 全局只有一个底部 inset，不会和 composer 打架。
+            BottomBar(selection: $model.tab)
+                .environmentObject(model)
+                .environmentObject(model.comfyStore)
+                .background(.bar)
+        }
     }
 
     private var statusText: String {
