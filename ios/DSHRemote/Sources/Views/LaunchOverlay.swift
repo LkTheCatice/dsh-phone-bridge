@@ -65,7 +65,7 @@ struct LaunchOverlay: View {
                 markScale = 1
                 markOpacity = 1
             }
-            withAnimation(.easeOut(duration: 0.30).delay(0.16)) {
+            withAnimation(.easeOut(duration: 0.28).delay(0.08)) {
                 titleOpacity = 1
             }
 
@@ -73,19 +73,22 @@ struct LaunchOverlay: View {
             //   · 最短 1.2s：让开场本身看得完整
             //   · 就绪：历史回放完成（布局落定）
             //   · 上限 2.4s：万一网络慢，不能一直挡着界面
+            // 时间放宽：上一版 1.2s 撤场，元素刚显现就走了（用户实拍：
+            // 「中间元素刚显现白屏就结束了」）。现在主体 ~0.4s 就位，
+            // 至少停到 2.0s 才退场，给首屏布局留足时间。
             let started = CFAbsoluteTimeGetCurrent()
-            let minDwell: Double = 1.2
-            let maxWait: Double = 2.4
+            let minDwell: Double = 2.0
+            let maxWait: Double = 3.2
             while CFAbsoluteTimeGetCurrent() - started < maxWait {
                 let elapsed = CFAbsoluteTimeGetCurrent() - started
                 if elapsed >= minDwell, isReady() { break }
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
 
-            withAnimation(.easeIn(duration: 0.30)) {
+            withAnimation(.easeInOut(duration: 0.45)) {
                 leaving = true
             }
-            try? await Task.sleep(nanoseconds: 320_000_000)
+            try? await Task.sleep(nanoseconds: 470_000_000)
             onFinish()
         }
     }
