@@ -350,11 +350,15 @@ enum MarkdownNS {
 
             let allRows = [headers] + shownRows
             var natural = [Int](repeating: 0, count: columnCount)
+            // 测量时每格的截断上限：
+            // 以前 compact 写死 16 —— 两列的表可用宽度只有 44 字符，却把每格先砍到 16，
+            // 于是「8 帧（turn.start 1）」被切成「8 帧（turn.star…」，
+            // 看起来既不整齐也没信息（用户实拍：表格又挤又丑）。
+            // 现在按 contentBudget 量，宽度分配交给下面的按比例压缩 + 单列封顶。
+            let cellMeasureCap = isFull ? 60 : contentBudget
             for row in allRows {
                 for (i, cell) in row.enumerated() where i < columnCount {
-                    // 详情页放宽到 60：之前是 22，长说明（「每行 Date() + 格式化 + cwd 名称解析」
-                    // 这类）会被直接截断，点开完整内容也只看得到开头（用户实拍确认）。
-                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: isFull ? 60 : 16)))
+                    natural[i] = max(natural[i], displayWidth(clampCell(cell, maxWidth: cellMeasureCap)))
                 }
             }
             // 单列占比封顶：气泡里出现过 `%LOCALAPPDATA%\Programs\Swift\Platforms\6.4.2`
@@ -420,7 +424,7 @@ enum MarkdownNS {
                 ruleStyle.lineHeightMultiple = 1.0
                 ruleStyle.paragraphSpacing = isFull ? 6 : 3
                 out.append(NSAttributedString(
-                    string: String(repeating: "─", count: max(8, totalChars)) + "\n",
+                    string: String(repeating: "─", count: max(4, totalChars)) + "\n",
                     attributes: [
                         .font: UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
                         .foregroundColor: UIColor.separator,
@@ -437,6 +441,8 @@ enum MarkdownNS {
             // 注意：除了「行/列超限」，**单元格被压窄截断**也算被省略（用户实拍：
             // 4 列 8 行的表里 13.3… / 1.24… 被截断，却没有入口点开）。
             if !isFull, rows.count > rowLimit || hiddenColumns > 0 || didTruncateCells {
+                // 以前 note 和链接挤在同一行：「（部分单元格内容已省略）▦ 表格已折叠…」
+                // 看着像一句乱码（用户实拍）。现在分两行：说明在上、入口在下。
                 var note = "\n"
                 if hiddenColumns > 0 { note += "（还有 \(hiddenColumns) 列未显示）" }
                 if rows.count > rowLimit { note += "… 还有 \(rows.count - rowLimit) 行未显示" }
@@ -444,21 +450,21 @@ enum MarkdownNS {
                     note += "（部分单元格内容已省略）"
                 }
                 out.append(NSAttributedString(
-                    string: note,
+                    string: note + "\n",
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 11),
                         .foregroundColor: UIColor.tertiaryLabel,
-                        .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 3, lineSpacing: 1),
+                        .paragraphStyle: Self.style(spacingAfter: 1, spacingBefore: 3, lineSpacing: 1),
                     ]
                 ))
                 if let url = URL(string: "dsh://detail") {
-                    var hint = NSMutableAttributedString(
+                    let hint = NSMutableAttributedString(
                         string: "▦ 表格已折叠 · 点按看完整版 ›",
                         attributes: [
                             .font: UIFont.systemFont(ofSize: 12, weight: .medium),
                             .foregroundColor: UIColor.tintColor,
                             .link: url,
-                            .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 1, lineSpacing: 1),
+                            .paragraphStyle: Self.style(spacingAfter: 2, spacingBefore: 0, lineSpacing: 1),
                         ]
                     )
                     out.append(hint)
