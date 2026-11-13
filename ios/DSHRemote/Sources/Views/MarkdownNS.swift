@@ -305,9 +305,12 @@ enum MarkdownNS {
             let columnLimit = isFull ? 8 : 5
             // 详情页总预算放大到 900：外层是横向 ScrollView，
             // 宽度不够时用户能左右拖，没必要为了「塞进屏幕」而压缩内容。
-            let availableChars = isFull ? 900 : 46
-            let charWidth: CGFloat = isFull ? 6.4 : 7.2
-            let fontSize: CGFloat = isFull ? 10 : 11.5
+            // 详情页放宽到 900 字符（外层横向滚动）；气泡里按实际宽度倒推：
+            // 11pt 等宽字符约 6.6pt，可用宽度约 330pt → 50 个半角字符。
+            // 之前是 46 字符 + 11.5pt（同样宽度但内容更少）。
+            let availableChars = isFull ? 900 : 50
+            let charWidth: CGFloat = isFull ? 6.4 : 6.6
+            let fontSize: CGFloat = isFull ? 10 : 11
 
             let maxColumns = max(headers.count, rows.map(\.count).max() ?? 0)
             guard maxColumns > 0 else { return NSAttributedString() }
@@ -369,8 +372,13 @@ enum MarkdownNS {
                 columnWidths = natural.map { max(8, Int((Double($0) * scale).rounded(.down))) }
             }
 
+            // 表格内边距：整块底色是贴着 container 画的，
+            // 文字如果从 0 开始就直接压在圆角边上（用户实拍「贴边」）。
+            // 用「行首补一个空格 + 所有 tab 停靠点整体右移一格」来留白 ——
+            // 比 headIndent 可靠：tabStops 是按 container 原点算的，headIndent 不会带动它。
+            let leadChars = 1
             var stops: [NSTextTab] = []
-            var location: CGFloat = 0
+            var location = CGFloat(leadChars) * charWidth
             for i in 1..<columnCount {
                 location += CGFloat(columnWidths[i - 1] + gutterChars) * charWidth
                 stops.append(NSTextTab(textAlignment: .left, location: location))
@@ -386,6 +394,11 @@ enum MarkdownNS {
                 style.paragraphSpacing = isHeader ? 5 : 3
                 let base = UIFont.monospacedSystemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
                 let line = NSMutableAttributedString()
+                // 行首留白（和 tabStops 的 leadChars 对应）
+                line.append(NSAttributedString(
+                    string: String(repeating: " ", count: leadChars),
+                    attributes: [.font: base]
+                ))
                 for column in 0..<columnCount {
                     if column > 0 {
                         line.append(NSAttributedString(string: "\t", attributes: [.font: base]))
@@ -396,6 +409,8 @@ enum MarkdownNS {
                         .foregroundColor: isHeader ? UIColor.label : UIColor.secondaryLabel,
                     ]))
                 }
+                // 行尾留白：不然最后一列直接顶到圆角边缘
+                line.append(NSAttributedString(string: " ", attributes: [.font: base]))
                 line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
                 return line
             }
@@ -414,7 +429,8 @@ enum MarkdownNS {
                 ruleStyle.lineHeightMultiple = 1.0
                 ruleStyle.paragraphSpacing = isFull ? 6 : 3
                 out.append(NSAttributedString(
-                    string: String(repeating: "─", count: max(4, totalChars)) + "\n",
+                    string: String(repeating: " ", count: leadChars)
+                        + String(repeating: "─", count: max(4, totalChars)) + "\n",
                     attributes: [
                         .font: UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
                         .foregroundColor: UIColor.separator,
