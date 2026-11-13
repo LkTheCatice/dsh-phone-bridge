@@ -25,11 +25,15 @@ struct LaunchOverlay: View {
 
     var body: some View {
         ZStack {
+            // 先铺一层**实色**，再叠渐变：渐变用了带透明度的 accent，
+            // 单靠它盖不住下面的半成品页面（截图上就是"整屏发虚、能看到对话页"）。
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea()
             LinearGradient(
                 colors: [
-                    Color(uiColor: .systemBackground),
                     Color.accentColor.opacity(0.10),
-                    Color(uiColor: .systemBackground),
+                    Color.clear,
+                    Color.accentColor.opacity(0.06),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -77,18 +81,23 @@ struct LaunchOverlay: View {
             // 「中间元素刚显现白屏就结束了」）。现在主体 ~0.4s 就位，
             // 至少停到 2.0s 才退场，给首屏布局留足时间。
             let started = CFAbsoluteTimeGetCurrent()
-            let minDwell: Double = 2.6
-            let maxWait: Double = 3.8
+            // 用户连续三次反馈"太短"，这次给足：最短 3.2s，最多等到 4.8s。
+            let minDwell: Double = 3.2
+            let maxWait: Double = 4.8
             while CFAbsoluteTimeGetCurrent() - started < maxWait {
                 let elapsed = CFAbsoluteTimeGetCurrent() - started
                 if elapsed >= minDwell, isReady() { break }
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
 
-            withAnimation(.easeInOut(duration: 0.45)) {
+            let dwellMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            withAnimation(.easeInOut(duration: 0.50)) {
                 leaving = true
             }
-            try? await Task.sleep(nanoseconds: 470_000_000)
+            try? await Task.sleep(nanoseconds: 520_000_000)
+            // 真机打点：停留时长 / 是否因为就绪而提前退场。
+            // 有这个数就不用再"感觉太短"地反复调了。
+            Diag.ping("launch dwell=\(dwellMs)ms ready=\(isReady() ? 1 : 0)")
             onFinish()
         }
     }

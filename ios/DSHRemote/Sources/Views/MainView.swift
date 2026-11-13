@@ -47,7 +47,8 @@ struct MainView: View {
                     // 历史回放完成 → 首屏布局基本落定
                     isReady: { model.chat.historyVersion > 0 }
                 )
-                    .transition(.opacity)
+                    // 不加 transition：退场完全由 LaunchOverlay 内部的 leaving 动画控制。
+                    // 两层淡出叠在一起会让整屏"发虚"（截图上就是能透过白屏看到对话页）。
                     .zIndex(10)
             }
         }
