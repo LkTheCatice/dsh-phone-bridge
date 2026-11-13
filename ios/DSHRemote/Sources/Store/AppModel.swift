@@ -579,7 +579,7 @@ final class AppModel: ObservableObject {
             currentTurn[sid] = turn
             // 新一轮从第 0 段开始；插队会把它往后推
             answerSegment[sid] = 0
-            append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: startedAt, running: true))
+            append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: startedAt, running: true, turn: turn))
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
@@ -676,7 +676,11 @@ final class AppModel: ObservableObject {
                 // 用帧里的时间，不用 Date()：回填/续传时 Date() 是「现在」，
                 // 和工具行、正文的时间轴对不上，按 at 排序会把顺序搞乱
                 // （用户实拍：上一轮的回答下面又冒出了上一轮的工具行）。
-                at: Self.frameDate(frame)
+                at: Self.frameDate(frame),
+                // turn 必须带上：不带就是 0，而「按 (turn, at) 排序」会把 0 排到最前
+                // —— 「开始第 N 轮 / 本轮结束 / 我的提问」就是这么从原位消失、
+                // 跑到整屏最上面的（用户实拍两轮回答之间只剩折叠块）。
+                turn: turn
             ))
             for key in entries.keys {
                 guard var list = entries[key] else { continue }
@@ -751,7 +755,8 @@ final class AppModel: ObservableObject {
             guard !duplicated else { return }
             // 帧时间而不是 Date()：回填时所有条目都用 Date() 会挤在同一毫秒，
             // 按 at 排序就退化成插入顺序（历史里提问/回答会错位）。
-            append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Self.frameDate(frame)))
+            // turn 也要带：0 会被排序推到最前面。
+            append(sid, ChatEntry(id: UUID().uuidString, kind: .user, text: text, at: Self.frameDate(frame), turn: turn))
 
         default:
             break
