@@ -94,17 +94,18 @@ struct ChatView: View {
     /// 按钮（用户实拍：明明没有新消息，往上翻也会冒出来）。
     /// 用尾部指纹把这类假信号挡掉。
     @State private var lastTailKeyForTick = ""
-    /// 停在底部时的「尾部锚点」：末条 id + 末条正文长度。
+    /// 用户已经看到的最新**内容轮次**。
     ///
-    /// 「新消息」按钮只该在**尾巴真的变长/变新**时出现。
-    /// 之前用 entries.count 或整表指纹判断，上拉插一页（条数变多、首条变了）
-    /// 也会被当成新消息（用户实拍：划到最顶冒出「新消息」）。
-    /// 尾部锚点不受头部插入/裁剪影响，是最稳的判据。
-    @State private var bottomTailId = ""
+    /// 「新消息」的判据从"末条指纹（id + 正文长度）"改为"轮次号"，因为指纹
+    /// 会被同一轮的收尾动作污染：`foldSteps` 把工具行折成「本轮过程」、
+    /// `turn.end` 补「本轮结束」行、产物卡片落位 —— 这些都会改末条 id，
+    /// 但都不是"新消息"。用户正在上翻历史时就会莫名弹出「新消息」
+    /// （本会话被反馈过三次）。
+    /// 现在只比轮次号，且只认 `user` / `assistant` 这两种真正的"消息"。
+    @State private var lastSeenTurn = 0
     /// 是否已经做过「首次进入会话时滚到底」。
     /// 之后每次历史重建都不再自动滚动 —— 否则用户正翻历史会被拽回底部。
     @State private var didInitialScroll = false
-    @State private var bottomTailLen = -1
 
     /// 当前展开的那一条消息（手风琴：只允许一条，避免同时渲染多份富文本）
 
@@ -118,6 +119,15 @@ struct ChatView: View {
     /// 现在列表是 `UICollectionView` + cell 复用，**滚动成本与条目总数无关**，
     /// 再限制条目只会让用户看不到历史，没有收益。
     private var visibleEntries: [ChatEntry] { entries }
+
+    /// 最新一条「内容消息」的轮次（user / assistant）。
+    /// entries 已按 (turn, at) 排序，所以从尾部找第一个命中就是最新。
+    private var latestContentTurn: Int {
+        for entry in entries.reversed() where entry.kind == .user || entry.kind == .assistant {
+            return entry.turn
+        }
+        return 0
+    }
 
     /// 标题直接用 AppModel 里的标量：不要再读 model.sessions，
     /// 否则每次会话列表刷新（每条消息结束都刷）都会让整棵聊天树重算。
@@ -155,9 +165,8 @@ struct ChatView: View {
                         if jump.atBottom != bottom { jump.atBottom = bottom }
                         if bottom {
                             if jump.hasNewBelow { jump.hasNewBelow = false }
-                            // 停在底部就刷新锚点：之后只有「尾巴变长/变新」才算新消息
-                            bottomTailId = entries.last?.id ?? ""
-                            bottomTailLen = entries.last?.text.count ?? -1
+                            // 停在底部 = 已经看到最新内容
+                            lastSeenTurn = latestContentTurn
                         }
                     },
                     scrollRequest: scrollRequest,
@@ -199,11 +208,9 @@ struct ChatView: View {
                     // 「新消息」只看尾巴：末条 id 变了（真来了新条）或末条正文变长
                     // （流式在长）。上拉插头部、裁剪、队列帧都不会动尾巴，
                     // 所以不会再出现「划到最顶就冒新消息」（用户实拍）。
-                    let tailId = entries.last?.id ?? ""
-                    let tailLen = entries.last?.text.count ?? -1
+                    let latest = latestContentTurn
                     if jump.atBottom {
-                        bottomTailId = tailId
-                        bottomTailLen = tailLen
+                        lastSeenTurn = latest
                         // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
                         let now = Date()
                         guard now.timeIntervalSince(jump.lastFollowAt) > 0.5 else { return }
@@ -212,8 +219,8 @@ struct ChatView: View {
                         scrollRequest += 1
                         return
                     }
-                    let grew = tailId != bottomTailId || (tailId == bottomTailId && tailLen > bottomTailLen)
-                    if grew, !jump.hasNewBelow { jump.hasNewBelow = true }
+                    // 只有"出现了更大的轮次"才算新消息：收尾动作不会改轮次
+                    if latest > lastSeenTurn, !jump.hasNewBelow { jump.hasNewBelow = true }
                 }
                 // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
                 .onChange(of: chat.historyVersion) { _ in
@@ -226,13 +233,12 @@ struct ChatView: View {
                         didInitialScroll = true
                         if !jump.atBottom { jump.atBottom = true }
                         if jump.hasNewBelow { jump.hasNewBelow = false }
+                        lastSeenTurn = latestContentTurn
                         scrollRequest += 1
                         return
                     }
-                    // 对齐锚点：重建后末条可能变了（产物卡片落位等），
-                    // 不做这一步会被误判成「来了新消息」。
-                    bottomTailId = entries.last?.id ?? ""
-                    bottomTailLen = entries.last?.text.count ?? -1
+                    // 重建历史不算新内容：把"已看轮次"对齐到最新即可
+                    lastSeenTurn = latestContentTurn
                 }
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active, jump.atBottom else { return }
