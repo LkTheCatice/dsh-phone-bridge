@@ -61,7 +61,10 @@ node bridge\bin\pairing.mjs          # 自动用内网 IP；也可显式传 host
 
 App 需要侧载（未签名 IPA + 你自己的 Apple ID）。两种路径：
 
-- **用现成 IPA**：从 [Releases](../../releases) 下载，用 [Sideloadly](https://sideloadly.io/) 安装
+- **AltStore（推荐，能自动续签）**：手机上 AltStore → Sources → `+` →
+  `https://raw.githubusercontent.com/LkTheCatice/dsh-phone-bridge/main/altstore/source.json`
+  → 在源里装 DSH Helm。之后同 WiFi 下每 7 天自动重签。详见 [docs/altstore.md](docs/altstore.md)
+- **Sideloadly（一次性）**：从 [Releases](../../releases) 下载 IPA 拖进去，7 天后手动重装
 - **自己构建**：推到自己仓库，用 `codemagic.yaml`（免费额度够）跑一次「无签名 IPA」工作流
 
 装好后打开 App → 粘贴第 2 步的整串 → 连接。详见 [docs/侧载.md](docs/侧载.md)。
