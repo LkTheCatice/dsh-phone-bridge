@@ -48,7 +48,7 @@ enum ToolSummary {
     /// 之前的实现：把 detail 当 JSON 解析，只认"值的整体是路径且扩展名是图片"
     /// 的字符串。可 DSH 的 read_image 结果长这样（用户实拍的工具详情）：
     ///
-    ///   {"type":"text","text":"<path>E:\\AI\\ComfyUI\\...\\x.png</path>\n<type>image</type>…"}
+    ///   {"type":"text","text":"<path>D:\\output\\x.png</path>\n<type>image</type>…"}
     ///
     /// 路径被包在 `<path>` 标签里、分隔符还是 JSON 转义过的 `\\`，
     /// 于是整体 pathExtension 变成 `png</path>…` → 判不出图片，详情里永远没图。

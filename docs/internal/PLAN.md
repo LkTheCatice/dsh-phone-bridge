@@ -250,4 +250,4 @@ await ctx.sessionController.prompt(
 
 另外确认：Electron 里 `process.cwd()` 是 profile 目录，**不是**用户工作区。文件白名单根改为自动读 `$DSH_HOME/storages/workspace.json` 的 `tables.workspaces[*].path`。
 
-真机已验证通过：插件在真实 DSH 中加载、双监听（loopback + `192.168.124.27`）、X25519 握手、AES-GCM 请求与响应、38–39 个真实会话列表、SSE 收到 139 个真实事件帧并正确解密归一化、越界路径 403、凭据迁移到 D 盘后 token 保持一致。
+真机已验证通过：插件在真实 DSH 中加载、双监听（loopback + 局域网 IP）、X25519 握手、AES-GCM 请求与响应、38–39 个真实会话列表、SSE 收到 139 个真实事件帧并正确解密归一化、越界路径 403、凭据迁移到 D 盘后 token 保持一致。

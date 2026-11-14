@@ -16,7 +16,7 @@ function redactPaths(value) {
 
 const cases = [
   { step: "fs/read", path: "D:\\Documents\\deepseek-harness\\default-workspace\\phone-dsh\\bridge\\index.js" },
-  { step: "preview", err: "C:\\Users\\acer\\Desktop\\千问1生图\\夜景_01.png 读不到" },
+  { step: "preview", err: "C:\\Users\\someone\\Pictures\\shot_01.png 读不到" },
   { step: "forward", path: "D:/Documents/x/y.ipa", note: "顺便看下" },
   { step: "session/new", cwd: "(default workspace)", requested: null },
   { step: "plain", value: "没有路径的一段中文" },

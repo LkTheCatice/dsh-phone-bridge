@@ -32,3 +32,7 @@ docs/ui-demo/out/
 # 构建产物与截图（不进仓库；IPA 走 Release）
 dist/
 assets/design/
+
+# 内部资料（真实会话截图、宣传 PPT），不进仓库
+docs/_deck-local/
+docs/deck/

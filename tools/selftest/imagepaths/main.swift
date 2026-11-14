@@ -6,7 +6,7 @@ let detail = """
 [
   {
     "type": "text",
-    "text": "<path>E:\\\\AI\\\\ComfyUI\\\\ComfyUI\\\\output\\\\千问1生图\\\\深夜的书桌特写，一台笔记本电脑亮着屏幕，屏幕_Qwen2.1_1408x1056_01.png</path>\\n<type>image</type>\\n<content>\\nimage/webp image, 1408x1056 px</content>"
+    "text": "<path>D:\\output\\sample-image-01.png</path>\n<type>image</type>\n<content>\nimage/webp image, 1024x768 px</content>"
   },
   {
     "type": "image",
@@ -20,7 +20,7 @@ print("count:", paths.count)
 for p in paths { print("  ->", p) }
 
 // 断言：必须解出真实 Windows 路径（反斜杠已还原）
-let want = "E:\\AI\\ComfyUI\\ComfyUI\\output\\千问1生图\\深夜的书桌特写，一台笔记本电脑亮着屏幕，屏幕_Qwen2.1_1408x1056_01.png"
+let want = "D:\\output\\sample-image-01.png"
 if paths.contains(want) {
     print("PASS 路径还原正确")
 } else {

@@ -96,7 +96,9 @@ Write-Host ("下载 {0} …" -f $ipa.name) -ForegroundColor DarkGray
 Invoke-WebRequest -Uri "$base/artifacts/$($ipa._id)" -Headers $headers -OutFile $tmp
 
 # ---- 核对版本 ----
-$py = "C:\Users\acer\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe"
+# 用 PATH 里的 python（没装就跳过，不影响主流程）
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+$py = if ($pyCmd) { $pyCmd.Source } else { $null }
 $env:PYTHONIOENCODING = "utf-8"
 $code = @"
 import zipfile, plistlib, sys
@@ -105,7 +107,12 @@ z = zipfile.ZipFile(p)
 pl = plistlib.loads(z.read([x for x in z.namelist() if x.endswith('Info.plist')][0]))
 print(pl.get('CFBundleShortVersionString'), pl.get('CFBundleVersion'))
 "@
-$info = & $py -c $code
+if (-not $py) {
+  Write-Host "（没装 python，跳过 IPA 元信息读取；只影响版本号打印）" -ForegroundColor Yellow
+  $info = ""
+} else {
+  $info = & $py -c $code
+}
 $ver, $build_no = ($info -split " ")
 
 $archived = Join-Path $dist "archive"

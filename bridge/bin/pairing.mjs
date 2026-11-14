@@ -3,7 +3,7 @@
  * 打印配对串（或轮换 token）。
  *
  *   node bin/pairing.mjs                            # 默认 127.0.0.1:8765
- *   node bin/pairing.mjs 192.168.124.27 8765        # 手机会用的地址
+ *   node bin/pairing.mjs 192.168.1.23 8765          # 手机会用的地址
  *   node bin/pairing.mjs --rotate                   # 轮换 token（旧手机立即失效）
  *   node bin/pairing.mjs --json                     # 机器可读输出
  *

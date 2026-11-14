@@ -18,7 +18,10 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter
 
 SRC = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\assets\icon-source.png"
-LOGO = r"C:\Users\acer\AppData\Local\Programs\DeepSeek Harness\resources\icon.png"
+LOGO = os.environ.get(
+    "DSH_ICON_SOURCE",
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "DeepSeek Harness", "resources", "icon.png"),
+)
 OUT_DIR = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\ios\DSHRemote\Sources\Assets.xcassets\AppIcon.appiconset"
 OUT = os.path.join(OUT_DIR, "icon-1024.png")
 PREVIEW = r"D:\Documents\deepseek-harness\default-workspace\phone-dsh\dist\icon-preview.png"

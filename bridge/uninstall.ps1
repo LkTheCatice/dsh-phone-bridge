@@ -48,6 +48,6 @@ if (Test-Path $patch) {
 Write-Host ""
 Write-Host "配对凭据没有自动删除，位置看 cordis.patch.yml 里的 stateDir："
 Write-Host "  默认: $DshHome\phone-bridge"
-Write-Host "本机实际: D:\Documents\deepseek-harness\dsh-phone-bridge"
+Write-Host "本机实际: <stateDir>（看 cordis.patch.yml 里的 stateDir）"
 Write-Host "确认不需要后手动删该目录即可。"
 Write-Host "别忘了重启 DeepSeek Harness。"

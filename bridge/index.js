@@ -23,7 +23,11 @@ import { URL } from "node:url";
 const execFileAsync = promisify(execFile);
 const fsp = fs.promises;
 /** Pillow 所在解释器：这台机器上 ComfyUI 自带 */
-const PYTHON_FALLBACK = "E:\\AI\\ComfyUI\\python_embeded\\python.exe";
+// ComfyUI 自带的解释器（有它就用来读图片元信息）；没有就走 PATH 里的 python
+const PYTHON_FALLBACK = process.env.DSH_PYTHON
+  || (process.env.COMFYUI_HOME
+    ? path.join(process.env.COMFYUI_HOME, "python_embeded", "python.exe")
+    : "");
 
 import {
   clearClients,
@@ -122,15 +126,14 @@ function detectWorkspaceRoots() {
 /**
  * 额外允许的根目录：**产物目录**。
  *
- * 起因：手机上打开 `📄 输出文件` 的图片（ComfyUI 生成的图 /
+ * 起因：手机上打开 `📄 输出文件` 的图片（本地生成的图 /
  * 本地生成的文档）会报「读不到这张图（路径可能不在电脑允许的目录里）」——
  * 因为这些目录在 DSH 工作区之外，安全白名单里没有。
  *
  * 来源（按优先级）：
  *   1. 环境变量 DSH_PHONE_ROOTS：分号分隔，最灵活
  *   2. `~/.dsh/storages/phone-roots.json`：{ "roots": ["D:/x", ...] }
- *   3. 已知的生成图目录（存在才加）：
- *      ~/Desktop/千问1生图、E:/AI/ComfyUI/ComfyUI/output
+ *   3. （已移除：不再内置任何开发者本机目录）
  *
  * 仍然只加**具体目录**，不开盘符；realpath 校验照旧（符号链接逃逸照样失败）。
  */
@@ -145,11 +148,8 @@ function detectExtraRoots() {
   const json = readJson(path.join(dshHome(), "storages", "phone-roots.json"), null);
   if (json && Array.isArray(json.roots)) candidates.push(...json.roots.map(String));
 
-  const home = dshHome().replace(/[\\/][^\\/]*$/, "");
-  candidates.push(
-    path.join(home, "Desktop", "千问1生图"),
-    "E:/AI/ComfyUI/ComfyUI/output",
-  );
+  // 不再内置任何"某人的目录"：额外根只从上面两个来源来
+  // （DSH_PHONE_ROOTS 环境变量 / ~/.dsh/storages/phone-roots.json）。
 
   const out = [];
   for (const raw of candidates) {
@@ -291,7 +291,7 @@ function applyBridge(ctx, config) {
   /**
    * 把日志里出现的绝对路径压成「…/文件名」。
    *
-   * 起因（隐私审计）：bridge.log 里会记下 `D:\...\千问1生图\xxx.png` 这种完整路径，
+   * 起因（隐私审计）：bridge.log 里会记下 `D:\...\某个目录\xxx.png` 这种完整路径，
    * 等于把用户的目录结构写进了一个明文日志文件。默认改成只留文件名，
    * 需要完整路径时设 DSH_PHONE_LOG_FULL=1。
    */
@@ -810,9 +810,8 @@ function applyBridge(ctx, config) {
   const FFMPEG_CANDIDATES = [
     // 显式指定优先（换机器时不用改代码）
     process.env.DSH_FFMPEG || "",
-    "D:\\tools\\ffmpeg\\ffmpeg.exe",
-    // 本机实际的 ffmpeg（E:\AI\ffmpeg，9.0.2 完整版）
-    "E:\\AI\\ffmpeg\\ffmpeg.exe",
+    process.env.FFMPEG || "",
+    // winget 装的默认位置
     path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
   ];
 
@@ -970,7 +969,13 @@ function applyBridge(ctx, config) {
       /* 无缓存，生成 */
     }
 
+    // 解释器可能不存在（换了机器 / 没装 ComfyUI）：不存在就直接跳过压缩，
+    // 让客户端拿原图，而不是让 spawn 报一个看不懂的错。
     const python = cfg.pythonPath || PYTHON_FALLBACK;
+    if (!python || !fs.existsSync(python)) {
+      logLine({ step: "preview.no-python", hint: "设置 config.pythonPath 或装 Pillow 才能压缩预览图" });
+      return null;
+    }
     const script = [
       "import sys",
       "from PIL import Image",
