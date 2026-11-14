@@ -150,172 +150,262 @@ struct ChatView: View {
     /// 否则每次会话列表刷新（每条消息结束都刷）都会让整棵聊天树重算。
     private var title: String { model.currentSessionTitle }
 
-    /// 聊天主体（列表 + 输入区 + 流式/滚动回调 + 文件选择器）。
+    /// 聊天主体（列表 + 输入区 + 文件选择器 + 各种回调）。
     ///
-    /// **为什么拆**：Swift 对单个 ViewBuilder 表达式做类型推断。body 里堆了
-    /// 二十多个 modifier、十几个闭包之后，编译直接报
-    /// "unable to type-check this expression in reasonable time"（CI 连报四次）。
-    /// 拆成两个表达式（chatContent + 外壳 toolbar/sheet）后各自都在可推断的规模内。
+    /// **为什么拆**：Swift 对**单个** ViewBuilder 表达式做类型推断。body 里
+    /// 二十多个 modifier + 十几个闭包时，编译会直接报
+    /// "unable to type-check this expression in reasonable time"（CI 连报多次）。
+    /// 拆成 chatContent（这一大段）与 body（NavigationStack 外壳）两个表达式后，
+    /// 各自都回到可推断的规模。
     private var chatContent: some View {
-    GeometryReader { _ in
-        ScrollViewReader { proxy in
-        // 回退说明：试过把 composer 做成 ScrollView 的兄弟视图（VStack 并排），
-        // 确实能脱离 UIScrollView 的手势树，但在 GeometryReader 里 VStack 会塌缩，
-        // ScrollView 拿不到高度，整个聊天区空白。这里先回到 safeAreaInset 保证显示正常。
-        // composer 用 safeAreaInset 挂在 ScrollView 上，**不再是 VStack 的兄弟**。
-        //
-        // 17:35 的 668fa8a 为了修「惯性中按钮点不动」，把 composer 挪成了兄弟视图；
-        // 代价是从那以后输入框高度一变（打字换行、键盘、上传条、附件 chip、发送方式）
-        // 就要整棵 VStack 重排 → ScrollView frame 变 → LazyVStack 全量重测。
-        // 用户观察到的「某次功能更新后卡顿大量产生」正是它。
-        // 现在改回 safeAreaInset：输入区高度变化只影响 inset，不牵动列表布局。
-        // 代价：惯性滚动中点「跳到底」偶尔不灵（按钮在 ScrollView 的手势树里），
-        // 但那是体验细节，不该用整页卡死来换。
-        // ── 列表：UICollectionView + cell 复用（见 ChatList.swift）──
-        // 换掉 LazyVStack 的原因：它没有 cell 复用，22 条消息滚动就能卡 13 秒。
-        // 一条消息 = 一个 cell = 一个视图，滚动成本与消息总数无关。
-        conversationList
-        .onChange(of: chat.tick) { _ in
-            // 「新消息」只看尾巴：末条 id 变了（真来了新条）或末条正文变长
-            // （流式在长）。上拉插头部、裁剪、队列帧都不会动尾巴，
-            // 所以不会再出现「划到最顶就冒新消息」（用户实拍）。
-            let latest = latestContentTurn
-            if jump.atBottom {
-                lastSeenTurn = latest
-                // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
-                let now = Date()
-                guard now.timeIntervalSince(jump.lastFollowAt) > 0.5 else { return }
-                jump.lastFollowAt = now
-                guard !model.expNoAutoFollow else { return }
-                scrollRequest += 1
-                return
-            }
-            // 只有"出现了更大的轮次"才算新消息：收尾动作不会改轮次
-            if latest > lastSeenTurn, !jump.hasNewBelow { jump.hasNewBelow = true }
-        }
-        // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
-        // 切换会话：每个会话都要重新"首次滚到底"，
-        // 否则从 A 切到 B 时 didInitialScroll 仍是 true，
-        // B 的历史回来了却不滚动 —— 用户看到的是"切过去停在最上面"
-        // （这是本轮三个 bug 里的第 2 条）。
-        .onChange(of: model.selectedSessionId) { _ in
-            didInitialScroll = false
-            lastSeenTurn = 0
-            if !jump.atBottom { jump.atBottom = true }
-            if jump.hasNewBelow { jump.hasNewBelow = false }
-        }
-        .onChange(of: chat.scrollToBottomToken) { _ in
-            // 开屏动画撤场后贴底（见 MainView 的 onFinish）
-            if !jump.atBottom { jump.atBottom = true }
-            if jump.hasNewBelow { jump.hasNewBelow = false }
-            lastSeenTurn = latestContentTurn
-            scrollRequest += 1
-        }
-        .onChange(of: chat.historyVersion) { _ in
-            // 历史重建完成后：
-            //   首次进入会话 → 滚到底（否则会停在顶部）
-            //   之后再重建（重连 / 刷新 / 切回会话）→ **不动位置**，
-            //   只把尾部锚点对齐。原来这里无条件 scrollRequest += 1，
-            //   用户正上翻历史时会被强行拽到底，看起来就像「又跳新消息」。
-            if !didInitialScroll {
-                didInitialScroll = true
-                if !jump.atBottom { jump.atBottom = true }
-                if jump.hasNewBelow { jump.hasNewBelow = false }
-                lastSeenTurn = latestContentTurn
-                scrollRequest += 1
-                return
-            }
-            // 重建历史不算新内容：把"已看轮次"对齐到最新即可
-            lastSeenTurn = latestContentTurn
-        }
-        .onChange(of: scenePhase) { phase in
-            guard phase == .active, jump.atBottom else { return }
-            scrollRequest += 1
-        }
+        GeometryReader { _ in
+                    ScrollViewReader { proxy in
+                    // 回退说明：试过把 composer 做成 ScrollView 的兄弟视图（VStack 并排），
+                    // 确实能脱离 UIScrollView 的手势树，但在 GeometryReader 里 VStack 会塌缩，
+                    // ScrollView 拿不到高度，整个聊天区空白。这里先回到 safeAreaInset 保证显示正常。
+                    // composer 用 safeAreaInset 挂在 ScrollView 上，**不再是 VStack 的兄弟**。
+                    //
+                    // 17:35 的 668fa8a 为了修「惯性中按钮点不动」，把 composer 挪成了兄弟视图；
+                    // 代价是从那以后输入框高度一变（打字换行、键盘、上传条、附件 chip、发送方式）
+                    // 就要整棵 VStack 重排 → ScrollView frame 变 → LazyVStack 全量重测。
+                    // 用户观察到的「某次功能更新后卡顿大量产生」正是它。
+                    // 现在改回 safeAreaInset：输入区高度变化只影响 inset，不牵动列表布局。
+                    // 代价：惯性滚动中点「跳到底」偶尔不灵（按钮在 ScrollView 的手势树里），
+                    // 但那是体验细节，不该用整页卡死来换。
+                    // ── 列表：UICollectionView + cell 复用（见 ChatList.swift）──
+                    // 换掉 LazyVStack 的原因：它没有 cell 复用，22 条消息滚动就能卡 13 秒。
+                    // 一条消息 = 一个 cell = 一个视图，滚动成本与消息总数无关。
+                    conversationList
+                    .onChange(of: chat.tick) { _ in
+                        // 「新消息」只看尾巴：末条 id 变了（真来了新条）或末条正文变长
+                        // （流式在长）。上拉插头部、裁剪、队列帧都不会动尾巴，
+                        // 所以不会再出现「划到最顶就冒新消息」（用户实拍）。
+                        let latest = latestContentTurn
+                        if jump.atBottom {
+                            lastSeenTurn = latest
+                            // 跟随：只发一个「滚到底」请求，具体滚动由 collectionView 做
+                            let now = Date()
+                            guard now.timeIntervalSince(jump.lastFollowAt) > 0.5 else { return }
+                            jump.lastFollowAt = now
+                            guard !model.expNoAutoFollow else { return }
+                            scrollRequest += 1
+                            return
+                        }
+                        // 只有"出现了更大的轮次"才算新消息：收尾动作不会改轮次
+                        if latest > lastSeenTurn, !jump.hasNewBelow { jump.hasNewBelow = true }
+                    }
+                    // 「已排队」条现在由 chat.queue 直接驱动，不需要在这里手动收起
+                    // 切换会话：每个会话都要重新"首次滚到底"，
+                    // 否则从 A 切到 B 时 didInitialScroll 仍是 true，
+                    // B 的历史回来了却不滚动 —— 用户看到的是"切过去停在最上面"
+                    // （这是本轮三个 bug 里的第 2 条）。
+                    .onChange(of: model.selectedSessionId) { _ in
+                        didInitialScroll = false
+                        lastSeenTurn = 0
+                        if !jump.atBottom { jump.atBottom = true }
+                        if jump.hasNewBelow { jump.hasNewBelow = false }
+                    }
+                    .onChange(of: chat.scrollToBottomToken) { _ in
+                        // 开屏动画撤场后贴底（见 MainView 的 onFinish）
+                        if !jump.atBottom { jump.atBottom = true }
+                        if jump.hasNewBelow { jump.hasNewBelow = false }
+                        lastSeenTurn = latestContentTurn
+                        scrollRequest += 1
+                    }
+                    .onChange(of: chat.historyVersion) { _ in
+                        // 历史重建完成后：
+                        //   首次进入会话 → 滚到底（否则会停在顶部）
+                        //   之后再重建（重连 / 刷新 / 切回会话）→ **不动位置**，
+                        //   只把尾部锚点对齐。原来这里无条件 scrollRequest += 1，
+                        //   用户正上翻历史时会被强行拽到底，看起来就像「又跳新消息」。
+                        if !didInitialScroll {
+                            didInitialScroll = true
+                            if !jump.atBottom { jump.atBottom = true }
+                            if jump.hasNewBelow { jump.hasNewBelow = false }
+                            lastSeenTurn = latestContentTurn
+                            scrollRequest += 1
+                            return
+                        }
+                        // 重建历史不算新内容：把"已看轮次"对齐到最新即可
+                        lastSeenTurn = latestContentTurn
+                    }
+                    .onChange(of: scenePhase) { phase in
+                        guard phase == .active, jump.atBottom else { return }
+                        scrollRequest += 1
+                    }
 
-        // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
-        // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
-        //   （之前用 offset 把它推出 frame，视觉在、点不到）
-        // - overlay 不参与滚动内容，也不占列表高度
-        // - 位置在聊天区右下，离输入栏还有一段距离，不会压到发送键
-        .overlay(alignment: .bottomTrailing) {
-            JumpButtonLayer(
-                state: jump,
-                entryCount: entries.count,
-                onTap: { jumpToBottom() }
-            )
-            .padding(.trailing, 14)
-            .padding(.bottom, 16)
-            // 这里刻意**不**读 jump 的显示状态。
-            // ChatView 持着 @StateObject jump，body 只要读它任何一个属性，
-            // 整个 ChatView（含 composer、toolbar）就会被订阅 ——
-            // atBottom 每翻一次就全树重算一次（实测 body=26 bubble=0 后卡 18 秒）。
-            // 显示与否交给 JumpButtonLayer 自己（它已 @ObservedObject）。
-        }
+                    // 浮动按钮挂在 ScrollView 的 overlay 上、用 padding 定位：
+                    // - padding 让它留在 ScrollView 的 frame 内部，命中区真实存在
+                    //   （之前用 offset 把它推出 frame，视觉在、点不到）
+                    // - overlay 不参与滚动内容，也不占列表高度
+                    // - 位置在聊天区右下，离输入栏还有一段距离，不会压到发送键
+                    .overlay(alignment: .bottomTrailing) {
+                        JumpButtonLayer(
+                            state: jump,
+                            entryCount: entries.count,
+                            onTap: { jumpToBottom() }
+                        )
+                        .padding(.trailing, 14)
+                        .padding(.bottom, 16)
+                        // 这里刻意**不**读 jump 的显示状态。
+                        // ChatView 持着 @StateObject jump，body 只要读它任何一个属性，
+                        // 整个 ChatView（含 composer、toolbar）就会被订阅 ——
+                        // atBottom 每翻一次就全树重算一次（实测 body=26 bubble=0 后卡 18 秒）。
+                        // 显示与否交给 JumpButtonLayer 自己（它已 @ObservedObject）。
+                    }
 
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
-    .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
-        handleFile(result)
-    }
-    // 音乐走文件选择器（相册里没有音频），视频走 PhotosPicker
-    .fileImporter(isPresented: $importingAudio, allowedContentTypes: [.audio], allowsMultipleSelection: false) { result in
-        handleFile(result)
-    }
-    .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
-    .onChange(of: photoItems) { items in
-        guard !items.isEmpty else { return }
-        Task { await loadPhotos(items) }
-    }
-    .photosPicker(isPresented: $showVideos, selection: $videoItems, maxSelectionCount: 3, matching: .videos)
-    .onChange(of: videoItems) { items in
-        guard !items.isEmpty else { return }
-        Task { await loadVideos(items) }
-    }
-    // 所有弹出层集中在一个 modifier 里：
-    // body 每多挂一个 .sheet，Swift 就要对整个表达式重新推断一次 ——
-    // 加两个就直接超时（CI 已复现两次）。
-    .modifier(ChatSheetsModifier(
-        showSearch: $showSearch,
-        entries: visibleEntries,
-        onPickSearch: { picked in
-            // 先确保它还在列表里再滚过去
-            scrollToId = picked.id
-        },
-        summaryEntry: $summaryEntry,
-        forwardPath: $forwardPath,
-        forwardText: $forwardText,
-        showDraftEditor: $showDraftEditor,
-        draft: $draft,
-        editorImage: $editorImage,
-        editingIndex: $editingAttachmentIndex,
-        editorContinuation: $editorContinuation,
-        onPickSummaryFile: { picked in fileEntry = picked },
-        onReplaceAttachment: { index, merged in
-            await replaceAttachment(at: index, with: merged)
-        }
-    ))
-    // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
-    .onChange(of: model.selectedSessionId) { sessionId in
-        guard let sessionId else { return }
-        // 草稿按会话存：切过去要把那一格的内容取回来
-        draft = model.drafts[model.draftKey(sessionId)] ?? ""
-        Task { await model.loadHistory(sessionId) }
-    }
-    }
-    // 首次出现时补一次历史加载。
-    // 之前只在 selectedSessionId **变化**时加载 —— 但 App 启动时
-    // 会话 id 是从 UserDefaults 恢复的，值没变，onChange 不触发，
-    // 于是历史一直是空的（用户实拍：先前的对话看不到）。
-    .task {
-        if let sid = model.selectedSessionId, chat.entries.isEmpty {
-            await model.loadHistory(sid)
-        }
-    }
-    .navigationTitle(title)
-    .navigationBarTitleDisplayMode(.inline)
-    // 系统 tab bar 已由 MainView 整条隐藏（换成自定义底栏），
-    // 这里不要再按焦点切换可见性 —— 会和那边打架、还可能把它闪出来一次。
+                    .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
+                    .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
+                    handleFile(result)
+                    }
+                    // 音乐走文件选择器（相册里没有音频），视频走 PhotosPicker
+                    .fileImporter(isPresented: $importingAudio, allowedContentTypes: [.audio], allowsMultipleSelection: false) { result in
+                    handleFile(result)
+                    }
+                    .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
+                    .onChange(of: photoItems) { items in
+                    guard !items.isEmpty else { return }
+                    Task { await loadPhotos(items) }
+                    }
+                    .photosPicker(isPresented: $showVideos, selection: $videoItems, maxSelectionCount: 3, matching: .videos)
+                    .onChange(of: videoItems) { items in
+                    guard !items.isEmpty else { return }
+                    Task { await loadVideos(items) }
+                    }
+                    // 所有弹出层集中在一个 modifier 里：
+                    // body 每多挂一个 .sheet，Swift 就要对整个表达式重新推断一次 ——
+                    // 加两个就直接超时（CI 已复现两次）。
+                    .modifier(ChatSheetsModifier(
+                    showSearch: $showSearch,
+                    entries: visibleEntries,
+                    onPickSearch: { picked in
+                        // 先确保它还在列表里再滚过去
+                        scrollToId = picked.id
+                    },
+                    summaryEntry: $summaryEntry,
+                    forwardPath: $forwardPath,
+                    forwardText: $forwardText,
+                    showDraftEditor: $showDraftEditor,
+                    draft: $draft,
+                    editorImage: $editorImage,
+                    editingIndex: $editingAttachmentIndex,
+                    editorContinuation: $editorContinuation,
+                    onPickSummaryFile: { picked in fileEntry = picked },
+                    onReplaceAttachment: { index, merged in
+                        await replaceAttachment(at: index, with: merged)
+                    }
+                    ))
+                    // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
+                    .onChange(of: model.selectedSessionId) { sessionId in
+                    guard let sessionId else { return }
+                    // 草稿按会话存：切过去要把那一格的内容取回来
+                    draft = model.drafts[model.draftKey(sessionId)] ?? ""
+                    Task { await model.loadHistory(sessionId) }
+                    }
+                    }
+                    // 首次出现时补一次历史加载。
+                    // 之前只在 selectedSessionId **变化**时加载 —— 但 App 启动时
+                    // 会话 id 是从 UserDefaults 恢复的，值没变，onChange 不触发，
+                    // 于是历史一直是空的（用户实拍：先前的对话看不到）。
+                    .task {
+                    if let sid = model.selectedSessionId, chat.entries.isEmpty {
+                        await model.loadHistory(sid)
+                    }
+                    }
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    // 系统 tab bar 已由 MainView 整条隐藏（换成自定义底栏），
+                    // 这里不要再按焦点切换可见性 —— 会和那边打架、还可能把它闪出来一次。
+                    .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        // 会话列表放不进 Menu：UIMenu 只渲染简单的文本/图片组合，
+                        // 双行布局（标题 + 状态时间）会被吞掉，只剩一个 ✓。改用 sheet。
+                        Button {
+                            showingSessions = true
+                        } label: {
+                            Image(systemName: "list.bullet.rectangle")
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button {
+                                showSearch = true
+                            } label: {
+                                Label("搜索本会话", systemImage: "magnifyingglass")
+                            }
+                            Button {
+                                renameText = model.currentSessionTitle
+                                renaming = true
+                            } label: {
+                                Label("重命名当前对话", systemImage: "pencil")
+                            }
+                            Button {
+                                if let id = model.selectedSessionId { Task { await model.archive(id) } }
+                            } label: {
+                                Label("归档当前对话", systemImage: "archivebox")
+                            }
+                            Divider()
+                            Button {
+                                showingModels = true
+                            } label: {
+                                Label(model.currentModel.map { "模型 · \($0.name)" } ?? "选择模型",
+                                      systemImage: "cpu")
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                clearing = true
+                            } label: {
+                                Label("清除本机记录", systemImage: "trash")
+                            }
+                            Button(role: .destructive) {
+                                Task { await model.cancelCurrentTurn() }
+                            } label: {
+                                Label("停止本轮", systemImage: "stop.circle")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                    // 连接 / 画图状态**不再占顶栏**：顶栏只留「列表 · 标题 · ⋯」，
+                    // 标题因此能完整显示。状态挪到输入区下方那条细状态栏
+                    // （用户要求：下栏的空白放一些显示信息）。
+                    }
+                    .alert("重命名对话", isPresented: $renaming) {
+                    TextField("标题", text: $renameText)
+                    Button("保存") {
+                        if let id = model.selectedSessionId {
+                            Task { await model.rename(id, to: renameText) }
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                    }
+                    .sheet(isPresented: $showingModels) {
+                    ModelPickerSheet()
+                        .environmentObject(model)
+                    }
+                    .sheet(isPresented: $showQueue) {
+                    QueueSheet(chat: chat)
+                        .environmentObject(model)
+                    }
+                    .sheet(isPresented: $showingSessions) {
+                    SessionListSheet()
+                        .environmentObject(model)
+                        .environmentObject(model.sessionList)
+                        .presentationDetents([.medium, .large])
+                    }
+                    .confirmationDialog("清除本机聊天记录", isPresented: $clearing, titleVisibility: .visible) {
+                    Button("保留最近 5 轮") {
+                        if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: 5) }
+                    }
+                    Button("全部清除", role: .destructive) {
+                        if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: nil) }
+                    }
+                    Button("取消", role: .cancel) {}
+                    } message: {
+                    Text("只影响手机上显示的内容，电脑端的会话记录不受影响。")
+                    }
+                    }   // 关闭 GeometryReader
     }
 
     var body: some View {
@@ -324,98 +414,7 @@ struct ChatView: View {
         // 「树太大每帧重算」还是「某一次阻塞操作」，就靠这个数。
         let _ = model.recordBodyEval()
         NavigationStack {
-            // 这里保留 GeometryReader 只为撑满可用高度（之前还兼职算视口高度给
-            // preference 判定用，那套已经删了，别再把布局读数塞回来）
             chatContent
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    // 会话列表放不进 Menu：UIMenu 只渲染简单的文本/图片组合，
-                    // 双行布局（标题 + 状态时间）会被吞掉，只剩一个 ✓。改用 sheet。
-                    Button {
-                        showingSessions = true
-                    } label: {
-                        Image(systemName: "list.bullet.rectangle")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            showSearch = true
-                        } label: {
-                            Label("搜索本会话", systemImage: "magnifyingglass")
-                        }
-                        Button {
-                            renameText = model.currentSessionTitle
-                            renaming = true
-                        } label: {
-                            Label("重命名当前对话", systemImage: "pencil")
-                        }
-                        Button {
-                            if let id = model.selectedSessionId { Task { await model.archive(id) } }
-                        } label: {
-                            Label("归档当前对话", systemImage: "archivebox")
-                        }
-                        Divider()
-                        Button {
-                            showingModels = true
-                        } label: {
-                            Label(model.currentModel.map { "模型 · \($0.name)" } ?? "选择模型",
-                                  systemImage: "cpu")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            clearing = true
-                        } label: {
-                            Label("清除本机记录", systemImage: "trash")
-                        }
-                        Button(role: .destructive) {
-                            Task { await model.cancelCurrentTurn() }
-                        } label: {
-                            Label("停止本轮", systemImage: "stop.circle")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-                // 连接 / 画图状态**不再占顶栏**：顶栏只留「列表 · 标题 · ⋯」，
-                // 标题因此能完整显示。状态挪到输入区下方那条细状态栏
-                // （用户要求：下栏的空白放一些显示信息）。
-            }
-            .alert("重命名对话", isPresented: $renaming) {
-                TextField("标题", text: $renameText)
-                Button("保存") {
-                    if let id = model.selectedSessionId {
-                        Task { await model.rename(id, to: renameText) }
-                    }
-                }
-                Button("取消", role: .cancel) {}
-            }
-            .sheet(isPresented: $showingModels) {
-                ModelPickerSheet()
-                    .environmentObject(model)
-            }
-            .sheet(isPresented: $showQueue) {
-                QueueSheet(chat: chat)
-                    .environmentObject(model)
-            }
-            .sheet(isPresented: $showingSessions) {
-                SessionListSheet()
-                    .environmentObject(model)
-                    .environmentObject(model.sessionList)
-                    .presentationDetents([.medium, .large])
-            }
-            .confirmationDialog("清除本机聊天记录", isPresented: $clearing, titleVisibility: .visible) {
-                Button("保留最近 5 轮") {
-                    if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: 5) }
-                }
-                Button("全部清除", role: .destructive) {
-                    if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: nil) }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("只影响手机上显示的内容，电脑端的会话记录不受影响。")
-            }
-            }   // 关闭 GeometryReader
         }
         // 诊断开关：关掉所有气泡的文本选择（iOS 上由 UITextInteraction 实现，
         // 在 LazyVStack 里反复重排时是有代价的）
