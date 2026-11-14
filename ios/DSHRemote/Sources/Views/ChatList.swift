@@ -19,8 +19,10 @@ struct ChatList: UIViewRepresentable {
     let scrollRequest: Int
     /// 需要滚到某条消息（会话内搜索的结果跳转）；每次给一个新 id 触发一次
     let scrollToId: String?
-    /// 是否允许气泡内文本选择（设置页开关；默认关，避免长按误触"复制/翻译"）
-    let allowsTextSelection: Bool = true
+    /// 是否允许气泡内文本选择（设置页开关）。
+    /// 注意必须用 `var`：`let` 带默认值会被 memberwise init 排除，
+    /// 调用方一传就报 "extra argument"（本轮踩过）。
+    var allowsTextSelection: Bool = true
     /// 滚到顶部附近时回调，加载更早的消息
     let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
