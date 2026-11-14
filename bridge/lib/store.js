@@ -58,6 +58,43 @@ export function writeJson(file, value) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { encoding: "utf8", mode: 0o600 });
   fs.renameSync(tmp, file);
+  hardenAcl(file);
+}
+
+/**
+ * Windows 上把文件 ACL 收紧成「只有当前用户 + SYSTEM」。
+ *
+ * 背景（2026-11-14 隐私审计）：`pair.json` 里是 token 和服务器私钥，
+ * 之前只靠默认继承的 ACL —— 同机其它本地账户能读。
+ * Node 没有 ACL API，这里借 icacls 做一次 best-effort 收紧：
+ * 失败也不影响功能（只是回到原来的继承 ACL）。
+ *
+ * **没有做 DPAPI 加密**是有意的：
+ *   · DPAPI 挡的是"文件被拷走"，但同账户的其它程序照样能解
+ *   · 更麻烦的是换 Windows 账户 / 换机器后解不开 → 手机得重新配对
+ * 收紧 ACL 没有这个失败模式，收益/风险比更好。
+ */
+let aclWarned = false;
+function hardenAcl(file) {
+  if (process.platform !== "win32") return;
+  try {
+    const { spawn } = require("node:child_process");
+    const user = process.env.USERNAME;
+    if (!user) return;
+    const child = spawn(
+      "icacls",
+      [file, "/inheritance:r", "/grant:r", `${user}:F`, "/grant:r", "SYSTEM:F"],
+      { stdio: "ignore", windowsHide: true, detached: false },
+    );
+    child.on("error", () => {
+      if (!aclWarned) {
+        aclWarned = true;
+        console.log("[phone-bridge] icacls 不可用，pair.json 仍用继承 ACL");
+      }
+    });
+  } catch {
+    /* 收紧失败不影响主流程 */
+  }
 }
 
 /** raw 32 字节 X25519 公钥 → SPKI DER（Node 只认 DER/PEM） */

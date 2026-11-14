@@ -266,11 +266,22 @@ function applyBridge(ctx, config) {
       if (!logPath) logPath = path.join(stateDir(), "bridge.log");
       fs.mkdirSync(path.dirname(logPath), { recursive: true });
       try {
-        if (fs.statSync(logPath).size > 2 * 1024 * 1024) fs.writeFileSync(logPath, "");
+        // 轮转而不是清空：以前一超过 2MB 就把整个文件抹掉，
+        // 正好把要排查的那段一起弄丢了（用户实拍："日志突然空了"）。
+        // 现在改成 bridge.log → bridge.log.1（只留一代，最多 2 × 2MB）。
+        if (fs.statSync(logPath).size > 2 * 1024 * 1024) {
+          try { fs.renameSync(logPath, logPath + ".1"); } catch { fs.writeFileSync(logPath, ""); }
+        }
       } catch {
         /* 文件还不存在 */
       }
-      fs.appendFileSync(logPath, JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n");
+      // 脱敏模式：只留 at/step/错误码，丢掉路径、sessionId、自由文本。
+      // 适合把日志发出去排障之前打开。
+      let payload = entry;
+      if (process.env.DSH_PHONE_LOG_MIN === "1") {
+        payload = { step: entry?.step, error: entry?.error, err: entry?.err };
+      }
+      fs.appendFileSync(logPath, JSON.stringify({ at: new Date().toISOString(), ...payload }) + "\n");
     } catch {
       /* 日志失败不能影响主流程 */
     }
