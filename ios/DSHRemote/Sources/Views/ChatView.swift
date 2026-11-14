@@ -738,6 +738,7 @@ struct ChatView: View {
             },
             scrollRequest: scrollRequest,
             scrollToId: scrollToId,
+            allowsTextSelection: model.expTextSelection,
             onLoadOlder: {
                 if let sid = model.selectedSessionId {
                     Task { await model.loadOlder(sid) }

@@ -19,6 +19,8 @@ struct ChatList: UIViewRepresentable {
     let scrollRequest: Int
     /// 需要滚到某条消息（会话内搜索的结果跳转）；每次给一个新 id 触发一次
     let scrollToId: String?
+    /// 是否允许气泡内文本选择（设置页开关；默认关，避免长按误触"复制/翻译"）
+    let allowsTextSelection: Bool
     /// 滚到顶部附近时回调，加载更早的消息
     let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
@@ -151,6 +153,7 @@ struct ChatList: UIViewRepresentable {
                         onTapFilePath: { [weak self] path in
                             self?.parent.onTapFilePath(path)
                         },
+                        allowsTextSelection: parent.allowsTextSelection,
                         isRoleChange: isRoleChange
                     )
                 }
@@ -479,6 +482,11 @@ struct ChatList: UIViewRepresentable {
         // 拖动状态：只用来决定「头部插入能不能现在落地」
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             isDragging = true
+            // 拖动 = 想滚动，不是想选文字：把残留的选区清掉
+            // （用户实报"拖动时选区还在，不容易取消"）
+            collectionView?.visibleCells
+                .compactMap { $0 as? MessageCell }
+                .forEach { $0.clearSelection() }
         }
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -615,7 +623,9 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         textView.delegate = self          // 链接点击必须由 delegate 处理
         textView.isEditable = false
         textView.isScrollEnabled = false          // 高度由内容决定，交给 cell
-        textView.isSelectable = true
+        // 默认不可选：长按会立刻弹出"复制/翻译"，滚动时选区还挂着 ——
+        // 用户实报"不容易取消、触发太快"。需要复制的场景去设置页打开开关。
+        textView.isSelectable = false
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
@@ -686,7 +696,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         // 工具行整行可点：打开「工具详情」（含它读过的图片）。
         // 只对 .toolCall 生效 —— 其它行里的 dsh:// 链接靠 UITextView 自己的
         // delegate 处理，不要让一个手势去抢点击。
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleRowTap))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         textView.addGestureRecognizer(tap)
     }
@@ -720,6 +730,47 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         default:
             return ""
         }
+    }
+
+    /// 命中测试：这个点上有没有 `.link` 属性？有就返回那个 URL。
+    ///
+    /// 为什么自己做：iOS 17 起 UITextView 的链接判定走 `UITextItemInteraction`
+    /// 那套新 API，老的 `shouldInteractWith` 不再被调用 —— 结果是
+    /// 表格里的「▸ 查看完整表格」这种自定义 scheme 链接点不动（用户实报）。
+    private func linkURL(at point: CGPoint) -> URL? {
+        guard !textView.isHidden else { return nil }
+        let container = textView.textContainer
+        let layout = textView.layoutManager
+        // 把点击位置换算成 textContainer 坐标（去掉 inset 与行内 padding）
+        var p = point
+        p.x -= textView.textContainerInset.left
+        p.y -= textView.textContainerInset.top
+        let index = layout.characterIndex(
+            for: p,
+            in: container,
+            fractionOfDistanceBetweenInsertionPoints: nil
+        )
+        guard index < textView.attributedText.length else { return nil }
+        // 点到字外（行尾空白）时 characterIndex 会给最近的字符，做一次矩形校验
+        let glyphRange = layout.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+        let rect = layout.boundingRect(forGlyphRange: glyphRange, in: container)
+        guard rect.insetBy(dx: -6, dy: -6).contains(p) else { return nil }
+        return textView.attributedText.attribute(.link, at: index, effectiveRange: nil) as? URL
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        if let url = linkURL(at: gesture.location(in: textView)) {
+            onOpenLink?(url)
+            return
+        }
+        // 点到空白处：顺手取消文本选区（否则选区会一直挂着）
+        clearSelection()
+    }
+
+    /// 清掉文本选区（滚动、点空白、复用前都调）
+    func clearSelection() {
+        guard textView.isSelectable else { return }
+        textView.selectedTextRange = nil
     }
 
     @objc private func handleRowTap() {
@@ -796,11 +847,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         onTapEntry: ((String) -> Void)? = nil,
         onTapFile: ((String) -> Void)? = nil,
         onTapFilePath: ((String) -> Void)? = nil,
+        allowsTextSelection: Bool = false,
         isRoleChange: Bool = false
     ) {
         currentEntry = entry
         self.onOpenLink = onOpenLink
         self.onTapFilePath = onTapFilePath
+        textView.isSelectable = allowsTextSelection
         // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强。
         // 工具行（运行命令 / 读取 / 写入…）属于「过程」，和上一行贴紧一点，
         // 否则一轮十几条读起来像散开的日志（用户反馈行距偏大）。
