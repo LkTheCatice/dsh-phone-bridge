@@ -8,7 +8,7 @@
 | [部署](部署.md) | 从零装一台新电脑（含 Tailscale 跨网） |
 | [侧载](侧载.md) | 把 IPA 装到 iPhone（Sideloadly / AltStore） |
 | [移植](移植.md) | 换电脑 / 换手机 / 开源后给别人用 |
-| [续签](续签.md) | 7 天签名到期怎么办（AltStore 自动续签 / 付费账号） |
+| [续签](续签.md) | 7 天签名到期怎么办（同一 WiFi 自动续签的逐步操作 / 付费账号） |
 | [协议](协议.md) | HTTP 接口、E2EE 握手、帧格式 |
 
 ## 给维护者
@@ -25,8 +25,10 @@
 ## 自测脚本
 
 ```powershell
-powershell -File tools\preflight.ps1     # 环境预检（只读）
+powershell -File tools\preflight.ps1     # 环境预检（只读）：Windows / Node / profile / 端口 / 内网 IP
 powershell -File tools\selftest\run.ps1  # Foundation 层 188 项断言（需 Swift，可选）
-node tools\pentest.mjs --run             # 安全 19 项
-node tools\privacy-audit.mjs             # 隐私面
+node tools\pentest.mjs --run             # 安全 19 项（含 path 穿越 / 重放 / 限速）
+node tools\privacy-audit.mjs             # 隐私面（匿名端点、日志内容、落盘形态）
 ```
+
+> 跑 `pentest` 的限速用例会把本机 IP 拉黑 60 秒 —— 它排在最后，跑完稍等再做别的本机请求。
