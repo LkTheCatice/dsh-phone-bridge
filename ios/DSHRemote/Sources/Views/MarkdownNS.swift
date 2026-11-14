@@ -344,29 +344,44 @@ enum MarkdownNS {
                 let cannotFit = colCount >= 3 || estimated > 44
                 if cannotFit {
                     let out = NSMutableAttributedString()
-                    let headFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-                    let nameFont = UIFont.systemFont(ofSize: 13, weight: .regular)
+                    let indexFont = UIFont.systemFont(ofSize: 12, weight: .bold)
+                    let nameFont = UIFont.systemFont(ofSize: 12, weight: .regular)
                     let valueFont = UIFont.systemFont(ofSize: 14, weight: .regular)
                     let shown = Array(rows.prefix(6))
 
+                    // 版式（2026-11-14 重做）：
+                    //   · 首列（序号/文件名）与第二列**同一行**，不再孤零零占一行
+                    //   · 同一块的后续列缩进两格对齐在下面，和"序号"一起读成一条记录
+                    //   · 块与块之间留 14pt，比块内行距大，视觉上分组清楚
+                    //   · 末尾给一条可点的「查看完整表格」，走 dsh://detail（详情页只渲染表格）
                     for (r, row) in shown.enumerated() {
-                        // 首列：加粗小标题
                         let head = row.first ?? ""
-                        let title = NSMutableAttributedString(
-                            attributedString: Self.inline(head, base: headFont)
-                        )
+                        let second = row.count > 1 ? row[1] : ""
+
+                        let title = NSMutableAttributedString()
+                        if !head.isEmpty {
+                            title.append(NSAttributedString(string: head + "  ", attributes: [
+                                .font: indexFont,
+                                .foregroundColor: UIColor.tintColor,
+                            ]))
+                        }
+                        if !second.isEmpty {
+                            title.append(Self.inline(second, base: valueFont))
+                        }
                         title.addAttribute(
                             .paragraphStyle,
-                            value: Self.style(spacingAfter: 2, spacingBefore: r == 0 ? 0 : 12, lineSpacing: 1),
+                            value: Self.style(spacingAfter: 2, spacingBefore: r == 0 ? 0 : 14, lineSpacing: 2),
                             range: NSRange(location: 0, length: title.length)
                         )
                         out.append(title)
                         out.append(NSAttributedString(string: "\n"))
 
-                        // 其余列：列名：值
-                        for (c, cell) in row.enumerated() where c > 0 {
+                        // 第三列起：缩进 + 列名，挂在同一条记录下面
+                        for (c, cell) in row.enumerated() where c > 1 {
                             let name = c < headers.count ? headers[c] : ""
-                            let line = NSMutableAttributedString()
+                            let line = NSMutableAttributedString(string: "　　", attributes: [
+                                .font: nameFont,
+                            ])
                             if !name.isEmpty {
                                 line.append(NSAttributedString(string: "\(name)：", attributes: [
                                     .font: nameFont,
@@ -376,7 +391,7 @@ enum MarkdownNS {
                             line.append(Self.inline(cell, base: valueFont))
                             line.addAttribute(
                                 .paragraphStyle,
-                                value: Self.style(spacingAfter: 0, lineSpacing: 2),
+                                value: Self.style(spacingAfter: 0, lineSpacing: 2, headIndent: 24, firstLineIndent: 24),
                                 range: NSRange(location: 0, length: line.length)
                             )
                             out.append(line)
@@ -384,11 +399,22 @@ enum MarkdownNS {
                         }
                     }
 
-                    if rows.count > shown.count {
-                        out.append(NSAttributedString(string: "…\n", attributes: [
-                            .font: UIFont.systemFont(ofSize: 13),
-                            .foregroundColor: UIColor.tertiaryLabel,
-                        ]))
+                    // 截断（行数或被压缩的列）→ 给「查看完整表格」入口
+                    // 只用本分支内可见的量：行数被截、或单元格宽度已经把列压扁过
+                    let truncated = rows.count > shown.count || widestCell > 24
+                    if truncated && mode == .compact, let url = URL(string: "dsh://detail") {
+                        let hint = NSMutableAttributedString(string: "▸ 查看完整表格（\(rows.count) 行）", attributes: [
+                            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+                            .foregroundColor: UIColor.tintColor,
+                            .link: url,
+                        ])
+                        hint.addAttribute(
+                            .paragraphStyle,
+                            value: Self.style(spacingAfter: 0, spacingBefore: 12, lineSpacing: 0),
+                            range: NSRange(location: 0, length: hint.length)
+                        )
+                        out.append(hint)
+                        out.append(NSAttributedString(string: "\n"))
                     }
                     return out
                 }
