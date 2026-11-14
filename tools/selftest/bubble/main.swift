@@ -27,7 +27,7 @@ check(BubbleIds.answer("session-xyz", turn: 269, segment: 1) != after, "不同�
 check(BubbleIds.thinking(sid, turn: 269, segment: 1) != after, "思考块与正文不撞 id")
 
 // 2) 占位匹配：服务端回显多出 `[附件] …` 时也要认成同一条
-let sent = "报这个\n[附件] E:/AI/ComfyUI/ComfyUI/output/uploads/1794495466-image-0.jpg"
+let sent = "看一下这个\n[附件] D:/output/sample-01.jpg"
 check(BubbleIds.sameMessage("报这个", sent), "占位(纯文本) 应匹配 回显(带附件)")
 check(BubbleIds.sameMessage(sent, "报这个"), "顺序无关")
 check(BubbleIds.sameMessage("  报这个  ", "报这个"), "首尾空白应忽略")
