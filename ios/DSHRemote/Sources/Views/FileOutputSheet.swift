@@ -17,6 +17,9 @@ struct FileOutputSheet: View {
     @State private var showShare = false
     /// 正在转发到别的会话
     @State private var showForward = false
+    /// 标注（PencilKit 画布）：先把原图拉下来，再进编辑器
+    @State private var annotateImage: UIImage?
+    @State private var annotating = false
 
     private var path: String { entry.detail ?? "" }
     private var kind: FileKind { FileKind(path: path) }
@@ -64,6 +67,21 @@ struct FileOutputSheet: View {
                     }
                     .disabled(loading)
                 }
+                // 标注：图片才有。以前画笔只能从"附件"进，产物图片进不去
+                if kind == .image {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Task { await openAnnotate() }
+                        } label: {
+                            if annotating {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "pencil.tip.crop.circle")
+                            }
+                        }
+                        .disabled(annotating)
+                    }
+                }
                 // 转发：只发路径引用，不传文件本体 ——
                 // 手机打不开的类型（dmg/exe/7z…）也能转，且不耗流量。
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,6 +92,16 @@ struct FileOutputSheet: View {
                     }
                     .disabled(path.isEmpty)
                 }
+            }
+            .sheet(item: $annotateImage) { image in
+                ImageEditorSheet(
+                    image: image,
+                    onCommit: { merged in
+                        annotateImage = nil
+                        saveAnnotated(merged)
+                    },
+                    onCancel: { annotateImage = nil }
+                )
             }
             .sheet(isPresented: $showForward) {
                 ForwardSessionSheet(path: path)
@@ -135,6 +163,30 @@ struct FileOutputSheet: View {
                 error = "读不到文件内容（可能不在电脑允许的目录里）"
             }
         }
+    }
+
+    /// 拉一张 2048px 的图进标注器（和「看图」用的 900px 缩略图分开：
+    /// 标注后的笔迹要压在更清晰的底图上，否则放大看全是糊的）
+    private func openAnnotate() async {
+        guard !annotating else { return }
+        annotating = true
+        defer { annotating = false }
+        do {
+            let data = try await model.download(path: path, preview: true, maxWidth: 2048)
+            guard let image = UIImage(data: data) else {
+                error = "这张图读不出来"
+                return
+            }
+            annotateImage = image
+        } catch {
+            self.error = "取原图失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 标注完成：存相册（产物在电脑上，手机上最自然的去处就是相册）
+    private func saveAnnotated(_ image: UIImage) {
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        model.showToast("已存到相册")
     }
 
     private func download() async {
