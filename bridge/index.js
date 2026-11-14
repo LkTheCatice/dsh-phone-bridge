@@ -364,7 +364,7 @@ function applyBridge(ctx, config) {
 
   const pair = ensurePairState();
   const notifier = createNotifier(cfg.notify);
-  const frames = new FrameBuffer(3000);
+  const frames = new FrameBuffer(12000);
   const streamClients = new Set();
   const e2ee = new Map(); // clientId -> {c2s, s2c, createdAt, lastSeen, name}
   const approvals = new Map(); // id -> {tool, reason, since, decide}
@@ -1310,10 +1310,19 @@ function applyBridge(ctx, config) {
     // 判断依据：since 比当前末尾还大，说明这个游标来自上一轮进程 —— 当作 0 处理，
     // 把缓冲区里现有的帧都补一遍（手机端按条目 id 去重，重复应用无害）。
     const rawSince = Number(url.searchParams.get("since")) || 0;
-    const since = rawSince > frames.lastSeq ? 0 : rawSince;
+    let since = rawSince > frames.lastSeq ? 0 : rawSince;
+    // 缺口检测：客户端游标比缓冲区最老帧还小 → 中间那段已经滚出缓冲，永久丢了。
+    // 先发一条 stream.gap 让界面能明确提示"离线期间有帧未收到"，而不是静默少一段。
+    const oldest = frames.oldestSeq;
+    let gap = null;
+    if (since > 0 && oldest > 0 && since < oldest - 1) {
+      gap = { type: "stream.gap", from: since + 1, to: oldest - 1, lost: oldest - 1 - since };
+      logLine({ step: "stream.gap", lost: gap.lost, since, oldest });
+    }
     if (since !== rawSince) {
       logLine({ step: "stream.since-reset", asked: rawSince, lastSeq: frames.lastSeq });
     }
+    if (gap) send({ ...gap, seq: frames.lastSeq });
     for (const frame of frames.since(since)) send(frame);
 
     const beat = setInterval(() => {

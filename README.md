@@ -126,7 +126,9 @@ phone-dsh/
 token 换了（`pairing.mjs --rotate` 或删过 `pair.json`）→ 重新配对。
 
 **Q：App 打不开 / 闪退**
-免费签名 7 天到期 → 用 Sideloadly 重签重装。
+免费签名 7 天到期 → 用 Sideloadly 重签重装（不会丢数据）。
+不想每 7 天来一次就配 AltStore 自动续签，见 [docs/续签.md](docs/续签.md)。
+App 的「设置 → 安装与签名」里能看到**还剩几天**。
 
 **Q：`roots` 该填什么**
 填你希望手机能看到的目录（比如产物目录、项目目录），**不要填 `D:\`**。

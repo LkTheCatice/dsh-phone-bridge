@@ -481,6 +481,51 @@ struct ChatList: UIViewRepresentable {
     }
 }
 
+// MARK: - 长按菜单
+
+extension MessageCell: UIContextMenuInteractionDelegate {
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard let entry = currentEntry else { return nil }
+        let text = quotableText
+        guard !text.isEmpty else { return nil }
+
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self else { return nil }
+            var actions: [UIMenuElement] = []
+
+            actions.append(UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { _ in
+                UIPasteboard.general.string = text
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            })
+
+            actions.append(UIAction(title: "引用到输入框", image: UIImage(systemName: "text.quote")) { _ in
+                let quoted = text
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .prefix(6)
+                    .map { "> " + $0 }
+                    .joined(separator: "\n")
+                if let url = URL(string: "dsh://quote?text=" + (quoted.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")) {
+                    self.onOpenLink?(entry.id, url)
+                }
+            })
+
+            // 产物类才给「转发」：文本转发的语义应该走"引用 + 说明"，不是发文件
+            if entry.kind == .fileOutput || entry.kind == .fileSummary {
+                actions.append(UIAction(title: "转发到其它会话", image: UIImage(systemName: "paperplane")) { _ in
+                    if let url = URL(string: "dsh://forward") {
+                        self.onOpenLink?(entry.id, url)
+                    }
+                })
+            }
+
+            return UIMenu(children: actions)
+        }
+    }
+}
+
 // MARK: - Cell
 
 /// 一条消息一个 cell。第一版先用 UITextView 承载纯文本（富文本在下一阶段接上）。
@@ -545,6 +590,8 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private var stackTopSpacing: CGFloat = 8 {
         didSet { topConstraint?.constant = stackTopSpacing }
     }
+    /// 长按菜单（懒加载，cell 复用时保留）
+    private var contextMenu: UIContextMenuInteraction?
     /// 当前渲染的条目（高度缓存要按它生成 key）
     private var currentEntry: ChatEntry?
 
@@ -627,6 +674,37 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleRowTap))
         tap.cancelsTouchesInView = false
         textView.addGestureRecognizer(tap)
+    }
+
+    // MARK: - 长按菜单（复制 / 引用 / 转发）
+    //
+    // 用 UIContextMenuInteraction 而不是给 textView 加手势：
+    // 文本选择、链接点击都在这条链上，抢手势会把它们弄坏。
+    // 「引用 / 转发」都通过**已有的** onOpenLink 回调走 dsh:// 路由 ——
+    // 不给 ChatView 增加新的闭包参数（那会让那个超长 body 的类型推断超时，踩过两次）。
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        if contextMenu == nil {
+            let menu = UIContextMenuInteraction(delegate: self)
+            contentView.addInteraction(menu)
+            contextMenu = menu
+        }
+    }
+
+    private var quotableText: String {
+        guard let entry = currentEntry else { return "" }
+        switch entry.kind {
+        case .user, .assistant, .thinking, .toolCall:
+            return entry.text
+        case .fileOutput:
+            return entry.detail ?? entry.text
+        case .fileSummary:
+            return entry.folded.compactMap { $0.detail }.joined(separator: "\n")
+        default:
+            return ""
+        }
     }
 
     @objc private func handleRowTap() {

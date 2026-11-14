@@ -417,4 +417,15 @@ export class FrameBuffer {
   get lastSeq() {
     return this.items.length ? this.items[this.items.length - 1].seq : 0;
   }
+
+  /**
+   * 缓冲区里最老一帧的 seq。
+   *
+   * 用途：手机断线期间的帧一旦超过缓冲容量，重连时 since 会落在最老帧之前 ——
+   * 那一段就是**永久丢失**的。以前是静悄悄地少一段，用户只看到"过程断了"，
+   * 分不清是没跑还是丢了。现在用它发一条显式的缺口帧。
+   */
+  get oldestSeq() {
+    return this.items.length ? this.items[0].seq : 0;
+  }
 }

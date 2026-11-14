@@ -656,6 +656,24 @@ final class AppModel: ObservableObject {
             }
         }
 
+        // 桥端发现手机离线太久、缓冲已经滚掉了中间一段 → 显式提示，
+        // 否则用户只看到"过程断了"，分不清是没跑还是丢了（2026-11-14 判定）。
+        if type == "stream.gap" {
+            let lost = (frame["lost"] as? NSNumber)?.intValue ?? 0
+            if lost > 0 {
+                let target = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
+                append(target, ChatEntry(
+                    id: "\(target)#gap\(UUID().uuidString)",
+                    kind: .system,
+                    text: "离线期间有 \(lost) 条过程记录未送达（超出电脑端缓冲）。已从磁盘补齐历史，但中间步骤可能不完整。",
+                    at: Self.frameDate(frame),
+                    turn: currentTurn[target] ?? 0,
+                    order: 500
+                ))
+            }
+            return
+        }
+
         // 队列帧要在会话过滤**之前**处理。
         // 原因：agent/inbox/spliced 的 data 里不一定带 sessionId，
         // 落到下面的 sid 比较就会不匹配、被 return 掉 —— 表现就是

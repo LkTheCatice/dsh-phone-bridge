@@ -124,6 +124,24 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section {
+                    LabeledContent("签名有效期") {
+                        Text(SigningInfo.summary)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(SigningInfo.shouldWarn ? Color.orange : Color.secondary)
+                    }
+                    if SigningInfo.shouldWarn {
+                        Text("免费签名只有 7 天。到期后 App 会直接打不开（不是崩溃，是系统拒绝启动）。用 Sideloadly 重新拖一次 IPA 即可，聊天记录与配对都还在。")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("安装与签名")
+                } footer: {
+                    Text("想不用每 7 天重装：① AltStore/SideStore 自动续签（同一 WiFi 下自动完成）② 付费开发者账号（证书 1 年）。详见 docs/续签.md")
+                        .font(.caption2)
+                }
+
                 Section("加密") {
                     Text("传输层：每个请求体用 AES-256-GCM 加密，AAD 绑定方法与路径，重放到别的端点会解密失败。")
                         .font(.caption)

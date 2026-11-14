@@ -9,6 +9,10 @@ struct ChatView: View {
     @EnvironmentObject private var chat: ChatStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    /// 全屏写长指令（输入框最高只有 140pt，长文本憋屈）
+    @State private var showDraftEditor = false
+    /// 长按产物「转发到其它会话」时带的路径（非 nil 就弹转发面板）
+    @State private var forwardPath: String?
     /// 输入框高度（1~5 行自适应）
     @State private var inputHeight: CGFloat = 38
     /// 上传进度（已完成张数, 总张数），nil 表示没在上传
@@ -228,6 +232,22 @@ struct ChatView: View {
                             detailEntry = target
                         case "attachments":
                             attachmentEntry = target
+                        case "quote":
+                            // 长按「引用到输入框」：把那几行接在当前草稿后面
+                            if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                               let quoted = comps.queryItems?.first(where: { $0.name == "text" })?.value {
+                                let prefix = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : draft + "\n\n"
+                                draft = prefix + quoted + "\n\n"
+                                focused = true
+                            }
+                        case "forward":
+                            // 长按产物行「转发到其它会话」：直接开转发面板
+                            if let target, let path = target.detail, !path.isEmpty {
+                                forwardPath = path
+                            } else if let target, target.kind == .fileSummary,
+                                      let firstPath = target.folded.first?.detail, !firstPath.isEmpty {
+                                forwardPath = firstPath
+                            }
                         default:
                             break   // 普通链接由系统处理
                         }
@@ -331,6 +351,13 @@ struct ChatView: View {
                 Task { await loadVideos(items) }
             }
             // 抽成 modifier：这一整段闭包留在 body 里会让整条链的类型推断超时
+            .sheet(item: $forwardPath) { path in
+                ForwardSessionSheet(path: path)
+                    .environmentObject(model)
+            }
+            .sheet(isPresented: $showDraftEditor) {
+                DraftEditorSheet(text: $draft)
+            }
             .modifier(ImageEditorModifier(
                 image: $editorImage,
                 editingIndex: $editingAttachmentIndex,
@@ -661,6 +688,18 @@ struct ChatView: View {
                         .foregroundStyle(uploading ? Color.secondary : Color.accentColor)
                 }
                 .disabled(uploading)
+
+                // 展开成全屏写：长指令在 140pt 的小框里写很憋屈
+                Button {
+                    focused = false
+                    showDraftEditor = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("全屏编辑")
 
                 // 用自己的 UITextView 包一层：SwiftUI 的 TextField 在键盘弹出
                 // 引起布局变化时会重建底层控件，把第一个按键（拼音首字母）丢掉。
