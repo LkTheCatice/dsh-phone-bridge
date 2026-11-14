@@ -153,7 +153,7 @@ struct ChatList: UIViewRepresentable {
                         onTapFilePath: { [weak self] path in
                             self?.parent.onTapFilePath(path)
                         },
-                        allowsTextSelection: parent.allowsTextSelection,
+                        allowsTextSelection: self?.parent.allowsTextSelection ?? false,
                         isRoleChange: isRoleChange
                     )
                 }
