@@ -358,11 +358,18 @@ enum MarkdownNS {
                         let head = row.first ?? ""
                         let second = row.count > 1 ? row[1] : ""
 
+                        // 每条记录用「▍」起头（和消息前缀 ▍AI / ▍我 同一套视觉语言），
+                        // 序号用次要灰、正文用 label —— 只靠留白和一条竖线分组，
+                        // 不用底色也不用主题蓝（蓝在这里暗示"可点"，会误导）。
                         let title = NSMutableAttributedString()
+                        title.append(NSAttributedString(string: "▍", attributes: [
+                            .font: UIFont.systemFont(ofSize: 13, weight: .regular),
+                            .foregroundColor: UIColor.tertiaryLabel,
+                        ]))
                         if !head.isEmpty {
                             title.append(NSAttributedString(string: head + "  ", attributes: [
                                 .font: indexFont,
-                                .foregroundColor: UIColor.tintColor,
+                                .foregroundColor: UIColor.secondaryLabel,
                             ]))
                         }
                         if !second.isEmpty {
@@ -370,16 +377,16 @@ enum MarkdownNS {
                         }
                         title.addAttribute(
                             .paragraphStyle,
-                            value: Self.style(spacingAfter: 2, spacingBefore: r == 0 ? 0 : 14, lineSpacing: 2),
+                            value: Self.style(spacingAfter: 2, spacingBefore: r == 0 ? 0 : 13, lineSpacing: 2),
                             range: NSRange(location: 0, length: title.length)
                         )
                         out.append(title)
                         out.append(NSAttributedString(string: "\n"))
 
-                        // 第三列起：缩进 + 列名，挂在同一条记录下面
+                        // 第三列起：缩进挂在同一条记录下面
                         for (c, cell) in row.enumerated() where c > 1 {
                             let name = c < headers.count ? headers[c] : ""
-                            let line = NSMutableAttributedString(string: "　　", attributes: [
+                            let line = NSMutableAttributedString(string: "　", attributes: [
                                 .font: nameFont,
                             ])
                             if !name.isEmpty {
@@ -391,7 +398,12 @@ enum MarkdownNS {
                             line.append(Self.inline(cell, base: valueFont))
                             line.addAttribute(
                                 .paragraphStyle,
-                                value: Self.style(spacingAfter: 0, lineSpacing: 2, headIndent: 24, firstLineIndent: 24),
+                                value: Self.style(
+                                    spacingAfter: 0,
+                                    lineSpacing: 2,
+                                    headIndent: 22,
+                                    firstLineIndent: 22
+                                ),
                                 range: NSRange(location: 0, length: line.length)
                             )
                             out.append(line)
@@ -403,14 +415,17 @@ enum MarkdownNS {
                     // 只用本分支内可见的量：行数被截、或单元格宽度已经把列压扁过
                     let truncated = rows.count > shown.count || widestCell > 24
                     if truncated && mode == .compact, let url = URL(string: "dsh://detail") {
-                        let hint = NSMutableAttributedString(string: "▸ 查看完整表格（\(rows.count) 行）", attributes: [
-                            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
-                            .foregroundColor: UIColor.tintColor,
+                        // 灰色 + 下划线表示可点：不再占用主题蓝（那是"主要操作"的颜色）
+                        let hint = NSMutableAttributedString(string: "查看完整表格（\(rows.count) 行） ›", attributes: [
+                            .font: UIFont.systemFont(ofSize: 12, weight: .regular),
+                            .foregroundColor: UIColor.secondaryLabel,
+                            .underlineStyle: NSUnderlineStyle.single.rawValue,
+                            .underlineColor: UIColor.tertiaryLabel,
                             .link: url,
                         ])
                         hint.addAttribute(
                             .paragraphStyle,
-                            value: Self.style(spacingAfter: 0, spacingBefore: 12, lineSpacing: 0),
+                            value: Self.style(spacingAfter: 0, spacingBefore: 10, lineSpacing: 0),
                             range: NSRange(location: 0, length: hint.length)
                         )
                         out.append(hint)

@@ -125,6 +125,13 @@ struct ChatList: UIViewRepresentable {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
 
+        /// 清掉所有可见 cell 的选区（点列表空白 / 切会话时用）
+        func clearAllSelections() {
+            collectionView?.visibleCells
+                .compactMap { $0 as? MessageCell }
+                .forEach { $0.clearSelection() }
+        }
+
         func attach(_ view: UICollectionView) {
             collectionView = view
             dataSource = UICollectionViewDiffableDataSource<String, String>(collectionView: view) { [weak self] cv, indexPath, id in
@@ -484,11 +491,9 @@ struct ChatList: UIViewRepresentable {
         // 拖动状态：只用来决定「头部插入能不能现在落地」
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             isDragging = true
-            // 拖动 = 想滚动，不是想选文字：把残留的选区清掉
-            // （用户实报"拖动时选区还在，不容易取消"）
-            collectionView?.visibleCells
-                .compactMap { $0 as? MessageCell }
-                .forEach { $0.clearSelection() }
+            // **不清选区**：用户要的是"选中之后还能拖着滚"。
+            // 取消选区的入口只有一个 —— 单击选区外的任意位置（见 handleTap /
+            // 列表空白处的 tap），别在滚动时偷偷清掉。
         }
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -503,6 +508,20 @@ struct ChatList: UIViewRepresentable {
         // 不再实现 didSelectItemAt：它会抢走 UITextView 里的链接点击，
         // 导致「蓝色链接点不开」。点开详情改由 attributed string 里的
         // dsh://detail 链接触发（见 MessageRender）。
+    }
+}
+
+// MARK: - 手势优先级
+
+extension MessageCell: UIGestureRecognizerDelegate {
+    /// 列表级 tap 只在「没被 cell 内手势吃掉」时才生效
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        // 点到 textView / 卡片上时，不拦（它们各自有处理）
+        let point = touch.location(in: self)
+        return !textView.frame.contains(point)
     }
 }
 
@@ -702,6 +721,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         textView.addGestureRecognizer(tap)
+
+        // 列表级 tap：点空白或另一条消息也能取消选区。
+        // cancelsTouchesInView = false → 不会影响 cell 里的链接/按钮。
+        let clearTap = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTap))
+        clearTap.cancelsTouchesInView = false
+        clearTap.delegate = self
+        addGestureRecognizer(clearTap)
     }
 
     // MARK: - 长按菜单（复制 / 引用 / 转发）
@@ -768,6 +794,14 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         }
         // 点到空白处：顺手取消文本选区（否则选区会一直挂着）
         clearSelection()
+    }
+
+    @objc private func handleBackgroundTap(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: self)
+        // 点在文字区域外面 → 取消选区；点在文字上交给 textView 自己
+        if !textView.frame.contains(point) || textView.isHidden {
+            clearSelection()
+        }
     }
 
     /// 清掉文本选区（滚动、点空白、复用前都调）
