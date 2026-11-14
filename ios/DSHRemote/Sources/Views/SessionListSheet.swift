@@ -109,7 +109,7 @@ struct SessionListSheet: View {
                                         Text(session.displayTitle)
                                             .lineLimit(1)
                                             .foregroundStyle(.secondary)
-                                        Text("已归档 · \(session.relativeTime)")
+                                        Text("已归档 · \(session.timeLabel)")
                                             .font(.system(size: 11))
                                             .foregroundStyle(.tertiary)
                                     }
@@ -197,7 +197,7 @@ struct SessionListSheet: View {
         } else if model.unreadSessions.contains(session.id) {
             parts.append("已完成")
         }
-        if !session.relativeTime.isEmpty { parts.append(session.relativeTime) }
+        if !session.timeLabel.isEmpty { parts.append(session.timeLabel) }
         if parts.isEmpty { parts.append(session.cwdName ?? session.cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "") }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }

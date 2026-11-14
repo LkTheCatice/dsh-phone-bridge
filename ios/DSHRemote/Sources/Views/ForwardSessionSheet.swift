@@ -94,14 +94,14 @@ struct ForwardSessionSheet: View {
     /// 单行会话：标题 + 相对时间（没有就退化成 id 后 8 位）
     ///
     /// 单独成函数是有原因的：写在 ForEach 里那句
-    /// `row.relativeTime.isEmpty ? row.id.suffix(8) : row.relativeTime`
+    /// `row.timeLabel.isEmpty ? row.id.suffix(8) : row.timeLabel`
     /// 把 String 和 Substring 混在一个三元里，Swift 的类型推断会直接超时
     /// （CI 报 "unable to type-check this expression in reasonable time"）。
     @ViewBuilder
     private func rowLabel(_ row: SessionRow) -> some View {
-        let subtitle: String = row.relativeTime.isEmpty
+        let subtitle: String = row.timeLabel.isEmpty
             ? String(row.id.suffix(8))
-            : row.relativeTime
+            : row.timeLabel
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.displayTitle).font(.system(size: 14))

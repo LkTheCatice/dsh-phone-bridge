@@ -33,10 +33,55 @@ final class ImageCache {
     private let failedCapacity = 200
 
     func cached(_ path: String) -> UIImage? { cache[path] }
+
+    /// 内存缓存淘汰（磁盘缓存命中后也要走一次，保持「最近用过的留在内存」）
+    private func trimIfNeeded() {
+        while order.count > capacity, let oldest = order.first {
+            order.removeFirst()
+            cache.removeValue(forKey: oldest)
+        }
+    }
     func isFailed(_ path: String) -> Bool { failed.contains(path) }
+
+    /// 磁盘缓存目录（`Caches/thumbs`）：App 重启后不必重新下载
+    private static let diskDir: URL? = {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let dir = base.appendingPathComponent("thumbs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func diskKey(_ path: String) -> String {
+        // 路径里的非法字符多，直接取稳定哈希做文件名
+        let hash = path.utf8.reduce(UInt64(0xcbf1_9ce4_8422_2325)) { h, b in
+            (h ^ UInt64(b)) &* 0x0000_0100_0000_01b3
+        }
+        return String(hash, radix: 16)
+    }
+
+    private static func diskLoad(_ path: String) -> UIImage? {
+        guard let dir = diskDir else { return nil }
+        let file = dir.appendingPathComponent(diskKey(path))
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return UIImage(data: data)
+    }
+
+    private static func diskSave(_ path: String, image: UIImage) {
+        guard let dir = diskDir else { return }
+        let file = dir.appendingPathComponent(diskKey(path))
+        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
+        try? data.write(to: file, options: .atomic)
+    }
 
     func load(path: String, model: AppModel) async -> UIImage? {
         if let hit = cache[path] { return hit }
+        // 内存没命中先看磁盘 —— 这是「重启后全部重下」的根因
+        if let disk = Self.diskLoad(path) {
+            cache[path] = disk
+            order.append(path)
+            trimIfNeeded()
+            return disk
+        }
         if failed.contains(path) { return nil }
         model.markMain("img:download")
         do {
@@ -56,6 +101,7 @@ final class ImageCache {
                 return nil
             }
             cache[path] = image
+            Self.diskSave(path, image: image)
             order.removeAll { $0 == path }
             order.append(path)
             // 图片很占内存，缓存到 24 张就淘汰最旧的

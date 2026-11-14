@@ -609,6 +609,15 @@ struct ChatView: View {
                     Button { showFiles = true } label: {
                         Label("文件", systemImage: "folder")
                     }
+                    // 剪贴板里真有图片时才显示这一项 —— 从别的 App 复制截图过来直接贴
+                    if UIPasteboard.general.hasImages {
+                        Divider()
+                        Button {
+                            pasteImageFromClipboard()
+                        } label: {
+                            Label("粘贴图片", systemImage: "doc.on.clipboard")
+                        }
+                    }
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 26))
@@ -776,6 +785,33 @@ struct ChatView: View {
             // 闭包体抽成方法：内联在这里会让整个 body 表达式类型推断超时
             onOpenLink: handleOpenLink,
         )
+    }
+
+    /// 把剪贴板里的图片当作附件加进待发送列表。
+    ///
+    /// 以前只能走「+ → 图片 → 相册」，从微信/浏览器复制了一张截图还得先存相册再选，
+    /// 两步变四步。这里直接读 `UIPasteboard.general.image`。
+    private func pasteImageFromClipboard() {
+        guard let image = UIPasteboard.general.image else {
+            model.showToast("剪贴板里没有图片")
+            return
+        }
+        // 统一压成 JPEG 再上传：截图常常是 PNG，体积能差 5–10 倍
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            model.showToast("这张图读不出来")
+            return
+        }
+        uploading = true
+        Task {
+            do {
+                let name = "paste-\(Int(Date().timeIntervalSince1970)).jpg"
+                let remote = try await model.uploadAttachment(data, filename: name)
+                attachments.append(remote)
+            } catch {
+                model.showToast("粘贴失败：\(error.localizedDescription)")
+            }
+            uploading = false
+        }
     }
 
     private func submit() {

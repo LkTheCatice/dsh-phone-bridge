@@ -19,10 +19,17 @@ struct SessionRow: Identifiable, Hashable {
     }
 
     /// 「2 分钟前」这类相对时间
-    var relativeTime: String {
-        guard let updatedAt else { return "" }
-        let date = Date(timeIntervalSince1970: updatedAt / 1000)
-        let diff = Date().timeIntervalSince(date)
+    /// 预先算好的相对时间（在解析时算一次）。
+    ///
+    /// 以前这里是**计算属性**：列表 60 行、每次 body 重算都会跑一遍
+    /// `Date()` + 字符串插值，滚动时是纯浪费。现在由 `parse` 填好。
+    var timeLabel: String = ""
+
+    /// 计算相对时间的纯函数（解析时调用一次，UI 直接读 `timeLabel`）
+    static func makeTimeLabel(from updatedMs: Double?, now: Date = Date()) -> String {
+        guard let updatedMs else { return "" }
+        let date = Date(timeIntervalSince1970: updatedMs / 1000)
+        let diff = now.timeIntervalSince(date)
         if diff < 0 { return "刚刚" }
         if diff < 60 { return "刚刚" }
         if diff < 3600 { return "\(Int(diff / 60)) 分钟前" }
@@ -37,7 +44,7 @@ struct SessionRow: Identifiable, Hashable {
         }
         let stamp = (dict["updatedAt"] as? NSNumber)?.doubleValue
         let cwd = dict["cwd"] as? String
-        return SessionRow(
+        var row = SessionRow(
             id: id,
             title: dict["title"] as? String,
             cwd: cwd,
@@ -46,6 +53,8 @@ struct SessionRow: Identifiable, Hashable {
             // 预计算：UI 每行都要用，别在 body 里解析 URL
             cwdName: cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
         )
+        row.timeLabel = SessionRow.makeTimeLabel(from: row.updatedAt)
+        return row
     }
 }
 

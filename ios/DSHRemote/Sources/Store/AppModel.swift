@@ -1102,7 +1102,10 @@ final class AppModel: ObservableObject {
     /// 插进去立刻又被 trimIfNeeded 从头部裁掉，等于白拉。
     /// 现在放到 300：初始 400 帧约合 100 条消息，加上一两次上拉正好够，
     /// 超出 340（cap + trimSlack）才开始裁头部。
-    private static let maxEntriesPerSession = 300
+    /// 单个会话在内存里保留的条目上限。
+    /// 从 300 提到 600：列表是 cell 复用，条数多不会增加渲染成本，
+    /// 但能让"往上翻旧记录"少撞到裁剪边界（用户实拍：翻着翻着上面就没了）。
+    private static let maxEntriesPerSession = 600
     /// 满 cap 之后不要每条都裁：裁一次是 O(n) 的全量 filter，而流式输出时
     /// 每个 delta 都会走一遍 append —— 等于每帧一次 220 元素的复制。
     /// 留一截余量（cap + 40）再裁，裁剪次数降到 1/40，内存上限仍然是硬的。
@@ -1127,6 +1130,10 @@ final class AppModel: ObservableObject {
     /// 折叠块从中间切开，界面上会露出一半。
     private func trimIfNeeded(_ sessionId: String) {
         guard !suppressTrim else { return }
+        // **当前正在看的会话不裁**：用户往上翻历史时，头部内容突然被裁掉
+        // 会表现为"翻着翻着上面没了、而且再往上拉又得重新请求"。
+        // 切换会话时（selectSession）会对旧会话补一次裁剪，内存不会无限涨。
+        guard sessionId != selectedSessionId else { return }
         let cap = Self.maxEntriesPerSession
         guard let list = entries[sessionId], list.count > cap + Self.trimSlack else { return }
         var keepFrom = 0
