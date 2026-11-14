@@ -184,6 +184,11 @@ struct ChatView: View {
                     },
                     onTapEntry: { id in
                         guard let target = visibleEntries.first(where: { $0.id == id }) else { return }
+                        // 产物清单卡的「还有 N 个」也走这条路（不新增闭包，避免 body 推断超时）
+                        if target.kind == .fileSummary {
+                            summaryEntry = target
+                            return
+                        }
                         // 工具行：打开「工具详情」——里面有参数/结果，以及**它读过的图片**
                         // （ToolDetailSheet 会用 ToolSummary.imagePaths 从 detail 里扫路径，
                         //  再用 RemoteImage 拉电脑那边的预览图）。
@@ -203,9 +208,6 @@ struct ChatView: View {
                         fileEntry = visibleEntries.first { $0.id == id }
                     },
                     // 清单卡里点某一行：直接按路径开（那一行没有独立的 ChatEntry）
-                    onTapFileSummary: { id in
-                        summaryEntry = visibleEntries.first { $0.id == id }
-                    },
                     onTapFilePath: { path in
                         fileEntry = ChatEntry(
                             id: "summary-\(path)",
