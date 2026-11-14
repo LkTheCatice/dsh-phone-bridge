@@ -256,23 +256,19 @@ struct ChatView: View {
 
                     .safeAreaInset(edge: .bottom, spacing: 0) { composer }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
-                    .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
-                    handleFile(result)
-                    }
-                    // 音乐走文件选择器（相册里没有音频），视频走 PhotosPicker
-                    .fileImporter(isPresented: $importingAudio, allowedContentTypes: [.audio], allowsMultipleSelection: false) { result in
-                    handleFile(result)
-                    }
-                    .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 9, matching: .images)
-                    .onChange(of: photoItems) { items in
-                    guard !items.isEmpty else { return }
-                    Task { await loadPhotos(items) }
-                    }
-                    .photosPicker(isPresented: $showVideos, selection: $videoItems, maxSelectionCount: 3, matching: .videos)
-                    .onChange(of: videoItems) { items in
-                    guard !items.isEmpty else { return }
-                    Task { await loadVideos(items) }
-                    }
+                                        // 附件选择（文件/相册）收进 modifier：这几个 .onChange/.photosPicker
+                    // 直接挂在链上会让整条 chatContent 表达式类型推断超时
+                    .modifier(ChatPickersModifier(
+                        showFiles: $showFiles,
+                        importingAudio: $importingAudio,
+                        showPhotos: $showPhotos,
+                        photoItems: $photoItems,
+                        showVideos: $showVideos,
+                        videoItems: $videoItems,
+                        onFile: { result in handleFile(result) },
+                        onPhotos: { items in await loadPhotos(items) },
+                        onVideos: { items in await loadVideos(items) }
+                    ))
                     // 所有弹出层集中在一个 modifier 里：
                     // body 每多挂一个 .sheet，Swift 就要对整个表达式重新推断一次 ——
                     // 加两个就直接超时（CI 已复现两次）。
