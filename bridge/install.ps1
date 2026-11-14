@@ -2,17 +2,19 @@
   dsh-phone-bridge 安装器
 
   做的事：
-    1. 把插件放进 %DSH_HOME%\profiles\<Profile>\node_modules\dsh-phone-bridge
+    1. 检查 Node 24+、DSH profile 是否存在
+    2. 把插件放进 %USERPROFILE%\.dsh\profiles\<Profile>\node_modules\dsh-phone-bridge
        —— 默认建 junction 链接指向本目录：源码留在原盘，C 盘占用 0 字节
-    2. 备份 cordis.patch.yml，追加一条 phone-bridge 配置（幂等）
-    3. 打印配对串，等你重启 DeepSeek Harness
+    3. 备份 cordis.patch.yml，追加一条 phone-bridge 配置（幂等）
+    4. 打印配对串
 
   用法：
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-    ... -Link:$false                               # 不建链接，直接复制
-    ... -StateDir 'D:\dsh-phone-bridge'            # token/密钥也放到别的盘
-    ... -LanHost 192.168.1.23                      # 额外监听内网 IP
-    ... -Profile web -Port 8899
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\bridge\install.ps1
+    ... -Roots "D:\work\output"                    # 手机允许读写的目录（可多个，逗号分隔）
+    ... -LanHost 192.168.1.23                      # 固定局域网 IP（留空=自动探测）
+    ... -Port 8899 -Profile web
+    ... -StateDir 'D:\dsh-phone-bridge'            # token/密钥放到别的盘
+    ... -Link:$false                               # 不建链接，直接复制（跨盘/无权限时用）
 #>
 
 param(
@@ -21,15 +23,39 @@ param(
   [string]$LanHost = "",
   [int]$Port = 8765,
   [string]$StateDir = "",
+  [string[]]$Roots = @(),
   [bool]$Link = $true
 )
 
 $ErrorActionPreference = "Stop"
 
+function Fail($msg) {
+  Write-Host ""
+  Write-Host "✗ $msg" -ForegroundColor Red
+  Write-Host ""
+  exit 1
+}
+
 $src = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# ── 0. 前置检查（新机器最常缺的两样） ──────────────────────
+$node = Get-Command node -ErrorAction SilentlyContinue
+if (-not $node) { Fail "没找到 node。先装 Node 24+：winget install OpenJS.NodeJS" }
+$nodeVer = (& node -v) 2>$null
+if ($nodeVer -notmatch 'v(\d+)' -or [int]$Matches[1] -lt 24) {
+  Write-Host "⚠ Node $nodeVer 版本偏低。桥用到 node:zlib 的 zstd（24+），"
+  Write-Host "  低版本读不了会话历史，但不影响启动。建议升级：winget upgrade OpenJS.NodeJS"
+}
+
 $profileDir = Join-Path $DshHome "profiles\$Profile"
 if (-not (Test-Path $profileDir)) {
-  throw "找不到 profile 目录：$profileDir（先用 dsh 启动一次这个 profile）"
+  $available = @()
+  $profilesRoot = Join-Path $DshHome "profiles"
+  if (Test-Path $profilesRoot) {
+    $available = Get-ChildItem $profilesRoot -Directory | Select-Object -ExpandProperty Name
+  }
+  $hint = if ($available.Count -gt 0) { "现有 profile：$($available -join ', ')" } else { "没有任何 profile —— 先启动一次 DeepSeek Harness 桌面版" }
+  Fail "找不到 profile 目录：$profileDir`n  $hint`n  也可以显式指定：-Profile <名字>"
 }
 
 $target = Join-Path $profileDir "node_modules\dsh-phone-bridge"
@@ -40,29 +66,35 @@ if (Test-Path $target) {
   $existing = Get-Item $target -Force
   if ($existing.LinkType) {
     [System.IO.Directory]::Delete($target, $false)
-    Write-Host "[0/4] 移除旧链接（源码未受影响）"
+    Write-Host "[1/5] 移除旧链接（源码未受影响）"
   } else {
     Remove-Item -Recurse -Force $target
-    Write-Host "[0/4] 移除旧的复制目录"
+    Write-Host "[1/5] 移除旧的复制目录"
   }
 }
 
 New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
 
 if ($Link) {
-  Write-Host "[1/4] 建立 junction -> $src"
-  New-Item -ItemType Junction -Path $target -Target $src | Out-Null
-  Write-Host "       C 盘占用：0 字节（只是链接）"
-} else {
-  Write-Host "[1/4] 复制插件 -> $target"
-  Copy-Item -Recurse -Force $src $target
-  foreach ($skip in @("test", "install.ps1", "uninstall.ps1", ".git")) {
-    $p = Join-Path $target $skip
-    if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+  try {
+    New-Item -ItemType Junction -Path $target -Target $src -ErrorAction Stop | Out-Null
+    Write-Host "[2/5] 建立 junction -> $src（C 盘占用 0 字节）"
+  } catch {
+    Write-Host "[2/5] 建立链接失败（$($_.Exception.Message)），改为复制" -ForegroundColor Yellow
+    $Link = $false
   }
 }
+if (-not $Link) {
+  Copy-Item -Recurse -Force $src $target
+  foreach ($skip in @("test", "install.ps1", "uninstall.ps1", "bin", "lib", "node_modules", ".git")) {
+    if ($skip -in @("bin", "lib")) { continue }   # bin/lib 是运行时必需的
+    $p = Join-Path $target $skip
+    if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
+  }
+  Write-Host "[2/5] 已复制插件 -> $target"
+}
 
-Write-Host "[2/4] 备份 cordis.patch.yml"
+Write-Host "[3/5] 备份 cordis.patch.yml"
 $patch = Join-Path $profileDir "cordis.patch.yml"
 if (-not (Test-Path $patch)) { New-Item -ItemType File -Path $patch | Out-Null }
 Copy-Item $patch "$patch.before-phone-bridge-$stamp"
@@ -70,13 +102,19 @@ Write-Host "       备份：$patch.before-phone-bridge-$stamp"
 
 $text = Get-Content $patch -Raw
 if ($text -match "dsh-phone-bridge") {
-  Write-Host "[3/4] 配置已存在，跳过写入（改配置请手改 cordis.patch.yml）"
+  Write-Host "[4/5] 配置已存在，跳过写入"
+  Write-Host "       （要改 lanHost / roots 请手改 cordis.patch.yml，然后重启 DSH）"
 } else {
-  Write-Host "[3/4] 追加插件配置"
+  Write-Host "[4/5] 追加插件配置"
   $lan = if ($LanHost) { "`"$LanHost`"" } else { '""' }
+  $rootLines = ""
+  if ($Roots.Count -gt 0) {
+    $rootLines = ($Roots | ForEach-Object { "          - '$($_.Trim())'" }) -join "`r`n"
+  }
+  $stateLine = if ($StateDir) { "        stateDir: '$StateDir'`r`n" } else { "" }
   $block = @"
 
-# 手机遥控端（可运行 uninstall.ps1 移除）
+# 手机遥控端（可运行 bridge\uninstall.ps1 移除）
 - insert:
     - id: phone-bridge
       name: dsh-phone-bridge
@@ -86,33 +124,39 @@ if ($text -match "dsh-phone-bridge") {
         askPhone: true
         approvalTimeoutMs: 90000
         requireE2ee: true
-        roots: []
+$stateLine        roots:
+$rootLines
         notify:
           kind: ""
           server: ""
           key: ""
 "@
-  if ($StateDir) {
-    $block = $block -replace "(?m)^        roots: \[\]", "        stateDir: '$StateDir'`r`n        roots: []"
-  }
   Add-Content -Path $patch -Value $block -Encoding UTF8
+  if ($Roots.Count -eq 0) {
+    Write-Host "       ⚠ roots 为空：手机暂时读不到任何文件，改 cordis.patch.yml 里的 roots 后重启" -ForegroundColor Yellow
+  }
 }
 
-Write-Host "[4/4] 生成配对凭据"
+Write-Host "[5/5] 生成配对串"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-$env:DSH_PHONE_BRIDGE_DIR = if ($StateDir) { $StateDir } else { "" }
-$pairing = (& node (Join-Path $src "bin\pairing.mjs") 2>$null | Select-Object -First 1)
+if ($StateDir) { $env:DSH_PHONE_BRIDGE_DIR = $StateDir }
+$pairing = (& node (Join-Path $src "bin\pairing.mjs") 2>&1 | Select-Object -First 3) -join "`n"
 $ErrorActionPreference = $prevEap
 
 Write-Host ""
-Write-Host "================ 下一步 ================"
-Write-Host "1. 完全退出 DeepSeek Harness（托盘也退），重新打开"
-Write-Host "2. 启动后在日志里看到 [phone-bridge] 监听 127.0.0.1:$Port 即成功"
-Write-Host "3. 拿这条串去手机 App 里粘贴配对："
+Write-Host "================ 下一步 ================" -ForegroundColor Cyan
+Write-Host "1. 完全退出 DeepSeek Harness（含托盘），重新打开"
+Write-Host "2. 首次启动后，日志里应出现："
+Write-Host "     [phone-bridge] 监听 127.0.0.1:$Port"
+Write-Host "     [phone-bridge] 局域网监听 <你的内网IP>:$Port（自动探测）"
+Write-Host "3. 再跑一次本命令（或 node bridge\bin\pairing.mjs）拿配对串："
 Write-Host ""
-Write-Host $pairing
+if ($pairing -match 'dshnb://') {
+  Write-Host $pairing -ForegroundColor Green
+} else {
+  Write-Host "  （现在还没有凭据 —— 桥只在 DSH 里运行时生成 pair.json，先完成第 1 步）" -ForegroundColor Yellow
+}
 Write-Host ""
-Write-Host "外网访问（推荐）：tailscale serve --bg --https=443 $Port"
-Write-Host "  之后手机连 https://<机器名>.<tailnet>.ts.net"
+Write-Host "手机端：先装 IPA（见 README「手机侧」），再粘贴上面的 dshnb:// 串"
 Write-Host "========================================="

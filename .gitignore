@@ -24,5 +24,7 @@ Thumbs.db
 .codemagic-token
 
 
-# 误操作留下的字面量临时路径
-%TEMP%/
+
+# 宣传片素材（与 App 功能无关，体积大）
+docs/ui-demo/frames/
+docs/ui-demo/out/

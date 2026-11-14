@@ -12,11 +12,23 @@
 # 所以构建和取包都改走这条链路。
 
 param(
-    [string]$Repo = "LkTheCatice/dsh-phone-bridge",
+    [string]$Repo = "",
     [switch]$Latest   # 取最近一次构建（不论成功失败）；默认只取成功的
 )
 
 $ErrorActionPreference = "Stop"
+
+# 仓库名：没显式传就用当前 git remote（换 fork / 换账号都不用改脚本）
+if (-not $Repo) {
+  try {
+    $url = (& git remote get-url origin) 2>$null
+    if ($url -match 'github\.com[:/](.+?)(\.git)?$') { $Repo = $Matches[1] }
+  } catch { }
+}
+if (-not $Repo) {
+  Write-Host "✗ 拿不到仓库名（不是 git 仓库？）请显式传 -Repo owner/name" -ForegroundColor Red
+  exit 1
+}
 $base = "https://api.codemagic.io"
 
 # ---- token ----

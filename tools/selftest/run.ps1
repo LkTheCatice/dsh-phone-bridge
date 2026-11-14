@@ -6,11 +6,20 @@
 
 $ErrorActionPreference = "Stop"
 
+# Swift 工具链：先看 PATH，再看默认安装目录（不同机器装法不一样）
+$swiftCmd = Get-Command swiftc -ErrorAction SilentlyContinue
 $swiftRoot = Join-Path $env:LOCALAPPDATA "Programs\Swift"
-if (-not (Test-Path $swiftRoot)) {
-    Write-Host "✗ 未找到 Swift 工具链（$swiftRoot）" -ForegroundColor Red
-    Write-Host "  安装：winget install --id Swift.Toolchain --accept-package-agreements --accept-source-agreements"
+if (-not $swiftCmd -and -not (Test-Path $swiftRoot)) {
+    Write-Host "✗ 未找到 Swift 工具链" -ForegroundColor Red
+    Write-Host "  这是**可选**的本地自测（Foundation 层断言），没有也不影响桥和 App。" -ForegroundColor Yellow
+    Write-Host "  想跑就装：winget install --id Swift.Toolchain --accept-package-agreements --accept-source-agreements"
     exit 2
+}
+if ($swiftCmd) {
+    # PATH 里就有：直接用
+    $swiftBin = Split-Path $swiftCmd.Source -Parent
+    Write-Host "Swift: $($swiftCmd.Source)"
+    & (Join-Path $swiftBin "swiftc.exe") --version 2>&1 | Select-Object -First 1
 }
 
 $toolchain = Get-ChildItem (Join-Path $swiftRoot "Toolchains") -Directory |
