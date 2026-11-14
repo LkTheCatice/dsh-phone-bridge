@@ -64,6 +64,43 @@ const PUBLIC_PATHS = new Set(["/v1/health", "/v1/handshake"]);
  * 从 storages/workspace.json 读，不猜 process.cwd()：
  * Electron 进程的 cwd 是 profile 目录，根本不是用户以为的"工作区"。
  */
+/**
+ * 探测本机局域网 IPv4。
+ *
+ * 用途：`lanHost` 没配时自动挑一个，避免"换 WiFi 后手机连不上"。
+ * 做法是 UDP "connect" 到公网地址：不真的发包，只让系统选出一条出口网卡，
+ * 然后读 socket 的本地地址 —— 这是拿到"对外 IP"最省事且不依赖外部服务的办法。
+ */
+function detectLanIp() {
+  /**
+   * 用 os.networkInterfaces() 挑一个"像物理网卡"的 IPv4。
+   *
+   * 为什么不用 UDP connect：`dgram.connect` 是异步的，回调没到之前
+   * `sock.address()` 还是 0.0.0.0 —— 第一次写就是这么踩的（探测永远返回空）。
+   */
+  try {
+    const os = require("node:os");
+    const all = os.networkInterfaces() || {};
+    const skip = /(loopback|vmware|virtualbox|vethernet|hyper-v|docker|wsl|tap|tun|bluetooth)/i;
+    const prefer = /(wi-?fi|wlan|以太网|ethernet|en0|eth)/i;
+    const candidates = [];
+    for (const [name, list] of Object.entries(all)) {
+      if (!list || skip.test(name)) continue;
+      for (const item of list) {
+        if (!item || item.family !== "IPv4" || item.internal) continue;
+        const ip = String(item.address || "");
+        if (!ip || ip.startsWith("127.") || ip.startsWith("169.254.")) continue;
+        candidates.push({ name, ip, preferred: prefer.test(name) ? 1 : 0 });
+      }
+    }
+    if (!candidates.length) return "";
+    candidates.sort((a, b) => b.preferred - a.preferred);
+    return candidates[0].ip;
+  } catch {
+    return "";
+  }
+}
+
 function detectWorkspaceRoots() {
   const out = [];
   try {
@@ -251,6 +288,27 @@ function applyBridge(ctx, config) {
     stalls: { count: 0, maxMs: 0, over1s: 0, last: [] },
     queue: { items: null, at: null, target: null },
   };
+  /**
+   * 把日志里出现的绝对路径压成「…/文件名」。
+   *
+   * 起因（隐私审计）：bridge.log 里会记下 `D:\...\千问1生图\xxx.png` 这种完整路径，
+   * 等于把用户的目录结构写进了一个明文日志文件。默认改成只留文件名，
+   * 需要完整路径时设 DSH_PHONE_LOG_FULL=1。
+   */
+  const PATH_RE = /(?:[A-Za-z]:[\\/]|\\{2}[^\\s"']+[\\/])(?:[^\\s"'<>|*?\r\n]+[\\/])*([^\\s"'<>|*?\r\n\\/]+)/g;
+  function redactPaths(value) {
+    if (typeof value === "string") {
+      return value.replace(PATH_RE, (_m, base) => (base ? "…/" + base : "…"));
+    }
+    if (Array.isArray(value)) return value.map(redactPaths);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = redactPaths(v);
+      return out;
+    }
+    return value;
+  }
+
   function logLine(entry) {
     try {
       // 顺手把手机报上来的卡顿记进统计（logLine 里就有一行 STUCK …ms mark=…）
@@ -275,11 +333,15 @@ function applyBridge(ctx, config) {
       } catch {
         /* 文件还不存在 */
       }
-      // 脱敏模式：只留 at/step/错误码，丢掉路径、sessionId、自由文本。
-      // 适合把日志发出去排障之前打开。
+      // 脱敏：
+      //   默认 —— 把绝对路径压成「…/文件名」，避免日志里带出你的目录结构
+      //   LOG_MIN=1 —— 只留 at/step/错误码（更狠，丢掉路径与会话 id）
+      //   LOG_FULL=1 —— 完全原样（自己排障时用）
       let payload = entry;
       if (process.env.DSH_PHONE_LOG_MIN === "1") {
         payload = { step: entry?.step, error: entry?.error, err: entry?.err };
+      } else if (process.env.DSH_PHONE_LOG_FULL !== "1") {
+        payload = redactPaths(entry);
       }
       fs.appendFileSync(logPath, JSON.stringify({ at: new Date().toISOString(), ...payload }) + "\n");
     } catch {
@@ -306,17 +368,80 @@ function applyBridge(ctx, config) {
   const streamClients = new Set();
   const e2ee = new Map(); // clientId -> {c2s, s2c, createdAt, lastSeen, name}
   const approvals = new Map(); // id -> {tool, reason, since, decide}
-  /** 认证失败计数：来源 IP → { start, count }（滑动 60 秒窗口） */
+  /**
+   * 认证失败计数：来源 IP → { start, count }
+   *
+   * 升级（2026-11-14）：
+   *   · 阈值分档：20 次 → 封 1 分钟；40 次 → 5 分钟；80 次 → 30 分钟
+   *   · **跨重启保留**：写到 stateDir/authfails.json，避免"重启就清空"绕过
+   */
   const authFails = new Map();
+  const AUTH_FAIL_FILE = () => path.join(stateDir(), "authfails.json");
+  const BAN_STEPS = [
+    { count: 80, ms: 30 * 60 * 1000 },
+    { count: 40, ms: 5 * 60 * 1000 },
+    { count: 20, ms: 60 * 1000 },
+  ];
+  let authFailsLoaded = false;
+  function loadAuthFails() {
+    if (authFailsLoaded) return;
+    authFailsLoaded = true;
+    try {
+      const doc = readJson(AUTH_FAIL_FILE(), null);
+      if (doc && typeof doc === "object") {
+        for (const [ip, row] of Object.entries(doc)) {
+          if (!row || typeof row !== "object") continue;
+          const start = Number(row.start) || 0;
+          const count = Number(row.count) || 0;
+          const bannedUntil = Number(row.bannedUntil) || 0;
+          if (!count) continue;
+          // 超过 24 小时没动静的直接丢掉（别把文件越写越大）
+          if (Date.now() - Math.max(start, bannedUntil) > 24 * 60 * 60 * 1000) continue;
+          authFails.set(ip, { start, count, bannedUntil });
+        }
+      }
+    } catch {
+      /* 读不到就当空表 */
+    }
+  }
+  function saveAuthFails() {
+    try {
+      const doc = {};
+      for (const [ip, row] of authFails) doc[ip] = row;
+      fs.mkdirSync(stateDir(), { recursive: true });
+      fs.writeFileSync(AUTH_FAIL_FILE(), JSON.stringify(doc), "utf8");
+    } catch {
+      /* 写失败不影响限速本身 */
+    }
+  }
   function noteAuthFail(req) {
+    loadAuthFails();
     const src = String(req.socket?.remoteAddress || "-");
     const now = Date.now();
     const row = authFails.get(src);
-    if (!row || now - row.start > 60000) authFails.set(src, { start: now, count: 1 });
-    else row.count += 1;
-    if (authFails.size > 200) {
-      for (const [k, v] of authFails) if (now - v.start > 60000) authFails.delete(k);
+    if (!row) {
+      authFails.set(src, { start: now, count: 1, bannedUntil: 0 });
+    } else {
+      // 已经过了封禁期且距上次失败超过 10 分钟 → 重新计数
+      const stale = now - row.start > 10 * 60 * 1000 && now > (row.bannedUntil || 0);
+      if (stale) {
+        authFails.set(src, { start: now, count: 1, bannedUntil: 0 });
+      } else {
+        row.count += 1;
+        for (const step of BAN_STEPS) {
+          if (row.count >= step.count) {
+            row.bannedUntil = Math.max(row.bannedUntil || 0, now + step.ms);
+            break;
+          }
+        }
+      }
     }
+    if (authFails.size > 200) {
+      for (const [k, v] of authFails) {
+        if (now - (v.start || 0) > 60 * 60 * 1000 && now > (v.bannedUntil || 0)) authFails.delete(k);
+      }
+    }
+    saveAuthFails();
   }
 
   /** 转发去重：key = 目标会话|路径|说明 → 上次发送时间 */
@@ -1350,7 +1475,7 @@ function applyBridge(ctx, config) {
           fingerprint: pair.fingerprint,
           createdAt: pair.createdAt,
           port: cfg.port,
-          lanHost: cfg.lanHost,
+          lanHost: effectiveLanHost,
           e2eeRequired: cfg.requireE2ee,
           stateDir: stateDir(),
         },
@@ -1432,13 +1557,17 @@ function applyBridge(ctx, config) {
     // token 是 43 字符随机串，暴力破解本来就不现实；
     // 这条是防"日志灌注 / 白跑 CPU"：以前 15 次错 token 全返回 401，没有任何成本。
     {
+      loadAuthFails();
       const src = String(req.socket?.remoteAddress || "-");
       const now = Date.now();
-      const row = authFails.get(src);
-      if (row && now - row.start > 60000) authFails.delete(src);
       const cur = authFails.get(src);
-      if (cur && cur.count >= 20) {
-        throw new HttpError(429, "too-many-attempts", "认证失败次数过多，请稍后再试");
+      if (cur && (cur.bannedUntil || 0) > now) {
+        const left = Math.ceil(((cur.bannedUntil - now) / 1000));
+        throw new HttpError(429, "too-many-attempts", `认证失败次数过多，请 ${left} 秒后再试`);
+      }
+      // 滑窗过期且没有封禁 → 清掉，重新开始计数
+      if (cur && now - (cur.start || 0) > 10 * 60 * 1000 && now > (cur.bannedUntil || 0)) {
+        authFails.delete(src);
       }
     }
 
@@ -2476,6 +2605,35 @@ function applyBridge(ctx, config) {
     console.log("[phone-bridge] 已关闭");
   }, "phone-bridge.http");
 
+  // lanHost：配置优先；没配就自动探测（换网络不用改配置）
+  const effectiveLanHost = cfg.lanHost || detectLanIp();
+
+  // 只看一眼系统盘加没加密：没加密就提醒一次（不阻断，也不影响启动）
+  // 动机：会话日志只压缩不加密，磁盘没加密 = 硬盘被拿走就能读全量对话。
+  setTimeout(() => {
+    try {
+      const { spawn } = require("node:child_process");
+      const child = spawn(
+        "powershell",
+        ["-NoProfile", "-NonInteractive", "-Command",
+          "$v=(Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop).ProtectionStatus; Write-Output $v"],
+        { stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
+      );
+      let out = "";
+      child.stdout.on("data", (b) => { out += b.toString(); });
+      child.on("error", () => {});
+      child.on("close", () => {
+        const value = out.trim();
+        if (/^(0|Off)$/i.test(value)) {
+          console.warn("[phone-bridge] 提示：系统盘未开启 BitLocker。会话日志只压缩不加密，建议开启磁盘加密。");
+          logLine({ step: "warn.bitlocker", protection: "off" });
+        }
+      });
+    } catch {
+      /* 查不到就算了 */
+    }
+  }, 4000);
+
   server.listen(cfg.port, "127.0.0.1", () => {
     const address = server.address();
     const actual = typeof address === "object" && address ? address.port : cfg.port;
@@ -2483,12 +2641,17 @@ function applyBridge(ctx, config) {
     console.log(`[phone-bridge] 监听 127.0.0.1:${actual}`);
     console.log(`[phone-bridge] 配对串: dshnb://pair?host=127.0.0.1&port=${actual}&token=${pair.token}&fp=${pair.fingerprint}`);
     console.log(`[phone-bridge] 状态目录: ${stateDir()}`);
-    if (cfg.lanHost) {
+    if (effectiveLanHost) {
       const lan = http.createServer(makeHandler("lan"));
-      lan.listen(actual, cfg.lanHost, () => {
-        console.log(`[phone-bridge] 局域网监听 ${cfg.lanHost}:${actual}（内容仍需 E2EE 解密）`);
+      lan.listen(actual, effectiveLanHost, () => {
+        const how = cfg.lanHost ? "配置" : "自动探测";
+        console.log(`[phone-bridge] 局域网监听 ${effectiveLanHost}:${actual}（${how}，内容仍需 E2EE 解密）`);
+        console.log(`[phone-bridge] 手机可用: dshnb://pair?host=${effectiveLanHost}&port=${actual}&token=***&fp=${pair.fingerprint}`);
       });
-      lan.on("error", (error) => console.error(`[phone-bridge] 局域网监听失败: ${error?.message || error}`));
+      lan.on("error", (error) => {
+        // 探测到的 IP 被占用/换网时不要影响 loopback 服务
+        console.error(`[phone-bridge] 局域网监听 ${effectiveLanHost} 失败（不影响本机使用）: ${error?.message || error}`);
+      });
       ctx.effect(() => () => {
         try {
           lan.close();

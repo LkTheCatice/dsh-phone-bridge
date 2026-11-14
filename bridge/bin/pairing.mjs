@@ -13,6 +13,9 @@
  */
 
 import { readPairState, rotateToken, stateDir } from "../lib/store.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith("--")));
@@ -37,7 +40,33 @@ if (!state) {
   process.exit(1);
 }
 
-const host = positional[0] || "127.0.0.1";
+// 不带 host 参数时自动探测局域网 IP：
+// 以前默认 127.0.0.1，手机扫出来的二维码指向它自己，永远连不上。
+function detectLanIp() {
+  // 挑第一个"像物理网卡"的 IPv4（跳过 loopback / 虚拟网卡 / 169.254 自分配）
+  try {
+    const os = require("node:os");
+    const all = os.networkInterfaces() || {};
+    const skip = /(loopback|vmware|virtualbox|vethernet|hyper-v|docker|wsl|tap|tun|bluetooth)/i;
+    const prefer = /(wi-?fi|wlan|以太网|ethernet|en0|eth)/i;
+    const candidates = [];
+    for (const [name, list] of Object.entries(all)) {
+      if (!list || skip.test(name)) continue;
+      for (const item of list) {
+        if (!item || item.family !== "IPv4" || item.internal) continue;
+        const ip = String(item.address || "");
+        if (!ip || ip.startsWith("127.") || ip.startsWith("169.254.")) continue;
+        candidates.push({ ip, preferred: prefer.test(name) ? 1 : 0 });
+      }
+    }
+    candidates.sort((a, b) => b.preferred - a.preferred);
+    return candidates[0]?.ip || "127.0.0.1";
+  } catch {
+    return "127.0.0.1";
+  }
+}
+
+const host = positional[0] || detectLanIp();
 const port = positional[1] || "8765";
 
 const uri = `dshnb://pair?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}&token=${encodeURIComponent(state.token)}&fp=${encodeURIComponent(state.fingerprint)}`;
