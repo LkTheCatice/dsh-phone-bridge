@@ -225,33 +225,8 @@ struct ChatView: View {
                     onTapAttachments: { id in
                         attachmentEntry = visibleEntries.first { $0.id == id }
                     },
-                    onOpenLink: { id, url in
-                        let target = visibleEntries.first { $0.id == id }
-                        switch url.host ?? url.path {
-                        case "detail", "":
-                            detailEntry = target
-                        case "attachments":
-                            attachmentEntry = target
-                        case "quote":
-                            // 长按「引用到输入框」：把那几行接在当前草稿后面
-                            if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                               let quoted = comps.queryItems?.first(where: { $0.name == "text" })?.value {
-                                let prefix = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : draft + "\n\n"
-                                draft = prefix + quoted + "\n\n"
-                                focused = true
-                            }
-                        case "forward":
-                            // 长按产物行「转发到其它会话」：直接开转发面板
-                            if let target, let path = target.detail, !path.isEmpty {
-                                forwardPath = path
-                            } else if let target, target.kind == .fileSummary,
-                                      let firstPath = target.folded.first?.detail, !firstPath.isEmpty {
-                                forwardPath = firstPath
-                            }
-                        default:
-                            break   // 普通链接由系统处理
-                        }
-                    }
+                    // 闭包体抽成方法：内联在这里会让整个 body 表达式类型推断超时
+                    onOpenLink: handleOpenLink,
                 )
                 .onChange(of: chat.tick) { _ in
                     // 「新消息」只看尾巴：末条 id 变了（真来了新条）或末条正文变长
@@ -749,6 +724,34 @@ struct ChatView: View {
         .background(.bar)
     }
 
+
+    /// 消息里的 dsh:// 链接：详情 / 附件 / 引用 / 转发
+    ///
+    /// 单独成方法是为了压 body 的表达式复杂度（Swift 对超长 modifier 链会直接超时）。
+    private func handleOpenLink(id: String, url: URL) {
+        let target = visibleEntries.first { $0.id == id }
+        switch url.host ?? url.path {
+        case "detail", "":
+            detailEntry = target
+        case "attachments":
+            attachmentEntry = target
+        case "quote":
+            if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let quoted = comps.queryItems?.first(where: { $0.name == "text" })?.value {
+                let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft = (trimmed.isEmpty ? "" : trimmed + "\n\n") + quoted + "\n\n"
+                focused = true
+            }
+        case "forward":
+            if let path = target?.detail, !path.isEmpty {
+                forwardPath = path
+            } else if let first = target?.folded.first?.detail, !first.isEmpty {
+                forwardPath = first
+            }
+        default:
+            break
+        }
+    }
 
     private func submit() {
         // 立刻打一条、不节流：确认「点击真的到达了 submit」，以及它到达之后

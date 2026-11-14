@@ -508,7 +508,7 @@ extension MessageCell: UIContextMenuInteractionDelegate {
                     .map { "> " + $0 }
                     .joined(separator: "\n")
                 if let url = URL(string: "dsh://quote?text=" + (quoted.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")) {
-                    self.onOpenLink?(entry.id, url)
+                    self.onOpenLink?(url)
                 }
             })
 
@@ -516,7 +516,7 @@ extension MessageCell: UIContextMenuInteractionDelegate {
             if entry.kind == .fileOutput || entry.kind == .fileSummary {
                 actions.append(UIAction(title: "转发到其它会话", image: UIImage(systemName: "paperplane")) { _ in
                     if let url = URL(string: "dsh://forward") {
-                        self.onOpenLink?(entry.id, url)
+                        self.onOpenLink?(url)
                     }
                 })
             }
