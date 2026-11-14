@@ -328,28 +328,15 @@ struct ChatView: View {
                 guard !items.isEmpty else { return }
                 Task { await loadVideos(items) }
             }
-            .sheet(item: $editorImage) { image in
-                ImageEditorSheet(
-                    image: image,
-                    onCommit: { merged in
-                        let index = editingAttachmentIndex
-                        editorImage = nil
-                        editingAttachmentIndex = nil
-                        if let index {
-                            Task { await replaceAttachment(at: index, with: merged) }
-                        } else {
-                            editorContinuation?.resume(returning: merged)
-                        }
-                        editorContinuation = nil
-                    },
-                    onCancel: {
-                        editorImage = nil
-                        editingAttachmentIndex = nil
-                        editorContinuation?.resume(returning: nil)
-                        editorContinuation = nil
-                    }
-                )
-            }
+            // 抽成 modifier：这一整段闭包留在 body 里会让整条链的类型推断超时
+            .modifier(ImageEditorModifier(
+                image: $editorImage,
+                editingIndex: $editingAttachmentIndex,
+                continuation: $editorContinuation,
+                onReplace: { index, merged in
+                    await replaceAttachment(at: index, with: merged)
+                }
+            ))
             // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
             .onChange(of: model.selectedSessionId) { sessionId in
                 guard let sessionId else { return }
