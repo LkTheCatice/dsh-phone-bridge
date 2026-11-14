@@ -49,6 +49,12 @@ struct SessionListSheet: View {
                     .foregroundStyle(Color.accentColor)
                     .disabled(model.isCreatingSession)
                 }
+                Section {
+                } footer: {
+                    Text("左滑会话可重命名或归档；右上角可搜索标题。")
+                        .font(.caption2)
+                }
+
 
                 Section {
                     ForEach(filtered) { session in

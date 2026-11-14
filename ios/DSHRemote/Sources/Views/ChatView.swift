@@ -325,21 +325,12 @@ struct ChatView: View {
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
+                            // 重命名 / 归档**不在这里**：会话列表左滑已有同一套操作，
+                            // 两个入口做同一件事只会让人犹豫（本轮合并掉）。
                             Button {
                                 showSearch = true
                             } label: {
-                                Label("搜索本会话", systemImage: "magnifyingglass")
-                            }
-                            Button {
-                                renameText = model.currentSessionTitle
-                                renaming = true
-                            } label: {
-                                Label("重命名当前对话", systemImage: "pencil")
-                            }
-                            Button {
-                                if let id = model.selectedSessionId { Task { await model.archive(id) } }
-                            } label: {
-                                Label("归档当前对话", systemImage: "archivebox")
+                                Label("搜索消息", systemImage: "magnifyingglass")
                             }
                             Divider()
                             Button {
