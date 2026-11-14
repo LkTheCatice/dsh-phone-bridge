@@ -38,7 +38,16 @@ const add = (name, verdict, detail) => results.push({ name, verdict, detail });
 // ── 1) 未授权可读的端点（网页跨域也能读，因为 ACAO: *） ─────────────
 for (const p of ["/v1/diag", "/v1/health", "/v1/state", "/admin/devices", "/admin/debug/env"]) {
   const r = await fetch(BASE + p).catch(() => null);
-  add(`匿名可读 ${p}`, r && r.status === 200 ? "LEAK" : "OK", r ? `status=${r.status}` : "ERR");
+  if (!r || r.status !== 200) {
+    add(`匿名可读 ${p}`, "OK", r ? `status=${r.status}` : "ERR");
+    continue;
+  }
+  // /v1/health 是无鉴权的存活探针，设计上就该公开；
+  // 判定它有没有"泄露"要看**回了什么字段**，而不是看状态码。
+  const body = await r.text();
+  const sensitive = ["sessions", "lastSeq", "phoneOnline", "stateDir", "devices", "fingerprint"];
+  const leaked = sensitive.filter((k) => body.includes(`"${k}"`));
+  add(`匿名可读 ${p}`, leaked.length ? "LEAK" : "OK", leaked.length ? `字段 ${leaked.join(",")}` : `字段最少 (${body.length} 字节)`);
 }
 
 // ── 2) /v1/state 里的字段（会话标题/工作区 = 隐私） ─────────────────
