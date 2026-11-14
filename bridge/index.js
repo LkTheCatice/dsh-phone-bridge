@@ -1427,6 +1427,11 @@ function applyBridge(ctx, config) {
       const loopback =
         remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
       if (!loopback) throw new HttpError(403, "forbidden", "诊断接口只允许在本机访问");
+      // 光靠 loopback 不够：网页也能向 127.0.0.1 发请求，
+      // 而响应头是 `access-control-allow-origin: *` → 任意网页都能读到这些统计。
+      if (!safeEqual(tokenOf(req, url), pair.token)) {
+        throw new HttpError(401, "unauthorized", "token 无效");
+      }
       const uptimeSec = Math.round((Date.now() - diagStats.startedAt) / 1000);
       return sendJson(res, 200, {
         ok: true,
@@ -1442,14 +1447,6 @@ function applyBridge(ctx, config) {
         stalls: diagStats.stalls,
         queue: diagStats.queue,
       });
-    }
-
-    // 1.5) /v1/diag：属于内部诊断，不对外公开
-    // 以前它在 token 校验之前返回，配合 `access-control-allow-origin: *`
-    // 等于任何网页都能读到：会话数、帧直方图、在线客户端数、运行时长。
-    if (pathname === "/v1/diag") {
-      const diagToken = tokenOf(req, url);
-      if (!safeEqual(diagToken, pair.token)) throw new HttpError(401, "unauthorized", "token 无效");
     }
 
     // 2) 握手：明文，但需要 token
