@@ -1,0 +1,30 @@
+# 手机桥配置模板
+#
+# 用法：把下面这段 insert 复制到
+#   %USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml
+# 然后把 <> 里的内容换成这台机器的真实值。
+#
+# 字段说明见 docs/移植.md。
+
+- insert:
+    - id: phone-bridge
+      name: dsh-phone-bridge
+      config:
+        port: 8765
+        # 这台电脑的局域网 IP；留空则只监听 127.0.0.1（手机就连不上）
+        lanHost: "<192.168.x.x>"
+        # 手机端是否需要对每一次工具调用点确认
+        askPhone: true
+        approvalTimeoutMs: 90000
+        # 必须保持 true：关掉就等于允许明文 HTTP 传会话内容
+        requireE2ee: true
+        # token / 私钥 / 日志放哪（建议放在仓库之外，且不和仓库一起提交）
+        stateDir: "<C:/Users/<you>/.dsh/phone-bridge>"
+        # 手机**允许读写**的根目录，只加具体目录，不要开盘符
+        roots:
+          - "<D:/path/to/your/output>"
+        # 完成通知（可选；留空则完全不出网）
+        notify:
+          kind: ""
+          server: ""
+          key: ""

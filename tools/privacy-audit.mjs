@@ -7,7 +7,11 @@ import path from "node:path";
  * 只读，不改任何业务数据。
  */
 const BASE = "http://127.0.0.1:8765";
-const PAIR = "D:/Documents/deepseek-harness/dsh-phone-bridge/pair.json";
+// 状态目录：优先 DSH_PHONE_BRIDGE_DIR，否则 ~/.dsh/phone-bridge（和桥端 store.js 一致）
+const HOME = process.env.USERPROFILE || process.env.HOME || ".";
+const BRIDGE_DIR = process.env.DSH_PHONE_BRIDGE_DIR || path.join(HOME, ".dsh", "phone-bridge");
+const PAIR = path.join(BRIDGE_DIR, "pair.json");
+
 const token = JSON.parse(fs.readFileSync(PAIR, "utf8")).token;
 const STATE = path.join(process.env.TEMP, "pentest-key.pem");
 const INFO = "dsh-phone-bridge/v1";
@@ -87,7 +91,7 @@ add("会话行含 cwd（目录名可推断）", sess.cwd ? "INFO" : "OK", String
 add("会话行含标题（用户的提问摘要）", sess.title ? "INFO" : "OK", String(sess.title || "—").slice(0, 40));
 
 // ── 3) 日志内容：是否含正文/提示词 ─────────────────────────────────
-const logPath = "D:/Documents/deepseek-harness/dsh-phone-bridge/bridge.log";
+const logPath = path.join(BRIDGE_DIR, "bridge.log");
 const logRaw = fs.readFileSync(logPath, "utf8");
 const lines = logRaw.split("\n").filter(Boolean);
 const promptLeak = lines.filter((l) => l.includes("project_instructions")).length;
@@ -100,7 +104,7 @@ add("日志里出现绝对路径", /[A-Za-z]:\\/.test(logRaw) ? "注意" : "OK",
 // ── 4) 落盘形态 ──────────────────────────────────────────────
 const pairStat = fs.statSync(PAIR);
 add("pair.json（含 token/私钥）是否明文", "INFO", `${(pairStat.size / 1024).toFixed(1)} KB，明文 JSON`);
-const sessDir = "C:/Users/acer/.dsh/sessions";
+const sessDir = path.join(HOME, ".dsh", "sessions");
 const zst = [];
 const walk = (dir, depth = 0) => {
   if (depth > 3) return;
@@ -114,7 +118,7 @@ try { walk(sessDir); } catch {}
 add("会话日志是否加密", zst.length ? "INFO" : "—", `${zst.length} 个 .zstd（明文 jsonl 压缩，非加密）`);
 
 // ── 5) 出网检查 ──────────────────────────────────────────────
-const notifyCfg = JSON.parse(fs.readFileSync("D:/Documents/deepseek-harness/dsh-phone-bridge/pair.json", "utf8"));
+const notifyCfg = JSON.parse(fs.readFileSync(PAIR, "utf8"));
 add("通知推送（Bark/ntfy）是否需要外网", "INFO", "仅当 notify.kind 非空才出网；当前未配置");
 
 console.log("\n===== 隐私审计 =====");

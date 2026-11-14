@@ -25,6 +25,8 @@ struct ChatList: UIViewRepresentable {
     let onTapFile: (String) -> Void
     /// 点清单卡里的某一行（回调直接给路径）
     let onTapFilePath: (String) -> Void
+    /// 点清单卡「还有 N 个」（回调给 entry id，界面据此打开全部产物）
+    let onTapFileSummary: (String) -> Void
     /// 点击「📎 附件」提示行（打开媒体面板）
     let onTapAttachments: (String) -> Void
     /// 点击消息里的链接（dsh:// 自定义 scheme 或普通 URL）
@@ -135,6 +137,9 @@ struct ChatList: UIViewRepresentable {
                         },
                         onTapFilePath: { [weak self] path in
                             self?.parent.onTapFilePath(path)
+                        },
+                        onTapFileSummary: { [weak self] id in
+                            self?.parent.onTapFileSummary(id)
                         },
                         isRoleChange: isRoleChange
                     )
@@ -518,6 +523,8 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     private let fileList = FileListCardView()
     /// 点清单卡某一行 → 打开那个文件（回调带 path）
     var onTapFilePath: ((String) -> Void)?
+    /// 点清单卡「还有 N 个」→ 打开全部产物（回调带 entry id）
+    var onTapFileSummary: ((String) -> Void)?
     /// 清单卡高度（按行数改；cell 复用时必须重置）
     private var fileListHeight: NSLayoutConstraint?
     /// 气泡背景：垫在文字下面，靠圆角 + 底色区分消息与消息之间
@@ -703,11 +710,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         onTapEntry: ((String) -> Void)? = nil,
         onTapFile: ((String) -> Void)? = nil,
         onTapFilePath: ((String) -> Void)? = nil,
+        onTapFileSummary: ((String) -> Void)? = nil,
         isRoleChange: Bool = false
     ) {
         currentEntry = entry
         self.onOpenLink = onOpenLink
         self.onTapFilePath = onTapFilePath
+        self.onTapFileSummary = onTapFileSummary
         // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强。
         // 工具行（运行命令 / 读取 / 写入…）属于「过程」，和上一行贴紧一点，
         // 否则一轮十几条读起来像散开的日志（用户反馈行距偏大）。
@@ -741,6 +750,10 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
                 moreCount: max(0, files.count - shown.count)
             )
             fileList.onTapPath = { [weak self] path in self?.onTapFilePath?(path) }
+            fileList.onTapMore = { [weak self] in
+                guard let self, let entry = self.currentEntry else { return }
+                self.onTapFileSummary?(entry.id)
+            }
             let lines = FileListCardView.lineCount(fileCount: files.count)
             let separators = CGFloat(max(0, lines - 1)) * 0.5
             fileListHeight?.constant = lines > 0 ? CGFloat(lines) * 32 + separators + 8 : 40

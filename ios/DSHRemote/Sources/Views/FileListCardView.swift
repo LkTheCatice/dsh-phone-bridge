@@ -15,6 +15,8 @@ final class FileListCardView: UIView {
     }
 
     var onTapPath: ((String) -> Void)?
+    /// 点「还有 N 个」→ 打开完整列表（此前这一行是死的，超出 5 个的文件没有入口）
+    var onTapMore: (() -> Void)?
 
     private let stack = UIStackView()
     private var rows: [Row] = []
@@ -56,12 +58,21 @@ final class FileListCardView: UIView {
         }
         if moreCount > 0 {
             stack.addArrangedSubview(separator())
+            let more = MoreControl()
+            more.addTarget(self, action: #selector(handleMore), for: .touchUpInside)
             let label = UILabel()
-            label.text = "还有 \(moreCount) 个…"
+            label.text = "还有 \(moreCount) 个 · 查看全部 ›"
             label.font = .systemFont(ofSize: 12)
-            label.textColor = .tertiaryLabel
-            label.heightAnchor.constraint(equalToConstant: 30).isActive = true
-            stack.addArrangedSubview(label)
+            label.textColor = .tintColor
+            label.translatesAutoresizingMaskIntoConstraints = false
+            more.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: more.leadingAnchor),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: more.trailingAnchor),
+                label.centerYAnchor.constraint(equalTo: more.centerYAnchor),
+                more.heightAnchor.constraint(equalToConstant: 30),
+            ])
+            stack.addArrangedSubview(more)
         }
     }
 
@@ -112,9 +123,20 @@ final class FileListCardView: UIView {
         return control
     }
 
+    @objc private func handleMore() {
+        onTapMore?()
+    }
+
     @objc private func handleTap(_ sender: RowControl) {
         guard let path = sender.path else { return }
         onTapPath?(path)
+    }
+
+    /// 「还有 N 个」那一行：可点，带按压反馈
+    final class MoreControl: UIControl {
+        override var isHighlighted: Bool {
+            didSet { alpha = isHighlighted ? 0.55 : 1 }
+        }
     }
 
     final class RowControl: UIControl {

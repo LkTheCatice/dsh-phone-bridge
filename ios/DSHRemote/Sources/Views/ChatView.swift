@@ -79,6 +79,8 @@ struct ChatView: View {
     @State private var turnLogEntry: ChatEntry?
     /// 正在查看的产物文件（预览 / 下载）
     @State private var fileEntry: ChatEntry?
+    /// 「还有 N 个」打开的完整产物列表
+    @State private var summaryEntry: ChatEntry?
 
     /// 正在查看完整内容的条目（表格折叠时说这里看全）
     @State private var detailEntry: ChatEntry?
@@ -201,6 +203,9 @@ struct ChatView: View {
                         fileEntry = visibleEntries.first { $0.id == id }
                     },
                     // 清单卡里点某一行：直接按路径开（那一行没有独立的 ChatEntry）
+                    onTapFileSummary: { id in
+                        summaryEntry = visibleEntries.first { $0.id == id }
+                    },
                     onTapFilePath: { path in
                         fileEntry = ChatEntry(
                             id: "summary-\(path)",
@@ -467,6 +472,11 @@ struct ChatView: View {
         }
         .sheet(item: $turnLogEntry) { item in
             TurnLogSheet(entry: item)
+        }
+        .sheet(item: $summaryEntry) { summary in
+            FileSummarySheet(files: summary.folded) { picked in
+                fileEntry = picked
+            }
         }
         .sheet(item: $fileEntry) { item in
             FileOutputSheet(entry: item)
