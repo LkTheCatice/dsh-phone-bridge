@@ -295,6 +295,19 @@ function applyBridge(ctx, config) {
   const streamClients = new Set();
   const e2ee = new Map(); // clientId -> {c2s, s2c, createdAt, lastSeen, name}
   const approvals = new Map(); // id -> {tool, reason, since, decide}
+  /** 认证失败计数：来源 IP → { start, count }（滑动 60 秒窗口） */
+  const authFails = new Map();
+  function noteAuthFail(req) {
+    const src = String(req.socket?.remoteAddress || "-");
+    const now = Date.now();
+    const row = authFails.get(src);
+    if (!row || now - row.start > 60000) authFails.set(src, { start: now, count: 1 });
+    else row.count += 1;
+    if (authFails.size > 200) {
+      for (const [k, v] of authFails) if (now - v.start > 60000) authFails.delete(k);
+    }
+  }
+
   /** 转发去重：key = 目标会话|路径|说明 → 上次发送时间 */
   const recentForwards = new Map();
   const seenEvents = new WeakSet();
@@ -1125,7 +1138,10 @@ function applyBridge(ctx, config) {
 
   function openStream(req, res, url) {
     const token = tokenOf(req, url);
-    if (!safeEqual(token, pair.token)) throw new HttpError(401, "unauthorized", "token 无效");
+    if (!safeEqual(token, pair.token)) {
+      noteAuthFail(req);
+      throw new HttpError(401, "unauthorized", "token 无效");
+    }
 
     const clientId = String(req.headers["x-client"] || url.searchParams.get("client") || "");
     const keys = clientId ? e2ee.get(clientId) : null;
@@ -1400,19 +1416,35 @@ function applyBridge(ctx, config) {
       return handleAdmin(req, res, url, method, pathname);
     }
 
+    // 0) 认证失败限速：同一来源 60 秒内失败 20 次就拒绝。
+    //
+    // token 是 43 字符随机串，暴力破解本来就不现实；
+    // 这条是防"日志灌注 / 白跑 CPU"：以前 15 次错 token 全返回 401，没有任何成本。
+    {
+      const src = String(req.socket?.remoteAddress || "-");
+      const now = Date.now();
+      const row = authFails.get(src);
+      if (row && now - row.start > 60000) authFails.delete(src);
+      const cur = authFails.get(src);
+      if (cur && cur.count >= 20) {
+        throw new HttpError(429, "too-many-attempts", "认证失败次数过多，请稍后再试");
+      }
+    }
+
     // 1) 健康检查：明文、无鉴权，只暴露最小事实
     if (pathname === "/v1/health") {
       // 诊断通道：App 把点击瞬间的滚动状态塞在 ?d= 里，会进 bridge.log 供排查
       const diag = url.searchParams.get("d");
       if (diag) logLine({ step: "diag", d: diag });
+      // 只回最小事实。
+      // 以前还带 `sessions`（会话总数）、`lastSeq`、`phoneOnline` ——
+      // 这个端点**不需要 token**，响应头又是 `access-control-allow-origin: *`，
+      // 等于任何网页都能探到"这台机器上有多少会话、手机在不在线"（隐私）。
       return sendJson(res, 200, {
         ok: true,
         version: VERSION,
         bridge: name,
         e2eeRequired: cfg.requireE2ee,
-        phoneOnline: phoneOnline(),
-        lastSeq: frames.lastSeq,
-        sessions: (await listSessions()).length,
       });
     }
 
@@ -1452,7 +1484,10 @@ function applyBridge(ctx, config) {
     // 2) 握手：明文，但需要 token
     if (pathname === "/v1/handshake") {
       const token = req.headers["x-dsh-token"] || "";
-      if (!safeEqual(token, pair.token)) throw new HttpError(401, "unauthorized", "token 无效");
+      if (!safeEqual(token, pair.token)) {
+        noteAuthFail(req);
+        throw new HttpError(401, "unauthorized", "token 无效");
+      }
       const raw = await readBody(req, 64 * 1024);
       let body;
       try {
