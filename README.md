@@ -142,6 +142,13 @@ App 的「设置 → 安装与签名」里能看到**还剩几天**。
 用 Tailscale：`tailscale serve --bg --https=443 8765`，然后手机连 `https://<机器>.<tailnet>.ts.net`。
 **不要**在路由器上做 8765 端口映射。
 
+## 遇到问题
+
+- **装不上 / 连不上 / 排版不对** → 开 [Issue](../../issues/new?template=bug_report.md)，
+  按模板附上：`build=xxx.N`、哪一端出问题、复现步骤、`tools/preflight.ps1` 的输出
+- **安全问题** → 别公开发，看 [SECURITY.md](SECURITY.md)
+- 贴日志前先设 `DSH_PHONE_LOG_MIN=1` 重启（日志会脱敏）；**不要贴** `pair.json` 或真实会话截图
+
 ## 已知限制
 
 - 装插件 / 改桥配置后必须重启 DSH 一次（cordis 加载时机）
