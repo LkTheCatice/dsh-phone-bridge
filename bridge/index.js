@@ -1235,6 +1235,20 @@ function applyBridge(ctx, config) {
     };
 
     // 诊断：标题日志兜底为什么在服务进程里读不到
+    // ── /admin/* 的 CSRF 闸门 ────────────────────────────────────────────
+    //
+    // 背景（2026-11-14 安全自测）：这些端点只靠"来源是 loopback"来做边界，
+    // 而浏览器里任何一个网页都能向 127.0.0.1:8765 发请求 ——
+    // 加上响应头是 `access-control-allow-origin: *`，
+    // 于是：页面能读到设备指纹，还能 POST /admin/settings 把 autoApprove 打开，
+    // 或 POST /admin/devices/status 批准任意设备（实测可用）。
+    //
+    // 修法：要求一个**自定义请求头**。浏览器跨域发自定义头必须先过预检，
+    // 而预检允许的 headers 里没有它 → 网页发不出来；本机插件不受影响。
+    if (pathname.startsWith("/admin/") && req.headers["x-dsh-admin"] !== "1") {
+      throw new HttpError(403, "admin-header-required", "缺少 x-dsh-admin 头（防跨站请求）");
+    }
+
     if (method === "GET" && pathname === "/admin/debug/env") {
       const home = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
       const sessionsRoot = path.join(home, "sessions");

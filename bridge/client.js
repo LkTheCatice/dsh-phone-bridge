@@ -40,9 +40,11 @@
     }
 
     async function call(path, body) {
-      const res = await fetch(ORIGIN + path, body === undefined ? { credentials: 'omit' } : {
+      const res = await fetch(ORIGIN + path, body === undefined
+        ? { credentials: 'omit', headers: { 'x-dsh-admin': '1' } }
+        : {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-dsh-admin': '1' },
         body: JSON.stringify(body),
       })
       if (res.status === 204) return {}
