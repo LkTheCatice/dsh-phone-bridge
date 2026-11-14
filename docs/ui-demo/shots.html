@@ -231,7 +231,10 @@ function shot02(t) {
     <div style="position:absolute;inset:0;background:var(--bg);display:grid;place-items:center">
       <div style="position:absolute;inset:0;background:linear-gradient(135deg,rgba(10,132,255,.10),rgba(255,255,255,0) 55%,rgba(10,132,255,.06))"></div>
       <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:1.4em;transform:scale(${scale})">
-        <div style="width:9.6em;height:9.6em;border-radius:4.8em;background:rgba(10,132,255,.14);display:grid;place-items:center;font-size:3.8em;color:var(--accent)">💬</div>
+        <div style="width:9.6em;height:9.6em;border-radius:4.8em;background:rgba(10,132,255,.14);position:relative">
+          <div style="position:absolute;left:2.55em;top:3.0em;width:3.5em;height:2.6em;border-radius:.85em;background:var(--accent);opacity:.95"></div>
+          <div style="position:absolute;left:3.55em;top:4.1em;width:3.5em;height:2.6em;border-radius:.85em;background:var(--accent);opacity:.55"></div>
+        </div>
         <div style="text-align:center;opacity:${title}">
           <div style="font-size:1.7em;font-weight:600">DSH Helm</div>
           <div style="font-size:1.2em;color:var(--sub);margin-top:.4em">连接你的 DeepSeek Harness</div>
@@ -292,7 +295,6 @@ function turnLogHTML(highlight = -1) {
       ${rows.map(([n, s, ok], i) => `
         <div class="r" ${highlight === i ? 'style="background:rgba(10,132,255,.10)"' : ''}>
           <span class="ix">${i + 1}</span>
-          <span class="ic2">${n === '思考' ? '🧠' : '🔧'}</span>
           <span class="tx"><div class="nm">${n}</div><div class="sm">${s}</div></span>
           <span class="ok">${ok ? '✔' : ''}</span>
         </div>`).join('')}

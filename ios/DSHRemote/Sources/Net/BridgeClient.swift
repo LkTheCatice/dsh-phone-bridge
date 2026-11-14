@@ -263,12 +263,15 @@ final class BridgeClient {
     /// 手机不能预览/下载的类型（dmg/exe/7z…）也能用这条路。
     func forwardFile(
         toSessionId: String,
-        path: String,
+        path: String = "",
+        text: String = "",
         note: String = "",
         fromTitle: String = "",
         attachCommand: Bool = false
     ) async throws -> [String: Any] {
-        var json: [String: Any] = ["toSessionId": toSessionId, "path": path]
+        var json: [String: Any] = ["toSessionId": toSessionId]
+        if !path.isEmpty { json["path"] = path }
+        if !text.isEmpty { json["text"] = text }
         if !note.isEmpty { json["note"] = note }
         if !fromTitle.isEmpty { json["fromTitle"] = fromTitle }
         if attachCommand { json["attachCommand"] = true }

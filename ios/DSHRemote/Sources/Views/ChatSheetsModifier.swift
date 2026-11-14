@@ -8,7 +8,11 @@ import SwiftUI
 /// 把四个 sheet 收进一个 modifier，body 里只多一行。
 struct ChatSheetsModifier: ViewModifier {
     @Binding var summaryEntry: ChatEntry?
+    @Binding var showSearch: Bool
+    let entries: [ChatEntry]
+    let onPickSearch: (ChatEntry) -> Void
     @Binding var forwardPath: String?
+    @Binding var forwardText: String?
     @Binding var showDraftEditor: Bool
     @Binding var draft: String
     @Binding var editorImage: UIImage?
@@ -22,16 +26,22 @@ struct ChatSheetsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .sheet(isPresented: $showSearch) {
+                ChatSearchSheet(entries: entries, onPick: onPickSearch)
+            }
             .sheet(item: $summaryEntry) { summary in
                 FileSummarySheet(files: summary.folded, onPick: onPickSummaryFile)
             }
-            // String 不是 Identifiable，用 isPresented + 可选值包一层
+            // 文件转发与文本转发共用一个面板；String 不是 Identifiable，
+            // 所以用 isPresented + 可选值包一层
             .sheet(isPresented: Binding(
-                get: { forwardPath != nil },
-                set: { if !$0 { forwardPath = nil } }
+                get: { forwardPath != nil || forwardText != nil },
+                set: { if !$0 { forwardPath = nil; forwardText = nil } }
             )) {
                 if let path = forwardPath {
                     ForwardSessionSheet(path: path).environmentObject(model)
+                } else if let text = forwardText {
+                    ForwardSessionSheet(text: text).environmentObject(model)
                 }
             }
             .sheet(isPresented: $showDraftEditor) {

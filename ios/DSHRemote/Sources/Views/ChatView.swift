@@ -13,6 +13,12 @@ struct ChatView: View {
     @State private var showDraftEditor = false
     /// 长按产物「转发到其它会话」时带的路径（非 nil 就弹转发面板）
     @State private var forwardPath: String?
+    /// 长按文本「转发到其它会话」时的内容
+    @State private var forwardText: String?
+    /// 会话内搜索
+    @State private var showSearch = false
+    /// 搜索结果要跳到的条目（变了就滚过去）
+    @State private var scrollToId: String?
     /// 输入框高度（1~5 行自适应）
     @State private var inputHeight: CGFloat = 38
     /// 上传进度（已完成张数, 总张数），nil 表示没在上传
@@ -181,6 +187,7 @@ struct ChatView: View {
                         }
                     },
                     scrollRequest: scrollRequest,
+                    scrollToId: scrollToId,
                     onLoadOlder: {
                         if let sid = model.selectedSessionId {
                             Task { await model.loadOlder(sid) }
@@ -329,8 +336,15 @@ struct ChatView: View {
             // body 每多挂一个 .sheet，Swift 就要对整个表达式重新推断一次 ——
             // 加两个就直接超时（CI 已复现两次）。
             .modifier(ChatSheetsModifier(
+                showSearch: $showSearch,
+                entries: visibleEntries,
+                onPickSearch: { picked in
+                    // 先确保它还在列表里再滚过去
+                    scrollToId = picked.id
+                },
                 summaryEntry: $summaryEntry,
                 forwardPath: $forwardPath,
+                forwardText: $forwardText,
                 showDraftEditor: $showDraftEditor,
                 draft: $draft,
                 editorImage: $editorImage,
@@ -374,6 +388,11 @@ struct ChatView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button {
+                            showSearch = true
+                        } label: {
+                            Label("搜索本会话", systemImage: "magnifyingglass")
+                        }
                         Button {
                             renameText = model.currentSessionTitle
                             renaming = true
@@ -739,10 +758,15 @@ struct ChatView: View {
                 focused = true
             }
         case "forward":
-            if let path = target?.detail, !path.isEmpty {
-                forwardPath = path
-            } else if let first = target?.folded.first?.detail, !first.isEmpty {
-                forwardPath = first
+            // 产物 → 转发路径；其它 → 转发文本
+            if let kind = target?.kind, kind == .fileOutput || kind == .fileSummary {
+                if let path = target?.detail, !path.isEmpty {
+                    forwardPath = path
+                } else if let first = target?.folded.first?.detail, !first.isEmpty {
+                    forwardPath = first
+                }
+            } else if let text = target?.text, !text.isEmpty {
+                forwardText = text
             }
         default:
             break

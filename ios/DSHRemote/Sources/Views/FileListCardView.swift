@@ -43,8 +43,11 @@ final class FileListCardView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     /// 行数（含「还有 N 个」那一行）—— cell 高度按这个算，别让视图自己量
+    /// 卡片最多 8 行（再多就用「查看全部」），比原来的 5 行更能一屏交代清楚一轮产出
+    static let maxVisibleRows = 8
+
     static func lineCount(fileCount: Int) -> Int {
-        min(fileCount, 5) + (fileCount > 5 ? 1 : 0)
+        min(fileCount, maxVisibleRows) + (fileCount > maxVisibleRows ? 1 : 0)
     }
 
     func configure(rows: [Row], moreCount: Int) {

@@ -5,7 +5,10 @@ import SwiftUI
 /// 只发**路径引用**：两端在同一台电脑上，目标会话拿到路径就能读；
 /// 手机不能预览/下载的类型（dmg/exe/7z…）也能用这条路，还不耗流量。
 struct ForwardSessionSheet: View {
-    let path: String
+    /// 要转发的文件路径（空表示转发文本）
+    var path: String = ""
+    /// 要转发的一段文本
+    var text: String = ""
 
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var sessionList: SessionListStore
@@ -32,13 +35,19 @@ struct ForwardSessionSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Text(AppModel.fileName(path))
-                        .font(.system(size: 13, weight: .medium))
-                    Text(path)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    if path.isEmpty {
+                        Text(text)
+                            .font(.system(size: 13))
+                            .lineLimit(6)
+                    } else {
+                        Text(AppModel.fileName(path))
+                            .font(.system(size: 13, weight: .medium))
+                        Text(path)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 } header: {
-                    Text("要转发的文件")
+                    Text(path.isEmpty ? "要转发的文本" : "要转发的文件")
                 }
 
                 Section {
@@ -120,6 +129,7 @@ struct ForwardSessionSheet: View {
         do {
             try await model.forwardFile(
                 path: path,
+                text: text,
                 to: row.id,
                 note: note.trimmingCharacters(in: .whitespacesAndNewlines),
                 attachCommand: attachCommand

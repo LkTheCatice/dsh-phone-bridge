@@ -17,6 +17,8 @@ struct ChatList: UIViewRepresentable {
     let onBottomChanged: (Bool) -> Void
     /// 需要「滚到底」时由外部改这个 token（每次变化触发一次滚动）
     let scrollRequest: Int
+    /// 需要滚到某条消息（会话内搜索的结果跳转）；每次给一个新 id 触发一次
+    let scrollToId: String?
     /// 滚到顶部附近时回调，加载更早的消息
     let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
@@ -78,6 +80,7 @@ struct ChatList: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.apply(entries)
         context.coordinator.handleScrollRequest(scrollRequest)
+        context.coordinator.handleScrollToId(scrollToId)
     }
 
     // MARK: - Coordinator
@@ -88,6 +91,8 @@ struct ChatList: UIViewRepresentable {
         private var dataSource: UICollectionViewDiffableDataSource<String, String>!
         private var lookup: [String: ChatEntry] = [:]
         private var lastScrollRequest = -1
+        /// 上一次跳转过的条目 id，避免同一条重复滚
+        private var lastScrollToId: String?
         private var lastBottomValue: Bool?
         /// 上一次 apply 的内容指纹：没变就整段跳过
         private var lastFingerprint = ""
@@ -104,6 +109,16 @@ struct ChatList: UIViewRepresentable {
 
         init(_ parent: ChatList) {
             self.parent = parent
+        }
+
+        /// 滚到指定条目（居中）。找不到就忽略 —— 可能被 trim 掉了。
+        func handleScrollToId(_ id: String?) {
+            guard let id, id != lastScrollToId else { return }
+            lastScrollToId = id
+            guard let cv = collectionView,
+                  let indexPath = dataSource.indexPath(for: id) else { return }
+            cv.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
 
         func attach(_ view: UICollectionView) {
@@ -512,14 +527,14 @@ extension MessageCell: UIContextMenuInteractionDelegate {
                 }
             })
 
-            // 产物类才给「转发」：文本转发的语义应该走"引用 + 说明"，不是发文件
-            if entry.kind == .fileOutput || entry.kind == .fileSummary {
-                actions.append(UIAction(title: "转发到其它会话", image: UIImage(systemName: "paperplane")) { _ in
-                    if let url = URL(string: "dsh://forward") {
-                        self.onOpenLink?(url)
-                    }
-                })
-            }
+            // 所有能取到文本的条目都能转发：
+            //   · 产物行 → 转发文件路径（手机打不开的类型也能转）
+            //   · 其它（AI 回复 / 我的消息 / 工具行）→ 转发文本
+            actions.append(UIAction(title: "转发到其它会话", image: UIImage(systemName: "paperplane")) { _ in
+                if let url = URL(string: "dsh://forward") {
+                    self.onOpenLink?(url)
+                }
+            })
 
             return UIMenu(children: actions)
         }
@@ -805,7 +820,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         if entry.kind == .fileSummary {
             // 一轮产出合成一张清单卡：图标 + 文件名 + 一句指标，每行可点
             let files = entry.folded
-            let shown = Array(files.prefix(5))
+            let shown = Array(files.prefix(FileListCardView.maxVisibleRows))
             fileChip.isHidden = true
             fileChip.text = nil
             fileList.isHidden = false

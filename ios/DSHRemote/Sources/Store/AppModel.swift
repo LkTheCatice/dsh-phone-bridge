@@ -1561,7 +1561,8 @@ final class AppModel: ObservableObject {
     /// 为什么只发路径：两端在同一台电脑上，目标会话拿到路径就能读；
     /// 手机不能预览/下载的类型（dmg/exe/7z）也能用这条路，且不耗流量。
     func forwardFile(
-        path: String,
+        path: String = "",
+        text: String = "",
         to sessionId: String,
         note: String = "",
         attachCommand: Bool = true
@@ -1574,6 +1575,7 @@ final class AppModel: ObservableObject {
         _ = try await client.forwardFile(
             toSessionId: sessionId,
             path: path,
+            text: text,
             note: note,
             fromTitle: title,
             attachCommand: attachCommand

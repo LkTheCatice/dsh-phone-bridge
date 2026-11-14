@@ -1,0 +1,94 @@
+import SwiftUI
+
+/// 会话内搜索：在**当前会话已加载的消息**里找，点结果直接跳过去。
+///
+/// 为什么不做全局搜索：消息全文在电脑上（`sessions/**/*.zstd`），
+/// 手机上只有当前会话的内存副本。做全局搜索要新加一个桥接口 + 全文索引，
+/// 收益不如"在当前会话里快速定位"来得直接 —— 先把最常用的那一步做掉。
+struct ChatSearchSheet: View {
+    let entries: [ChatEntry]
+    let onPick: (ChatEntry) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @FocusState private var focused: Bool
+
+    private var results: [ChatEntry] {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard keyword.count >= 1 else { return [] }
+        return entries
+            .filter { $0.kind != .system || $0.text.contains(keyword) }
+            .filter { $0.text.localizedCaseInsensitiveContains(keyword) || ($0.detail ?? "").localizedCaseInsensitiveContains(keyword) }
+            .suffix(60)
+            .reversed()
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if query.isEmpty {
+                    Section {
+                        Text("输入关键词，在当前会话里找（只搜已加载的消息）")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if results.isEmpty {
+                    Section { Text("没找到").foregroundStyle(.secondary) }
+                } else {
+                    Section("\(results.count) 条结果") {
+                        ForEach(results) { entry in
+                            Button {
+                                onPick(entry)
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(roleLabel(entry))
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                    Text(snippet(entry.text))
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(3)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索本会话")
+            .navigationTitle("搜索")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("关闭") { dismiss() } }
+            }
+            .onAppear { focused = true }
+        }
+    }
+
+    private func roleLabel(_ entry: ChatEntry) -> String {
+        switch entry.kind {
+        case .user: return "我"
+        case .assistant: return "AI"
+        case .thinking: return "思考"
+        case .toolCall: return "工具"
+        case .fileOutput, .fileSummary: return "产物"
+        default: return "系统"
+        }
+    }
+
+    /// 命中位置附近截一段，避免把整条长文都摊出来
+    private func snippet(_ text: String) -> String {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty,
+              let range = text.range(of: keyword, options: .caseInsensitive) else {
+            return text
+        }
+        let start = text.index(range.lowerBound, offsetBy: -30, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(range.upperBound, offsetBy: 60, limitedBy: text.endIndex) ?? text.endIndex
+        let prefix = start == text.startIndex ? "" : "…"
+        let suffix = end == text.endIndex ? "" : "…"
+        return prefix + text[start..<end] + suffix
+    }
+}
