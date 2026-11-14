@@ -25,8 +25,14 @@ struct ChatSheetsModifier: ViewModifier {
             .sheet(item: $summaryEntry) { summary in
                 FileSummarySheet(files: summary.folded, onPick: onPickSummaryFile)
             }
-            .sheet(item: $forwardPath) { path in
-                ForwardSessionSheet(path: path).environmentObject(model)
+            // String 不是 Identifiable，用 isPresented + 可选值包一层
+            .sheet(isPresented: Binding(
+                get: { forwardPath != nil },
+                set: { if !$0 { forwardPath = nil } }
+            )) {
+                if let path = forwardPath {
+                    ForwardSessionSheet(path: path).environmentObject(model)
+                }
             }
             .sheet(isPresented: $showDraftEditor) {
                 DraftEditorSheet(text: $draft)
