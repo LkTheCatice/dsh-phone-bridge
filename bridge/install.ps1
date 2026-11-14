@@ -137,6 +137,19 @@ $rootLines
   }
 }
 
+# 配置文件里已经有 stateDir 时沿用它（否则配对串会去 ~/.dsh/phone-bridge 找，永远找不到）
+if (-not $StateDir) {
+  try {
+    $cfg = Get-Content $patch -Raw
+    if ($cfg -match "(?m)^\s*stateDir:\s*'([^']+)'") { $StateDir = $Matches[1] }
+    elseif ($cfg -match '(?m)^\s*stateDir:\s*"([^"]+)"') { $StateDir = $Matches[1] }
+  } catch { }
+}
+if (-not $StateDir -and (Test-Path (Join-Path $env:USERPROFILE ".dsh\phone-bridge\pair.json"))) {
+  $StateDir = Join-Path $env:USERPROFILE ".dsh\phone-bridge"
+}
+if ($StateDir) { Write-Host "       状态目录：$StateDir" }
+
 Write-Host "[5/5] 生成配对串"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
@@ -160,3 +173,5 @@ if ($pairing -match 'dshnb://') {
 Write-Host ""
 Write-Host "手机端：先装 IPA（见 README「手机侧」），再粘贴上面的 dshnb:// 串"
 Write-Host "========================================="
+Write-Host ""
+exit 0
