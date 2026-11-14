@@ -473,11 +473,10 @@ struct ChatView: View {
         .sheet(item: $turnLogEntry) { item in
             TurnLogSheet(entry: item)
         }
-        .sheet(item: $summaryEntry) { summary in
-            FileSummarySheet(files: summary.folded) { picked in
-                fileEntry = picked
-            }
-        }
+        // 收进 modifier：body 上的 modifier 链已经很长，再塞闭包会让类型推断超时
+        .modifier(FileSummaryModifier(entry: $summaryEntry, onPick: { picked in
+            fileEntry = picked
+        }))
         .sheet(item: $fileEntry) { item in
             FileOutputSheet(entry: item)
                 .environmentObject(model)
