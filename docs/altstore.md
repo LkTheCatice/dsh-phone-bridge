@@ -18,11 +18,15 @@
 
 仓库里已经写好源文件：[`altstore/source.json`](../altstore/source.json)
 
-源地址（可直接粘到 AltStore）：
+源地址（粘到 AltStore 的 Sources → +）：
 
 ```
-https://raw.githubusercontent.com/LkTheCatice/dsh-phone-bridge/main/altstore/source.json
+https://github.com/LkTheCatice/dsh-phone-bridge/raw/main/altstore/source.json
 ```
+
+> 如果这条打不开（部分地区 `raw.githubusercontent.com` 会被拦），换用：
+> `https://raw.githubusercontent.com/LkTheCatice/dsh-phone-bridge/main/altstore/source.json`
+> 注意源里的 IPA 下载地址也是 GitHub Release，网络不稳时同样需要能访问 github.com。
 
 步骤：
 
