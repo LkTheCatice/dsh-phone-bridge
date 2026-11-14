@@ -8,7 +8,6 @@ import SwiftUI
 /// 把四个 sheet 收进一个 modifier，body 里只多一行。
 struct ChatSheetsModifier: ViewModifier {
     @Binding var summaryEntry: ChatEntry?
-    @Binding var summaryEntry: ChatEntry?
     @Binding var forwardPath: String?
     @Binding var forwardText: String?
     @Binding var showDraftEditor: Bool
