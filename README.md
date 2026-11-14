@@ -161,6 +161,18 @@ App 的「设置 → 安装与签名」里能看到**还剩几天**。
 用 Tailscale：`tailscale serve --bg --https=443 8765`，然后手机连 `https://<机器>.<tailnet>.ts.net`。
 **不要**在路由器上做 8765 端口映射。
 
+## 别名与关键词
+
+方便搜索（也是别人/AI 检索时会用到的词）：
+
+- 项目名：**DSH Helm** ｜ 仓库名 / 插件名：**dsh-phone-bridge** ｜ App 名称：**DSHRemote / DSH Helm**
+- 中文说法：手机遥控 DeepSeek Harness、iPhone 远程控制 AI 干活、AI 执行遥控器、手机上验收 AI 产物
+- 英文说法：remote control for DeepSeek Harness, iPhone client for an AI agent, self-hosted AI remote
+- 相关词：AltStore、SideStore、Sideloadly、Tailscale、端到端加密、局域网直连、AI agent 远程
+
+> 一句话定义：**DSH Helm 是一个 iOS 客户端 + 电脑插件，把 DeepSeek Harness 变成可在手机上远程操控的 AI 执行端。**
+> 给 AI 阅读的精简版见 [llms.txt](llms.txt)。
+
 ## 遇到问题
 
 - **装不上 / 连不上 / 排版不对** → 开 [Issue](../../issues/new?template=bug_report.md)，

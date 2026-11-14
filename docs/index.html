@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DSH Helm — 用 iPhone 遥控电脑上的 DeepSeek Harness</title>
+<meta name="description" content="DSH Helm（dsh-phone-bridge）：iOS 客户端 + 电脑插件，把 DeepSeek Harness 变成手机上可远程操控的 AI 执行端。手机下指令，电脑真实执行，过程与产物回传，端到端加密，默认局域网直连。">
+<meta name="keywords" content="DSH Helm, dsh-phone-bridge, DeepSeek Harness, iPhone 遥控 AI, iOS 远程控制, AI agent 远程, AltStore, 端到端加密, self-hosted AI">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="DSH Helm — 用 iPhone 遥控电脑上的 DeepSeek Harness">
+<meta property="og:description" content="手机发一句话，电脑真实执行；过程、产物、审批回到手机。端到端加密，局域网直连。">
+<meta property="og:url" content="https://lkthecatice.github.io/dsh-phone-bridge/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://github.com/LkTheCatice/dsh-phone-bridge">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "DSH Helm",
+  "alternateName": ["dsh-phone-bridge", "DSHRemote"],
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows 10, Windows 11, iOS 16+",
+  "description": "用 iPhone 遥控电脑上的 DeepSeek Harness：手机发一句话，电脑真实执行（跑命令、改文件、调工具），思考与工具调用流式回到手机；动手前在手机上确认。内容端到端加密，默认只在局域网内直连。",
+  "url": "https://github.com/LkTheCatice/dsh-phone-bridge",
+  "codeRepository": "https://github.com/LkTheCatice/dsh-phone-bridge",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": { "@type": "Person", "name": "YG" },
+  "softwareVersion": "0.1.0",
+  "datePublished": "2026-11-14",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "keywords": "DeepSeek Harness, iPhone remote control, AI agent, self-hosted, end-to-end encryption, AltStore"
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.7 -apple-system, "PingFang SC", system-ui, sans-serif; max-width: 720px; margin: 60px auto; padding: 0 20px; }
+  h1 { font-size: 30px; margin-bottom: 6px; }
+  h2 { font-size: 19px; margin-top: 34px; }
+  p.lead { color: #666; margin-top: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid rgba(128,128,128,.3); padding: 7px 10px; text-align: left; }
+  code { background: rgba(128,128,128,.15); padding: 1px 5px; border-radius: 4px; }
+  a { color: #0A84FF; }
+  footer { margin-top: 48px; color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>DSH Helm</h1>
+<p class="lead">用 iPhone 遥控电脑上的 DeepSeek Harness</p>
+
+<p>
+手机发一句话，电脑上真实执行（跑命令、改文件、调工具），思考与工具调用流式回到手机；
+动手前你在手机上点头或拒绝。内容端到端加密，默认只在你自己的局域网内直连。
+</p>
+
+<h2>它是什么</h2>
+<p>
+<strong>DSH Helm（仓库名 dsh-phone-bridge）</strong>是一个 iOS 客户端加电脑端插件，
+把 <a href="https://github.com/deepseek-ai">DeepSeek Harness</a> 变成可以在手机上远程操控的 AI 执行端。
+它不是聊天 App，也不是远程桌面 —— 是「AI 的执行遥控器 + 验收面板」。
+</p>
+
+<h2>和串流 / 远程桌面的区别</h2>
+<table>
+<tr><th></th><th>串流（Parsec / ToDesk / Moonlight）</th><th>DSH Helm</th></tr>
+<tr><td>传什么</td><td>屏幕画面 + 触控</td><td>语义过程：指令、工具调用、产物</td></tr>
+<tr><td>带宽</td><td>5–50 Mbps</td><td>几十 KB/s</td></tr>
+<tr><td>能做什么</td><td>操作整台电脑</td><td>只操控 DSH 会话（更小的暴露面）</td></tr>
+<tr><td>怎么改东西</td><td>亲手改</td><td>审阅 → 一句话让它改</td></tr>
+</table>
+<p><a href="https://github.com/LkTheCatice/dsh-phone-bridge/blob/main/docs/对比-串流.md">完整对比 →</a></p>
+
+<h2>怎么装</h2>
+<ol>
+<li>电脑：<code>git clone</code> 后跑 <code>install.ps1</code>，重启 DSH</li>
+<li>手机：AltStore 加源装（能自动续签）或 Sideloadly 装 Release 里的 IPA</li>
+<li>配对：<code>node bridge\bin\pairing.mjs</code> 拿到串，粘到 App 里</li>
+</ol>
+<p><a href="https://github.com/LkTheCatice/dsh-phone-bridge#readme">README 全文 →</a> · <a href="https://github.com/LkTheCatice/dsh-phone-bridge/releases">下载 →</a></p>
+
+<h2>安全</h2>
+<p>
+每个请求/响应体都是 AES-256-GCM 密文，X25519 握手，AAD 绑定方法与路径（防跨端点重放）；
+文件访问有根目录白名单；<code>/admin</code> 只允许本机。
+<a href="https://github.com/LkTheCatice/dsh-phone-bridge/blob/main/docs/安全须知与免责声明.md">安全须知 →</a>
+</p>
+
+<footer>
+MIT License · <a href="https://github.com/LkTheCatice/dsh-phone-bridge">github.com/LkTheCatice/dsh-phone-bridge</a>
+</footer>
+
+</body>
+</html>

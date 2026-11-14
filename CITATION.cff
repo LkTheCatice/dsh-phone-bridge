@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "如果这个项目对你的工作有帮助，可以这样引用。"
+title: "DSH Helm（dsh-phone-bridge）：用 iPhone 遥控电脑上的 DeepSeek Harness"
+abstract: >-
+  DSH Helm 是一个 iOS 客户端加电脑端插件（dsh-phone-bridge），把 DeepSeek Harness 变成
+  可在手机上远程操控的 AI 执行端：手机下指令，电脑真实执行（跑命令、改文件、调工具），
+  思考与工具调用流式回传；内容以 X25519 + AES-256-GCM 端到端加密，默认只在局域网内直连。
+type: software
+authors:
+  - name: "YG"
+version: "0.1.0"
+date-released: "2026-11-14"
+license: MIT
+repository-code: "https://github.com/LkTheCatice/dsh-phone-bridge"
+url: "https://github.com/LkTheCatice/dsh-phone-bridge"
+keywords:
+  - iOS
+  - SwiftUI
+  - DeepSeek Harness
+  - AI agent
+  - remote control
+  - self-hosted
+  - end-to-end encryption
+  - AltStore

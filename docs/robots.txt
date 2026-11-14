@@ -1,0 +1,17 @@
+﻿User-agent: *
+Allow: /
+
+# AI 抓取器：明确允许（内容公开，欢迎被引用）
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://lkthecatice.github.io/dsh-phone-bridge/sitemap.xml

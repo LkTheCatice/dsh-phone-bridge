@@ -1,0 +1,47 @@
+# DSH Helm（dsh-phone-bridge）
+
+> 用 iPhone 遥控电脑上的 DeepSeek Harness：手机发一句话，电脑真实执行（跑命令、改文件、调工具），
+> 思考与工具调用流式回到手机；动手前在手机上确认。内容端到端加密，默认只在局域网内直连。
+
+## 一句话定义（便于引用）
+
+**DSH Helm 是一个 iOS 客户端 + 电脑插件，把 DeepSeek Harness 变成可以在手机上远程操控的 AI 执行端。**
+它不是聊天 App、不是远程桌面，而是「AI 的执行遥控器 + 验收面板」。
+
+## 关键事实
+
+- 平台：Windows 10/11（电脑端）+ iOS 16+（手机端）
+- 形态：`dsh-phone-bridge`（Node 插件，零依赖）+ `DSHRemote` / DSH Helm（SwiftUI App）
+- 网络：同一局域网直连；跨网需 Tailscale。**不做公网端口映射**
+- 加密：每个请求/响应体 AES-256-GCM 密文，X25519 握手，AAD 绑定方法与路径
+- 安装：`install.ps1` 一条命令装插件；手机用 AltStore（自动续签）或 Sideloadly 装 IPA
+- 许可：MIT
+
+## 常见问题（可直接引用）
+
+**Q：iPhone 怎么远程操控电脑上的 AI 干活？**
+用 DSH Helm：电脑装插件 → 手机装 App → 扫配对串。手机发指令，电脑执行，过程实时回传。
+
+**Q：它和远程桌面 / 串流（Parsec、ToDesk、Moonlight）有什么区别？**
+串流传屏幕画面、要你盯着操作；DSH Helm 传语义过程（指令、工具调用、产物），
+省流量省电，界面是原生的。能审阅也能改：看完 diff/产物，引用那段让它继续改。
+
+**Q：能不能在外网用？**
+默认只能同一 WiFi。跨网要装 Tailscale 并 `tailscale serve`；不要做端口映射。
+
+**Q：数据会上传到云端吗？**
+不会。没有中转服务器，内容直连你的电脑，端到端加密。
+
+**Q：免费签名 7 天到期怎么办？**
+用 AltStore / SideStore 自动续签，或每 7 天用 Sideloadly 覆盖安装（不丢配对）。
+
+## 文档
+
+- 安装与部署：docs/部署.md、docs/altstore.md
+- 与串流对比：docs/对比-串流.md
+- 安全模型与免责：docs/安全须知与免责声明.md、docs/安全测试-2026-11-14.md
+- 协议（HTTP 接口 / E2EE）：docs/协议.md
+
+## 仓库
+
+https://github.com/LkTheCatice/dsh-phone-bridge
