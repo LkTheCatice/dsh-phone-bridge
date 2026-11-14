@@ -1444,6 +1444,14 @@ function applyBridge(ctx, config) {
       });
     }
 
+    // 1.5) /v1/diag：属于内部诊断，不对外公开
+    // 以前它在 token 校验之前返回，配合 `access-control-allow-origin: *`
+    // 等于任何网页都能读到：会话数、帧直方图、在线客户端数、运行时长。
+    if (pathname === "/v1/diag") {
+      const diagToken = tokenOf(req, url);
+      if (!safeEqual(diagToken, pair.token)) throw new HttpError(401, "unauthorized", "token 无效");
+    }
+
     // 2) 握手：明文，但需要 token
     if (pathname === "/v1/handshake") {
       const token = req.headers["x-dsh-token"] || "";
@@ -1964,12 +1972,15 @@ function applyBridge(ctx, config) {
             if (!/queue|pending|prompt|turn|busy|running|message|state/i.test(k)) continue;
             try {
               const v = session[k];
+              // **只记形状，不记内容**：以前这里 JSON.stringify 整个字段，
+              // 而 session 的某些字段里含完整的系统提示词 / 历史消息文本，
+              // 结果这些私有内容被写进了明文 bridge.log（2026-11-14 隐私审计发现）。
               if (typeof v === "function") { probe.queueLike[k] = "<fn>"; continue; }
+              if (Array.isArray(v)) { probe.queueLike[k] = `Array(${v.length})`; continue; }
               if (v && typeof v === "object") {
-                const s = JSON.stringify(v);
-                probe.queueLike[k] = String(s).slice(0, 600);
+                probe.queueLike[k] = `{${Object.keys(v).slice(0, 12).join(",")}}`;
               } else {
-                probe.queueLike[k] = String(v).slice(0, 200);
+                probe.queueLike[k] = `<${typeof v}>`;
               }
             } catch { probe.queueLike[k] = "<err>"; }
           }
@@ -2084,7 +2095,8 @@ function applyBridge(ctx, config) {
           probe.logProbeError = String(e?.message || e).slice(0, 160);
         }
 
-        logLine(probe);
+        // 默认不落盘：这些探针只在排障时需要，而且内容涉及会话内部结构。
+        if (process.env.DSH_PHONE_DEBUG === "1") logLine(probe);
       } catch (e) {
         logLine({ step: "queue.probe/failed", error: String(e?.message || e).slice(0, 200) });
       }
