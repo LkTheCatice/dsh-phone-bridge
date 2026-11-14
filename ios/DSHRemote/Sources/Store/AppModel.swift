@@ -301,7 +301,9 @@ final class AppModel: ObservableObject {
     /// `.textSelection(.enabled)` 在 iOS 上给每段文字装一个 UITextInteraction，
     /// 十几条消息 × 每段一个，全都在 LazyVStack 里随重排反复建立/拆除 ——
     /// 这是布局阶段最贵的一块。真机实测关掉后主线程明显轻。需要复制长按文字时再开。
-    @Published var expTextSelection = UserDefaults.standard.bool(forKey: "dsh.exp.textSelection") {
+    /// 气泡文本是否可选。**默认开**：长按整条 + 双击选词是 iOS 的肌肉记忆，
+    /// 关掉反而让人以为"选中功能没了"（上一版我误判成误触，已回退）。
+    @Published var expTextSelection = UserDefaults.standard.object(forKey: "dsh.exp.textSelection") as? Bool ?? true {
         didSet { UserDefaults.standard.set(expTextSelection, forKey: "dsh.exp.textSelection") }
     }
 

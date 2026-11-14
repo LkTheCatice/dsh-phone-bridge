@@ -20,7 +20,7 @@ struct ChatList: UIViewRepresentable {
     /// 需要滚到某条消息（会话内搜索的结果跳转）；每次给一个新 id 触发一次
     let scrollToId: String?
     /// 是否允许气泡内文本选择（设置页开关；默认关，避免长按误触"复制/翻译"）
-    let allowsTextSelection: Bool
+    let allowsTextSelection: Bool = true
     /// 滚到顶部附近时回调，加载更早的消息
     let onLoadOlder: () -> Void
     /// 点击某条消息（用于展开/收起富文本）
@@ -623,9 +623,10 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         textView.delegate = self          // 链接点击必须由 delegate 处理
         textView.isEditable = false
         textView.isScrollEnabled = false          // 高度由内容决定，交给 cell
-        // 默认不可选：长按会立刻弹出"复制/翻译"，滚动时选区还挂着 ——
-        // 用户实报"不容易取消、触发太快"。需要复制的场景去设置页打开开关。
-        textView.isSelectable = false
+        // 默认可选（长按整条、双击选词，是 iOS 的肌肉记忆）。
+        // 「选中粘手」改用别的办法解决：开始拖动就清选区、点空白也清
+        // （见 clearSelection / scrollViewWillBeginDragging）。
+        textView.isSelectable = true
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
@@ -847,7 +848,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         onTapEntry: ((String) -> Void)? = nil,
         onTapFile: ((String) -> Void)? = nil,
         onTapFilePath: ((String) -> Void)? = nil,
-        allowsTextSelection: Bool = false,
+        allowsTextSelection: Bool = true,
         isRoleChange: Bool = false
     ) {
         currentEntry = entry
