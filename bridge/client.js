@@ -186,6 +186,28 @@
           ...blocked.map(deviceRow),
         ]) : null,
 
+        // 手机签名剩余天数：免费签名 7 天到期后 App 直接打不开，这里是唯一的提前预警
+        (data.server && data.server.signing && data.server.signing.daysLeft !== null && data.server.signing.daysLeft !== undefined)
+          ? (() => {
+              const days = data.server.signing.daysLeft
+              const soon = days <= 2
+              return h('div', { key: 'sign', style: { marginTop: 18 } }, [
+                h('div', { key: 'h', style: s.section }, '手机签名'),
+                h('div', {
+                  key: 'v',
+                  style: soon
+                    ? { color: '#d8863a', fontWeight: 600 }
+                    : { color: 'inherit' },
+                }, days < 0
+                  ? `已过期 ${-days} 天 —— 需要重新安装`
+                  : (days === 0 ? '今天到期 —— 请尽快重装' : `还剩 ${days} 天`)),
+                h('div', { key: 'tip', style: s.muted },
+                  '免费签名 7 天到期后 App 会直接打不开。用 Sideloadly 重新拖一次 IPA 即可，'
+                  + '配对与聊天记录都在（覆盖安装，别先卸载）。想免动手：配 AltStore 自动续签。'),
+              ])
+            })()
+          : null,
+
         h('div', { key: 'srv', style: { marginTop: 22 } }, [
           h('div', { key: 'h', style: s.section }, '这台电脑'),
           h('div', { key: 'f', style: s.mono }, '公钥指纹 ' + (data.server.fingerprint || '—')),

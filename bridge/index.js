@@ -404,6 +404,15 @@ function applyBridge(ctx, config) {
       /* 读不到就当空表 */
     }
   }
+  /** 读手机报上来的签名状态（没有就返回 null） */
+  function readSigning() {
+    try {
+      return readJson(path.join(stateDir(), "signing.json"), null);
+    } catch {
+      return null;
+    }
+  }
+
   function saveAuthFails() {
     try {
       const doc = {};
@@ -1485,6 +1494,7 @@ function applyBridge(ctx, config) {
           createdAt: pair.createdAt,
           port: cfg.port,
           lanHost: effectiveLanHost,
+        signing: readSigning(),
           e2eeRequired: cfg.requireE2ee,
           stateDir: stateDir(),
         },
@@ -2395,6 +2405,33 @@ function applyBridge(ctx, config) {
     //   · DSH 与文件在同一台电脑上，路径对两个会话都有效
     //   · 手机没法预览/下载的类型（dmg/exe/7z…）也能转发
     // 白名单校验跟文件读取用同一套 roots，越界直接 400。
+    // ── 签名状态：手机把"证书还剩几天"报上来 ────────────────────
+    //
+    // 目的：免费签名 7 天到期后 App 直接打不开，用户完全不知道。
+    // 手机自己读得到（embedded.mobileprovision），报上来之后：
+    //   · 电脑端面板能显示剩余天数并给一键续签入口
+    //   · 快到期时写进日志，方便事后追溯"为什么某天开始连不上"
+    if (method === "POST" && pathname === "/v1/signing") {
+      const body = await readJsonBody();
+      const expiresAt = String(body.expiresAt || "");
+      const daysLeft = Number(body.daysLeft);
+      const doc = {
+        expiresAt: expiresAt || null,
+        daysLeft: Number.isFinite(daysLeft) ? daysLeft : null,
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        fs.writeFileSync(path.join(stateDir(), "signing.json"), JSON.stringify(doc, null, 2), "utf8");
+      } catch {
+        /* 写不进去也不影响 */
+      }
+      logLine({ step: "signing", daysLeft: doc.daysLeft, expiresAt: doc.expiresAt });
+      if (doc.daysLeft !== null && doc.daysLeft <= 2) {
+        console.warn(`[phone-bridge] 手机 App 签名还剩 ${doc.daysLeft} 天，记得重新安装（见 docs/续签.md）`);
+      }
+      return sendJson(res, 200, { ok: true }, ctxEnc);
+    }
+
     if (method === "POST" && pathname === "/v1/session/forward") {
       const body = await readJsonBody();
       const ctrl = sessionController || ctx.sessionController;

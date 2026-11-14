@@ -483,6 +483,14 @@ final class AppModel: ObservableObject {
             self.pairing = client.config
             serverInfo = client.serverName
             phase = .connected
+            // 把签名到期时间报给电脑：7 天免费签名到期后 App 直接打不开，
+            // 电脑端面板据此提前提醒（手机自己知道，但用户不会天天看设置页）。
+            Task {
+                _ = try? await client.reportSigning(
+                    expiresAt: SigningInfo.expiryDate,
+                    daysLeft: SigningInfo.daysLeft
+                )
+            }
             lastError = nil
             // 版本指纹：日志里必须有它，否则分不清手机上跑的是哪一版
             pingDiagnostic("build=\(Self.appVersion)")

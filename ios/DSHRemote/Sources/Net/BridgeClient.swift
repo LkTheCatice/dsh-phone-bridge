@@ -275,6 +275,19 @@ final class BridgeClient {
         return try await postJSON("/v1/session/forward", json: json)
     }
 
+    /// 把本机签名到期时间报给电脑（电脑端据此提醒"该续签了"）
+    func reportSigning(expiresAt: Date?, daysLeft: Int?) async throws -> [String: Any] {
+        var json: [String: Any] = [:]
+        if let expiresAt {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime]
+            json["expiresAt"] = f.string(from: expiresAt)
+        }
+        if let daysLeft { json["daysLeft"] = daysLeft }
+        guard !json.isEmpty else { return [:] }
+        return try await postJSON("/v1/signing", json: json)
+    }
+
     func renameSession(sessionId: String, title: String) async throws -> [String: Any] {
         try await postJSON("/v1/session/rename", json: ["sessionId": sessionId, "title": title])
     }
