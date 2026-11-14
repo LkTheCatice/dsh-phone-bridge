@@ -74,6 +74,8 @@ struct ChatEntry: Identifiable, Hashable {
         /// 那套凑法试三版都没能把文字在卡片里对齐（用户三次实拍）。
         /// 架构上这样也更对：卡片是布局元素，不是文本。
         case fileOutput
+        /// 一轮产出的**汇总清单卡**（多行、每行可点）
+        case fileSummary
     }
 
     let id: String

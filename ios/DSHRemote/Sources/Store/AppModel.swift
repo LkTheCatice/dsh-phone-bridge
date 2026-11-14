@@ -332,21 +332,43 @@ final class AppModel: ObservableObject {
         hints.removeAll { h in ready.contains { $0.path == h.path && $0.turn == h.turn } }
         pendingFileHints[sessionId] = hints.isEmpty ? nil : hints
 
-        for hint in ready {
+        // 按轮分组：**一轮只落一张清单卡**，里面每行一个文件。
+        // 以前是一个文件一条卡片，产出多的时候（比如发版）会连成一大串，
+        // 占屏又难扫 —— 用户要的是"一眼看到这轮交付了什么"。
+        let grouped = Dictionary(grouping: ready, by: { $0.turn })
+        for (turn, hints) in grouped.sorted(by: { $0.key < $1.key }) {
             // 落位时间：**这一轮当前最晚的条目时间**（纯帧数据，可重现）。
             // 不用 Date()：那会把"装载时刻"写进排序键，重启 / 上拉 / 切会话后位置就飘。
             let latest = entries[sessionId]?
-                .filter { $0.turn == hint.turn }
+                .filter { $0.turn == turn }
                 .map(\.at)
-                .max() ?? hint.at
+                .max() ?? hints.map(\.at).max() ?? Date()
+
+            // 每个文件仍是一条 .fileOutput（保留 path/detail，点开用的是它），
+            // 但**不再直接进列表**，而是塞进清单卡的 folded 里。
+            let files = hints
+                .sorted { $0.at < $1.at }
+                .map { hint in
+                    ChatEntry(
+                        id: "\(sessionId)#file\(turn)_\(hint.path)",
+                        kind: .fileOutput,
+                        text: "📄 输出文件 · \(Self.fileName(hint.path))",
+                        detail: hint.path,
+                        at: hint.at,
+                        turn: turn,
+                        order: 900
+                    )
+                }
+
             append(sessionId, ChatEntry(
-                id: "\(sessionId)#file\(hint.turn)_\(hint.path)",
-                kind: .fileOutput,
-                text: "📄 输出文件 · \(Self.fileName(hint.path))",
-                detail: hint.path,
-                at: max(latest, hint.at),
-                turn: hint.turn,
-                order: 900
+                id: "\(sessionId)#files\(turn)",
+                kind: .fileSummary,
+                text: "本轮产出 \(files.count) 个",
+                detail: nil,
+                at: max(latest, files.first?.at ?? latest),
+                turn: turn,
+                order: 900,
+                folded: files
             ))
         }
     }
@@ -698,6 +720,8 @@ final class AppModel: ObservableObject {
             // 新一轮从第 0 段开始；插队会把它往后推
             answerSegment[sid] = 0
             append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: startedAt, running: true, turn: turn))
+            // 本轮那条「我」挂上"处理中"（只在不看历史时做，回放不动状态）
+            if !isHistory { setUserProcessing(sid, turn: turn, on: true) }
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
@@ -802,6 +826,7 @@ final class AppModel: ObservableObject {
             // 这样步数能直接并进同一条系统行里（用户要求「本轮步数位置改成
             // 和本轮同时一起」—— 之前是「本轮结束 · 用时 N 秒」和
             // 「本轮过程 · M 步」分成两行，看着散）。
+            setUserProcessing(sid, turn: turn, on: false)
             let foldedSteps = foldSteps(sid, turn: turn)
             // 产物提示落在本轮末尾（结束行之前），别夹在工具行中间
             flushFileHints(sid, turn: turn)
@@ -903,7 +928,9 @@ final class AppModel: ObservableObject {
             advanceSegment(sid)
             let at = Self.frameDate(frame)
             let id = "\(sid)#u\(turn)_\(Self.stableHash(text))_\(Int(at.timeIntervalSince1970 * 1000))"
-            append(sid, ChatEntry(id: id, kind: .user, text: text, at: at, turn: turn))
+            // 回显时如果这一轮正在跑，就带上"处理中"：
+            // turn.start 常常比用户消息更早到，那时条目还不存在，靠这里补上。
+            append(sid, ChatEntry(id: id, kind: .user, text: text, at: at, running: chat.streaming, turn: turn))
 
         default:
             break
@@ -1086,6 +1113,24 @@ final class AppModel: ObservableObject {
             }
         }
         entries[sessionId] = list.filter { $0.turn >= keepFrom || $0.turn == 0 }
+    }
+
+    /// 把某一轮里那条「我」标成"处理中"（或撤掉）。
+    ///
+    /// 只动 `.user`：
+    ///   · 这一轮的点亮，其它轮的统一熄掉（同一时刻只该有一条在跑）
+    ///   · 排队/插队的那种本来就不是"正在处理"，交给 queued / steering 那两套标记
+    private func setUserProcessing(_ sessionId: String, turn: Int, on: Bool) {
+        guard var list = entries[sessionId], !list.isEmpty else { return }
+        var changed = false
+        for i in list.indices where list[i].kind == .user {
+            let shouldRun = on && list[i].turn == turn && !list[i].queued && !list[i].steering
+            if list[i].running != shouldRun {
+                list[i].running = shouldRun
+                changed = true
+            }
+        }
+        if changed { entries[sessionId] = list }
     }
 
     /// 兜底清理：某几轮已经有了折叠条目，就不该再在主列表里出现它们的 log 行。
@@ -1484,6 +1529,30 @@ final class AppModel: ObservableObject {
 
     /// 正在新建会话（按钮转圈、防连点）
     @Published private(set) var isCreatingSession = false
+
+    /// 把产物文件转发到另一个会话（**只发路径引用**，不传文件本体）。
+    ///
+    /// 为什么只发路径：两端在同一台电脑上，目标会话拿到路径就能读；
+    /// 手机不能预览/下载的类型（dmg/exe/7z）也能用这条路，且不耗流量。
+    func forwardFile(
+        path: String,
+        to sessionId: String,
+        note: String = "",
+        attachCommand: Bool = true
+    ) async throws {
+        guard let client else {
+            throw BridgeServerError(status: 0, code: "offline", message: "未连接")
+        }
+        _ = client
+        let title = sessionList.rows.first(where: { $0.id == selectedSessionId })?.displayTitle ?? ""
+        _ = try await client.forwardFile(
+            toSessionId: sessionId,
+            path: path,
+            note: note,
+            fromTitle: title,
+            attachCommand: attachCommand
+        )
+    }
 
     /// 在电脑上真的新建一个会话（不是只清空本地选择）
     func createNewSession() async {

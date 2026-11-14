@@ -257,6 +257,24 @@ final class BridgeClient {
         return try await postJSON("/v1/session/new", json: json)
     }
 
+    /// 把一个文件（**以路径引用**）转发到另一个会话。
+    ///
+    /// 只发路径不传文件：两端在同一台电脑上，路径对目标会话直接有效；
+    /// 手机不能预览/下载的类型（dmg/exe/7z…）也能用这条路。
+    func forwardFile(
+        toSessionId: String,
+        path: String,
+        note: String = "",
+        fromTitle: String = "",
+        attachCommand: Bool = false
+    ) async throws -> [String: Any] {
+        var json: [String: Any] = ["toSessionId": toSessionId, "path": path]
+        if !note.isEmpty { json["note"] = note }
+        if !fromTitle.isEmpty { json["fromTitle"] = fromTitle }
+        if attachCommand { json["attachCommand"] = true }
+        return try await postJSON("/v1/session/forward", json: json)
+    }
+
     func renameSession(sessionId: String, title: String) async throws -> [String: Any] {
         try await postJSON("/v1/session/rename", json: ["sessionId": sessionId, "title": title])
     }

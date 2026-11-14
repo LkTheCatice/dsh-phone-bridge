@@ -23,6 +23,8 @@ struct ChatList: UIViewRepresentable {
     let onTapEntry: (String) -> Void
     /// 点开产物文件
     let onTapFile: (String) -> Void
+    /// 点清单卡里的某一行（回调直接给路径）
+    let onTapFilePath: (String) -> Void
     /// 点击「📎 附件」提示行（打开媒体面板）
     let onTapAttachments: (String) -> Void
     /// 点击消息里的链接（dsh:// 自定义 scheme 或普通 URL）
@@ -130,6 +132,9 @@ struct ChatList: UIViewRepresentable {
                         },
                         onTapFile: { [weak self] rowId in
                             self?.parent.onTapFile(rowId)
+                        },
+                        onTapFilePath: { [weak self] path in
+                            self?.parent.onTapFilePath(path)
                         },
                         isRoleChange: isRoleChange
                     )
@@ -509,6 +514,12 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
     /// 产物卡片（「📄 输出文件 · xxx」）。
     /// 用真视图而不是富文本：内外边距和垂直居中由约束保证，见 FileChipView 顶部注释。
     private let fileChip = FileChipView()
+    /// 「本轮产出 N 个」清单卡：一张卡多行，**每行独立可点**
+    private let fileList = FileListCardView()
+    /// 点清单卡某一行 → 打开那个文件（回调带 path）
+    var onTapFilePath: ((String) -> Void)?
+    /// 清单卡高度（按行数改；cell 复用时必须重置）
+    private var fileListHeight: NSLayoutConstraint?
     /// 气泡背景：垫在文字下面，靠圆角 + 底色区分消息与消息之间
     /// （用户反馈「分割不是很明显」—— 之前只有 ▍我 / ▍AI 前缀）。
     private let bubble = UIView()
@@ -562,11 +573,14 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         bubble.backgroundColor = .clear
         contentView.addSubview(bubble)
 
-        let stack = UIStackView(arrangedSubviews: [fileChip, textView, attachmentLabel])
+        let stack = UIStackView(arrangedSubviews: [fileChip, fileList, textView, attachmentLabel])
         stack.axis = .vertical
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
+        fileList.translatesAutoresizingMaskIntoConstraints = false
+        fileListHeight = fileList.heightAnchor.constraint(equalToConstant: 40)
+        fileListHeight?.isActive = true
         topConstraint = stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8)
         // 约束分两套，按消息角色切换：
         //   助手 → leading 固定 0 + trailing 固定（铺满）
@@ -621,6 +635,8 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         switch entry.kind {
         case .toolCall, .collapsedSteps:
             onTapEntry?(entry.id)
+        case .fileSummary:
+            break          // 清单卡每一行有自己的点击区，整卡点击不做事
         case .fileOutput:
             onTapFile?(entry.id)
         default:
@@ -640,6 +656,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         // 产物卡片：复用前必须清空，否则会带着上一条的文件名（cell 复用的经典坑）
         fileChip.text = nil
         fileChip.isHidden = true
+        fileList.isHidden = true
         onTapAttachments = nil
         onOpenLink = nil
         onTapEntry = nil
@@ -685,10 +702,12 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         onOpenLink: ((URL) -> Void)? = nil,
         onTapEntry: ((String) -> Void)? = nil,
         onTapFile: ((String) -> Void)? = nil,
+        onTapFilePath: ((String) -> Void)? = nil,
         isRoleChange: Bool = false
     ) {
         currentEntry = entry
         self.onOpenLink = onOpenLink
+        self.onTapFilePath = onTapFilePath
         // 角色切换（我→AI / AI→我）时上方多留一点，段落感更强。
         // 工具行（运行命令 / 读取 / 写入…）属于「过程」，和上一行贴紧一点，
         // 否则一轮十几条读起来像散开的日志（用户反馈行距偏大）。
@@ -705,7 +724,30 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         leadingConstraint?.constant = (entry.kind == .user) ? 56 : 0
         // 产物卡片 / 折叠行：这两类都**不用 textView**，交给 FileChipView
         // （真视图 + 约束）—— 文字的垂直居中、内边距都由约束保证。
-        if entry.kind == .fileOutput {
+        if entry.kind == .fileSummary {
+            // 一轮产出合成一张清单卡：图标 + 文件名 + 一句指标，每行可点
+            let files = entry.folded
+            let shown = Array(files.prefix(5))
+            fileChip.isHidden = true
+            fileChip.text = nil
+            fileList.isHidden = false
+            fileList.configure(
+                rows: shown.map { file in
+                    let path = file.detail ?? ""
+                    let kind = FileKind(path: path)
+                    let ext = (path as NSString).pathExtension.lowercased()
+                    return FileListCardView.Row(path: path, metrics: "\(ext) · \(kind.tag)")
+                },
+                moreCount: max(0, files.count - shown.count)
+            )
+            fileList.onTapPath = { [weak self] path in self?.onTapFilePath?(path) }
+            let lines = FileListCardView.lineCount(fileCount: files.count)
+            let separators = CGFloat(max(0, lines - 1)) * 0.5
+            fileListHeight?.constant = lines > 0 ? CGFloat(lines) * 32 + separators + 8 : 40
+            textView.isHidden = true
+            textView.attributedText = nil
+        } else if entry.kind == .fileOutput {
+            fileList.isHidden = true
             fileChip.isHidden = false
             // 卡片统一成：图标 + 文件名 + 右侧能力标签（可预览 / 下载）
             let path = entry.detail ?? ""
@@ -717,6 +759,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             textView.isHidden = true
             textView.attributedText = nil
         } else if entry.kind == .collapsedSteps {
+            fileList.isHidden = true
             // 「▸ 本轮过程 · N 步」做成一张**有色卡片的行**：
             // 之前是 12pt 灰字，小、没颜色、看不出能点（用户实拍）。
             fileChip.isHidden = false
@@ -728,6 +771,7 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         } else {
             fileChip.isHidden = true
             fileChip.text = nil
+            fileList.isHidden = true
             textView.isHidden = false
             textView.attributedText = MessageRender.attributed(entry)
         }
@@ -862,6 +906,13 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         // 产物卡片：约束固定（上下各 8pt、最小高度 32pt）
         if entry.kind == .fileOutput {
             return stackTopSpacing + 32 + 8
+        }
+        // 清单卡：每行 32pt + 行间 0.5pt 分隔线 + 上下各 8pt
+        if entry.kind == .fileSummary {
+            let lines = FileListCardView.lineCount(fileCount: entry.folded.count)
+            guard lines > 0 else { return stackTopSpacing + 32 + 8 }
+            let separators = CGFloat(max(0, lines - 1)) * 0.5
+            return stackTopSpacing + CGFloat(lines) * 32 + separators + 16
         }
 
         // 用户消息整块右移 56pt；宽度已由 applyUserBubbleLayout 按内容算好
@@ -1107,7 +1158,11 @@ enum MessageRender {
             // 排队中：明确标出来。否则本地乐观插入的消息看起来和「已执行」一样，
             // 用户会以为它已经开始跑了（实测反馈）。
             if entry.steering { return "▍我 · 已插队，等当前任务完成\n" }
-            return entry.queued ? "▍我 · 排队中\n" : "▍我\n"
+            if entry.queued { return "▍我 · 排队中\n" }
+            // 正在被处理的那一条：在「我」后面标个处理中，
+            // 一眼能看出 AI 现在跑的是哪一句（多轮/插队时尤其需要）。
+            if entry.running { return "▍我 · 处理中\n" }
+            return "▍我\n"
         case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
         // 和工具行**完全一致**：前缀只有 "> "，
         // "思考 · " 这个标签放进正文 run（工具行的"运行命令 · "就是这样来的）。
@@ -1117,7 +1172,7 @@ enum MessageRender {
         case .thinking: return "> "
         case .toolCall: return "> "
         case .collapsedSteps: return "▸ "
-        case .system, .toolResult, .fileOutput: return nil
+        case .system, .toolResult, .fileOutput, .fileSummary: return nil
         }
     }
 }

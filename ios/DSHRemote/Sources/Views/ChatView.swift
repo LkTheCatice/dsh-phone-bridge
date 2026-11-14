@@ -200,6 +200,17 @@ struct ChatView: View {
                     onTapFile: { id in
                         fileEntry = visibleEntries.first { $0.id == id }
                     },
+                    // 清单卡里点某一行：直接按路径开（那一行没有独立的 ChatEntry）
+                    onTapFilePath: { path in
+                        fileEntry = ChatEntry(
+                            id: "summary-\(path)",
+                            kind: .fileOutput,
+                            text: "",
+                            detail: path,
+                            at: Date(),
+                            turn: 0
+                        )
+                    },
                     onTapAttachments: { id in
                         attachmentEntry = visibleEntries.first { $0.id == id }
                     },

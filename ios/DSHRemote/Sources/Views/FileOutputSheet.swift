@@ -15,6 +15,8 @@ struct FileOutputSheet: View {
     @State private var error: String?
     @State private var shareURL: URL?
     @State private var showShare = false
+    /// 正在转发到别的会话
+    @State private var showForward = false
 
     private var path: String { entry.detail ?? "" }
     private var kind: FileKind { FileKind(path: path) }
@@ -62,6 +64,20 @@ struct FileOutputSheet: View {
                     }
                     .disabled(loading)
                 }
+                // 转发：只发路径引用，不传文件本体 ——
+                // 手机打不开的类型（dmg/exe/7z…）也能转，且不耗流量。
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showForward = true
+                    } label: {
+                        Image(systemName: "paperplane")
+                    }
+                    .disabled(path.isEmpty)
+                }
+            }
+            .sheet(isPresented: $showForward) {
+                ForwardSessionSheet(path: path)
+                    .environmentObject(model)
             }
             .sheet(isPresented: $showShare) {
                 if let shareURL { ActivityView(items: [shareURL]) }

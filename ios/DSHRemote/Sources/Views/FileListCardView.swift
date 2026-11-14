@@ -1,0 +1,126 @@
+import UIKit
+
+/// 「本轮产出」清单卡：一张卡里列出这一轮产出的所有文件。
+///
+/// 为什么不用文字拼：每一行要**独立可点**（点谁开谁），
+/// 文字行做不到命中区分（会被当成一段文本）。
+/// 所以这里跟 `FileChipView` 一样，用真视图 + 约束：
+///   · 行高固定 32，最多 5 行，超出显示「还有 N 个」
+///   · 左侧类型图标、中间文件名、右侧一句指标（时长/体积/类型）
+final class FileListCardView: UIView {
+
+    struct Row {
+        let path: String
+        let metrics: String
+    }
+
+    var onTapPath: ((String) -> Void)?
+
+    private let stack = UIStackView()
+    private var rows: [Row] = []
+    private var moreCount = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor.tertiarySystemFill
+        layer.cornerRadius = 9
+        layer.cornerCurve = .continuous
+
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// 行数（含「还有 N 个」那一行）—— cell 高度按这个算，别让视图自己量
+    static func lineCount(fileCount: Int) -> Int {
+        min(fileCount, 5) + (fileCount > 5 ? 1 : 0)
+    }
+
+    func configure(rows: [Row], moreCount: Int) {
+        self.rows = rows
+        self.moreCount = moreCount
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        for (index, row) in rows.enumerated() {
+            if index > 0 { stack.addArrangedSubview(separator()) }
+            stack.addArrangedSubview(makeLine(row))
+        }
+        if moreCount > 0 {
+            stack.addArrangedSubview(separator())
+            let label = UILabel()
+            label.text = "还有 \(moreCount) 个…"
+            label.font = .systemFont(ofSize: 12)
+            label.textColor = .tertiaryLabel
+            label.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            stack.addArrangedSubview(label)
+        }
+    }
+
+    private func separator() -> UIView {
+        let line = UIView()
+        line.backgroundColor = UIColor.separator.withAlphaComponent(0.5)
+        line.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+        return line
+    }
+
+    private func makeLine(_ row: Row) -> UIControl {
+        let control = RowControl()
+        control.path = row.path
+        control.addTarget(self, action: #selector(handleTap(_:)), for: .touchUpInside)
+
+        let icon = UILabel()
+        icon.text = FileKind(path: row.path).icon
+        icon.font = .systemFont(ofSize: 13)
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let name = UILabel()
+        name.text = AppModel.fileName(row.path)
+        name.font = .systemFont(ofSize: 13, weight: .medium)
+        name.textColor = .label
+        name.lineBreakMode = .byTruncatingMiddle
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let metrics = UILabel()
+        metrics.text = row.metrics
+        metrics.font = .systemFont(ofSize: 11)
+        metrics.textColor = .secondaryLabel
+        metrics.setContentHuggingPriority(.required, for: .horizontal)
+        metrics.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let hStack = UIStackView(arrangedSubviews: [icon, name, metrics])
+        hStack.axis = .horizontal
+        hStack.alignment = .center
+        hStack.spacing = 8
+        hStack.isUserInteractionEnabled = false
+        hStack.translatesAutoresizingMaskIntoConstraints = false
+        control.addSubview(hStack)
+        NSLayoutConstraint.activate([
+            hStack.leadingAnchor.constraint(equalTo: control.leadingAnchor),
+            hStack.trailingAnchor.constraint(equalTo: control.trailingAnchor),
+            hStack.centerYAnchor.constraint(equalTo: control.centerYAnchor),
+            control.heightAnchor.constraint(equalToConstant: 32),
+        ])
+        return control
+    }
+
+    @objc private func handleTap(_ sender: RowControl) {
+        guard let path = sender.path else { return }
+        onTapPath?(path)
+    }
+
+    final class RowControl: UIControl {
+        var path: String?
+        override var isHighlighted: Bool {
+            didSet { alpha = isHighlighted ? 0.55 : 1 }
+        }
+    }
+}

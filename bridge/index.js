@@ -295,6 +295,8 @@ function applyBridge(ctx, config) {
   const streamClients = new Set();
   const e2ee = new Map(); // clientId -> {c2s, s2c, createdAt, lastSeen, name}
   const approvals = new Map(); // id -> {tool, reason, since, decide}
+  /** 转发去重：key = 目标会话|路径|说明 → 上次发送时间 */
+  const recentForwards = new Map();
   const seenEvents = new WeakSet();
 
   let seq = 0;
@@ -2176,6 +2178,74 @@ function applyBridge(ctx, config) {
         return sendJson(res, 200, { ok: true, sessionId, archived: wantArchived }, ctxEnc);
       } catch (error) {
         logLine({ step: "session/archive", sessionId, error: String(error?.message || error).slice(0, 300) });
+        throw error;
+      }
+    }
+
+    // ── 产物转发：把一个文件"引用"发到另一个会话 ────────────────────────
+    //
+    // 只发路径，不传文件本体：
+    //   · DSH 与文件在同一台电脑上，路径对两个会话都有效
+    //   · 手机没法预览/下载的类型（dmg/exe/7z…）也能转发
+    // 白名单校验跟文件读取用同一套 roots，越界直接 400。
+    if (method === "POST" && pathname === "/v1/session/forward") {
+      const body = await readJsonBody();
+      const ctrl = sessionController || ctx.sessionController;
+      if (!ctrl) throw new HttpError(503, "not-ready", "sessionController 尚未就绪");
+
+      const toSessionId = String(body.toSessionId || "");
+      const target = String(body.path || "").trim();
+      const note = String(body.note || "").trim();
+      const fromTitle = String(body.fromTitle || "").trim();
+      const attachCommand = body.attachCommand === true;
+      if (!toSessionId || !target) throw new HttpError(400, "bad-request", "需要 toSessionId 与 path");
+
+      // 路径必须在允许的根下面（和 /v1/fs/read 同一套判断）
+      const normalized = target.replace(/\\/g, "/");
+      const roots = safeFs.allowedRoots().map((r) => String(r || "").replace(/\\/g, "/").toLowerCase());
+      const inside = roots.some((root) => normalized.toLowerCase().startsWith(root.replace(/\/+$/, "") + "/"))
+        || roots.some((root) => normalized.toLowerCase() === root.replace(/\/+$/, ""));
+      if (!inside) {
+        throw new HttpError(400, "outside-roots", "该路径不在允许的目录里：" + roots.join(" / "));
+      }
+
+      // 3 秒内同目标 + 同路径 + 同说明，只发一次（防连点）
+      const key = toSessionId + "|" + normalized.toLowerCase() + "|" + note;
+      const now = Date.now();
+      if (recentForwards.has(key) && now - recentForwards.get(key) < 3000) {
+        return sendJson(res, 200, { ok: true, deduped: true }, ctxEnc);
+      }
+      recentForwards.set(key, now);
+      if (recentForwards.size > 200) {
+        for (const [k, ts] of recentForwards) if (now - ts > 60000) recentForwards.delete(k);
+      }
+
+      const lines = [];
+      lines.push(fromTitle ? "[转发] 来自「" + fromTitle + "」" : "[转发]");
+      lines.push("");
+      lines.push(target);
+      if (note) { lines.push(""); lines.push(note); }
+      if (attachCommand) {
+        lines.push("");
+        lines.push("请把上面这个文件作为输入继续处理。");
+      }
+      const text = lines.join("\n");
+
+      const requestId = String(body.requestId || randomUUID());
+      try {
+        const result = await ctrl.prompt(
+          { sessionId: toSessionId, content: [{ type: "text", text }], requestId },
+          AbortSignal.timeout(cfg.approvalTimeoutMs * 4),
+        );
+        logLine({ step: "session/forward", toSessionId, path: target, chars: text.length });
+        return sendJson(res, 200, {
+          ok: true,
+          toSessionId,
+          requestId,
+          accepted: result?.accepted !== false,
+        }, ctxEnc);
+      } catch (error) {
+        logLine({ step: "session/forward", toSessionId, error: String(error?.message || error).slice(0, 300) });
         throw error;
       }
     }
