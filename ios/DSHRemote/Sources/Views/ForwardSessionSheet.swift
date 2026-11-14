@@ -59,22 +59,7 @@ struct ForwardSessionSheet: View {
                             Button {
                                 Task { await send(row) }
                             } label: {
-                                HStack(spacing: 8) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(row.displayTitle).font(.system(size: 14))
-                                        Text(row.relativeTime.isEmpty ? row.id.suffix(8) : row.relativeTime)
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer(minLength: 0)
-                                    if sendingTo == row.id {
-                                        ProgressView().controlSize(.mini)
-                                    } else {
-                                        Image(systemName: "paperplane").font(.system(size: 13))
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                                .contentShape(Rectangle())
+                                rowLabel(row)
                             }
                             .buttonStyle(.plain)
                             .disabled(sendingTo != nil)
@@ -95,6 +80,36 @@ struct ForwardSessionSheet: View {
                 ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
             }
         }
+    }
+
+    /// 单行会话：标题 + 相对时间（没有就退化成 id 后 8 位）
+    ///
+    /// 单独成函数是有原因的：写在 ForEach 里那句
+    /// `row.relativeTime.isEmpty ? row.id.suffix(8) : row.relativeTime`
+    /// 把 String 和 Substring 混在一个三元里，Swift 的类型推断会直接超时
+    /// （CI 报 "unable to type-check this expression in reasonable time"）。
+    @ViewBuilder
+    private func rowLabel(_ row: SessionRow) -> some View {
+        let subtitle: String = row.relativeTime.isEmpty
+            ? String(row.id.suffix(8))
+            : row.relativeTime
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.displayTitle).font(.system(size: 14))
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if sendingTo == row.id {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: "paperplane")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.accentColor)
+            }
+        }
+        .contentShape(Rectangle())
     }
 
     private func send(_ row: SessionRow) async {
