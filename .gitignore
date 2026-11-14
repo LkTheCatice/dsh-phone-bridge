@@ -28,3 +28,7 @@ Thumbs.db
 # 宣传片素材（与 App 功能无关，体积大）
 docs/ui-demo/frames/
 docs/ui-demo/out/
+
+# 构建产物与截图（不进仓库；IPA 走 Release）
+dist/
+assets/design/
