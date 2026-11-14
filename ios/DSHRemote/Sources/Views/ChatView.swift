@@ -325,19 +325,19 @@ struct ChatView: View {
                 guard !items.isEmpty else { return }
                 Task { await loadVideos(items) }
             }
-            // 抽成 modifier：这一整段闭包留在 body 里会让整条链的类型推断超时
-            .sheet(item: $forwardPath) { path in
-                ForwardSessionSheet(path: path)
-                    .environmentObject(model)
-            }
-            .sheet(isPresented: $showDraftEditor) {
-                DraftEditorSheet(text: $draft)
-            }
-            .modifier(ImageEditorModifier(
-                image: $editorImage,
+            // 所有弹出层集中在一个 modifier 里：
+            // body 每多挂一个 .sheet，Swift 就要对整个表达式重新推断一次 ——
+            // 加两个就直接超时（CI 已复现两次）。
+            .modifier(ChatSheetsModifier(
+                summaryEntry: $summaryEntry,
+                forwardPath: $forwardPath,
+                showDraftEditor: $showDraftEditor,
+                draft: $draft,
+                editorImage: $editorImage,
                 editingIndex: $editingAttachmentIndex,
-                continuation: $editorContinuation,
-                onReplace: { index, merged in
+                editorContinuation: $editorContinuation,
+                onPickSummaryFile: { picked in fileEntry = picked },
+                onReplaceAttachment: { index, merged in
                     await replaceAttachment(at: index, with: merged)
                 }
             ))
@@ -464,10 +464,6 @@ struct ChatView: View {
         .sheet(item: $turnLogEntry) { item in
             TurnLogSheet(entry: item)
         }
-        // 收进 modifier：body 上的 modifier 链已经很长，再塞闭包会让类型推断超时
-        .modifier(FileSummaryModifier(entry: $summaryEntry, onPick: { picked in
-            fileEntry = picked
-        }))
         .sheet(item: $fileEntry) { item in
             FileOutputSheet(entry: item)
                 .environmentObject(model)
