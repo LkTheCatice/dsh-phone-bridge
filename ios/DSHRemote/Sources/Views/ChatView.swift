@@ -175,66 +175,7 @@ struct ChatView: View {
                 // ── 列表：UICollectionView + cell 复用（见 ChatList.swift）──
                 // 换掉 LazyVStack 的原因：它没有 cell 复用，22 条消息滚动就能卡 13 秒。
                 // 一条消息 = 一个 cell = 一个视图，滚动成本与消息总数无关。
-                ChatList(
-                    entries: visibleEntries,
-                    isStreaming: chat.streaming,
-                    onBottomChanged: { bottom in
-                        if jump.atBottom != bottom { jump.atBottom = bottom }
-                        if bottom {
-                            if jump.hasNewBelow { jump.hasNewBelow = false }
-                            // 停在底部 = 已经看到最新内容
-                            lastSeenTurn = latestContentTurn
-                        }
-                    },
-                    scrollRequest: scrollRequest,
-                    scrollToId: scrollToId,
-                    onLoadOlder: {
-                        if let sid = model.selectedSessionId {
-                            Task { await model.loadOlder(sid) }
-                        }
-                    },
-                    onTapEntry: { id in
-                        guard let target = visibleEntries.first(where: { $0.id == id }) else { return }
-                        // 产物清单卡的「还有 N 个」也走这条路（不新增闭包，避免 body 推断超时）
-                        if target.kind == .fileSummary {
-                            summaryEntry = target
-                            return
-                        }
-                        // 工具行：打开「工具详情」——里面有参数/结果，以及**它读过的图片**
-                        // （ToolDetailSheet 会用 ToolSummary.imagePaths 从 detail 里扫路径，
-                        //  再用 RemoteImage 拉电脑那边的预览图）。
-                        // 这条入口之前是断的：detailPresenter 只注入、没人调用，
-                        // 点工具行走的是 EntryDetailSheet（只渲染文本），图片看不到。
-                        if target.kind == .toolCall {
-                            detailPresenter.entry = target
-                        } else if target.kind == .collapsedSteps {
-                            // 「▸ 本轮过程 · N 步」→ 打开过程页（按顺序列出每一步，可再点开）
-                            turnLogEntry = target
-                        } else {
-                            // 其余条目：看完整内容（列表里的表格/代码是截断的）
-                            detailEntry = target
-                        }
-                    },
-                    onTapFile: { id in
-                        fileEntry = visibleEntries.first { $0.id == id }
-                    },
-                    // 清单卡里点某一行：直接按路径开（那一行没有独立的 ChatEntry）
-                    onTapFilePath: { path in
-                        fileEntry = ChatEntry(
-                            id: "summary-\(path)",
-                            kind: .fileOutput,
-                            text: "",
-                            detail: path,
-                            at: Date(),
-                            turn: 0
-                        )
-                    },
-                    onTapAttachments: { id in
-                        attachmentEntry = visibleEntries.first { $0.id == id }
-                    },
-                    // 闭包体抽成方法：内联在这里会让整个 body 表达式类型推断超时
-                    onOpenLink: handleOpenLink,
-                )
+                conversationList
                 .onChange(of: chat.tick) { _ in
                     // 「新消息」只看尾巴：末条 id 变了（真来了新条）或末条正文变长
                     // （流式在长）。上拉插头部、裁剪、队列帧都不会动尾巴，
@@ -771,6 +712,74 @@ struct ChatView: View {
         default:
             break
         }
+    }
+
+    /// 消息列表单独成一个计算属性。
+    ///
+    /// 为什么：ChatList 的参数已经有十几个闭包，直接写在 body 里会让
+    /// Swift 对整个 body 表达式做类型推断时超时（CI 报 ChatView.swift:293）。
+    /// 拆出来之后 body 里只留一行，推断成本回到正常量级。
+    private var conversationList: some View {
+        ChatList(
+            entries: visibleEntries,
+            isStreaming: chat.streaming,
+            onBottomChanged: { bottom in
+                if jump.atBottom != bottom { jump.atBottom = bottom }
+                if bottom {
+                    if jump.hasNewBelow { jump.hasNewBelow = false }
+                    // 停在底部 = 已经看到最新内容
+                    lastSeenTurn = latestContentTurn
+                }
+            },
+            scrollRequest: scrollRequest,
+            scrollToId: scrollToId,
+            onLoadOlder: {
+                if let sid = model.selectedSessionId {
+                    Task { await model.loadOlder(sid) }
+                }
+            },
+            onTapEntry: { id in
+                guard let target = visibleEntries.first(where: { $0.id == id }) else { return }
+                // 产物清单卡的「还有 N 个」也走这条路（不新增闭包，避免 body 推断超时）
+                if target.kind == .fileSummary {
+                    summaryEntry = target
+                    return
+                }
+                // 工具行：打开「工具详情」——里面有参数/结果，以及**它读过的图片**
+                // （ToolDetailSheet 会用 ToolSummary.imagePaths 从 detail 里扫路径，
+                //  再用 RemoteImage 拉电脑那边的预览图）。
+                // 这条入口之前是断的：detailPresenter 只注入、没人调用，
+                // 点工具行走的是 EntryDetailSheet（只渲染文本），图片看不到。
+                if target.kind == .toolCall {
+                    detailPresenter.entry = target
+                } else if target.kind == .collapsedSteps {
+                    // 「▸ 本轮过程 · N 步」→ 打开过程页（按顺序列出每一步，可再点开）
+                    turnLogEntry = target
+                } else {
+                    // 其余条目：看完整内容（列表里的表格/代码是截断的）
+                    detailEntry = target
+                }
+            },
+            onTapFile: { id in
+                fileEntry = visibleEntries.first { $0.id == id }
+            },
+            // 清单卡里点某一行：直接按路径开（那一行没有独立的 ChatEntry）
+            onTapFilePath: { path in
+                fileEntry = ChatEntry(
+                    id: "summary-\(path)",
+                    kind: .fileOutput,
+                    text: "",
+                    detail: path,
+                    at: Date(),
+                    turn: 0
+                )
+            },
+            onTapAttachments: { id in
+                attachmentEntry = visibleEntries.first { $0.id == id }
+            },
+            // 闭包体抽成方法：内联在这里会让整个 body 表达式类型推断超时
+            onOpenLink: handleOpenLink,
+        )
     }
 
     private func submit() {
