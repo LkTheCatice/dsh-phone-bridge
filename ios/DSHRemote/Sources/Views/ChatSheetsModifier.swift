@@ -8,9 +8,7 @@ import SwiftUI
 /// 把四个 sheet 收进一个 modifier，body 里只多一行。
 struct ChatSheetsModifier: ViewModifier {
     @Binding var summaryEntry: ChatEntry?
-    @Binding var showSearch: Bool
-    let entries: [ChatEntry]
-    let onPickSearch: (ChatEntry) -> Void
+    @Binding var summaryEntry: ChatEntry?
     @Binding var forwardPath: String?
     @Binding var forwardText: String?
     @Binding var showDraftEditor: Bool
@@ -21,6 +19,11 @@ struct ChatSheetsModifier: ViewModifier {
 
     let onPickSummaryFile: (ChatEntry) -> Void
     let onReplaceAttachment: (Int, UIImage) async -> Void
+
+    // 搜索面板（放在最后，避免调用点顺序混乱）
+    @Binding var showSearch: Bool
+    let entries: [ChatEntry]
+    let onPickSearch: (ChatEntry) -> Void
 
     @EnvironmentObject private var model: AppModel
 

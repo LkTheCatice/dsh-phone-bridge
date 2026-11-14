@@ -273,12 +273,6 @@ struct ChatView: View {
                     // body 每多挂一个 .sheet，Swift 就要对整个表达式重新推断一次 ——
                     // 加两个就直接超时（CI 已复现两次）。
                     .modifier(ChatSheetsModifier(
-                    showSearch: $showSearch,
-                    entries: visibleEntries,
-                    onPickSearch: { picked in
-                        // 先确保它还在列表里再滚过去
-                        scrollToId = picked.id
-                    },
                     summaryEntry: $summaryEntry,
                     forwardPath: $forwardPath,
                     forwardText: $forwardText,
@@ -290,6 +284,12 @@ struct ChatView: View {
                     onPickSummaryFile: { picked in fileEntry = picked },
                     onReplaceAttachment: { index, merged in
                         await replaceAttachment(at: index, with: merged)
+                    },
+                    showSearch: $showSearch,
+                    entries: visibleEntries,
+                    onPickSearch: { picked in
+                        // 先确保它还在列表里再滚过去
+                        scrollToId = picked.id
                     }
                     ))
                     // 切换会话时回填历史：之前只显示「连上之后收到的事件」，旧对话是空的
