@@ -14,6 +14,35 @@ iPhone (SwiftUI)  ── 局域网 HTTP + 端到端加密 ──▶  PC 上的 d
 
 ---
 
+
+## 装完自检 / 补丁
+
+插件包里带两个命令行工具（`bridge/bin/`）：
+
+```powershell
+# 一键体检：DSH 目录、插件登记、提问补丁、端口、配对、推送、App 版本
+node bridge\bin\doctor.mjs
+
+# 提问补丁（手机能代答提问的前提）
+node bridge\bin\patch-dsh.mjs          # 打
+node bridge\bin\patch-dsh.mjs --check  # 只查
+node bridge\bin\patch-dsh.mjs --revert # 还原
+```
+
+**为什么需要补丁**：手机选的答案必须由**桌面端自己按下「提交」**，DSH 才会按原生流程结算。
+桥拿不到那个按钮，只能通过一个自定义 Remote 事件请前端代按 —— 这就是补丁改的两处：
+
+| 文件 | 改动 |
+|---|---|
+| `dsh-api-remotes/lib/index.js` | 把 `phone-bridge/ask-submit` 加进事件转发白名单 |
+| `dsh-client-ui-user-questions/lib/client.js` | 收到事件 → `card.pending.answer({ answers })`（和点按钮同一条路径） |
+
+- 幂等，重复执行不会叠加
+- 原文件备份为 `*.bak-phonebridge-<时间戳>`
+- **DSH 升级会覆盖这两个文件**，跑一次 `doctor` 会告诉你「未打」，再跑 `patch-dsh.mjs` 即可
+- `install.ps1` 已经把这个步骤串进去了（第 5/6 步），`uninstall.ps1` 会自动还原
+
+
 ## ⚠️ 先说清楚：能不能在外网用
 
 | 场景 | 能不能用 | 怎么做 |

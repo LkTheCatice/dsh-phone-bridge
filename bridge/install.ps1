@@ -66,10 +66,10 @@ if (Test-Path $target) {
   $existing = Get-Item $target -Force
   if ($existing.LinkType) {
     [System.IO.Directory]::Delete($target, $false)
-    Write-Host "[1/5] 移除旧链接（源码未受影响）"
+    Write-Host "[1/6] 移除旧链接（源码未受影响）"
   } else {
     Remove-Item -Recurse -Force $target
-    Write-Host "[1/5] 移除旧的复制目录"
+    Write-Host "[1/6] 移除旧的复制目录"
   }
 }
 
@@ -78,9 +78,9 @@ New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
 if ($Link) {
   try {
     New-Item -ItemType Junction -Path $target -Target $src -ErrorAction Stop | Out-Null
-    Write-Host "[2/5] 建立 junction -> $src（C 盘占用 0 字节）"
+    Write-Host "[2/6] 建立 junction -> $src（C 盘占用 0 字节）"
   } catch {
-    Write-Host "[2/5] 建立链接失败（$($_.Exception.Message)），改为复制" -ForegroundColor Yellow
+    Write-Host "[2/6] 建立链接失败（$($_.Exception.Message)），改为复制" -ForegroundColor Yellow
     $Link = $false
   }
 }
@@ -91,10 +91,10 @@ if (-not $Link) {
     $p = Join-Path $target $skip
     if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
   }
-  Write-Host "[2/5] 已复制插件 -> $target"
+  Write-Host "[2/6] 已复制插件 -> $target"
 }
 
-Write-Host "[3/5] 备份 cordis.patch.yml"
+Write-Host "[3/6] 备份 cordis.patch.yml"
 $patch = Join-Path $profileDir "cordis.patch.yml"
 if (-not (Test-Path $patch)) { New-Item -ItemType File -Path $patch | Out-Null }
 Copy-Item $patch "$patch.before-phone-bridge-$stamp"
@@ -102,10 +102,10 @@ Write-Host "       备份：$patch.before-phone-bridge-$stamp"
 
 $text = Get-Content $patch -Raw
 if ($text -match "dsh-phone-bridge") {
-  Write-Host "[4/5] 配置已存在，跳过写入"
+  Write-Host "[4/6] 配置已存在，跳过写入"
   Write-Host "       （要改 lanHost / roots 请手改 cordis.patch.yml，然后重启 DSH）"
 } else {
-  Write-Host "[4/5] 追加插件配置"
+  Write-Host "[4/6] 追加插件配置"
   $lan = if ($LanHost) { "`"$LanHost`"" } else { '""' }
   $rootLines = ""
   if ($Roots.Count -gt 0) {
@@ -150,7 +150,22 @@ if (-not $StateDir -and (Test-Path (Join-Path $env:USERPROFILE ".dsh\phone-bridg
 }
 if ($StateDir) { Write-Host "       状态目录：$StateDir" }
 
-Write-Host "[5/5] 生成配对串"
+# ── 给 DSH 打「提问远程提交」补丁 ────────────────────────────────
+# 没有它：手机选的答案没法交给桌面端提交，手机卡片只能看不能答。
+# 幂等；DSH 升级后重跑本脚本或 bin\patch-dsh.mjs 即可。
+Write-Host "[5/6] 给 DSH 打提问补丁"
+$prevEap2 = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$patchOut = (& node (Join-Path $src "bin\patch-dsh.mjs") 2>&1) -join "`n"
+$ErrorActionPreference = $prevEap2
+if ($patchOut -match "已打过|已打") {
+  Write-Host "       ✓ $($patchOut -replace "`n", " / ")" -ForegroundColor Green
+} else {
+  Write-Host "       ⚠ $patchOut" -ForegroundColor Yellow
+  Write-Host "         （DSH 版本可能变了；不影响桥本身，只是手机不能代答提问）" -ForegroundColor Yellow
+}
+
+Write-Host "[6/6] 生成配对串"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 if ($StateDir) { $env:DSH_PHONE_BRIDGE_DIR = $StateDir }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-phone-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Local bridge that lets an iPhone drive DeepSeek Harness sessions over an end-to-end encrypted channel",
@@ -21,5 +21,20 @@
       "platform": "web",
       "inject": []
     }
-  }
+  },
+  "bin": {
+    "dsh-phone-doctor": "./bin/doctor.mjs",
+    "dsh-phone-patch": "./bin/patch-dsh.mjs",
+    "dsh-phone-pairing": "./bin/pairing.mjs"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/",
+    "bin/",
+    "cordis.patch.yml",
+    "cordis.patch.example.yml",
+    "install.ps1",
+    "uninstall.ps1"
+  ]
 }

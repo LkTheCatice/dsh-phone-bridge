@@ -51,3 +51,16 @@ Write-Host "  默认: $DshHome\phone-bridge"
 Write-Host "本机实际: <stateDir>（看 cordis.patch.yml 里的 stateDir）"
 Write-Host "确认不需要后手动删该目录即可。"
 Write-Host "别忘了重启 DeepSeek Harness。"
+
+# ── 还原 DSH 补丁（提问远程提交）──────────────────────────────
+# 插件卸掉了还留着补丁的话，DSH 里那份 $on 监听会指向不存在的事件，
+# 没有副作用但没必要留着。这里顺手撤掉。
+try {
+  $patchScript = Join-Path $PSScriptRoot "bin\patch-dsh.mjs"
+  if (Test-Path $patchScript) {
+    Write-Host "[补丁] 还原 DSH 的提问补丁"
+    & node $patchScript --revert
+  }
+} catch {
+  Write-Host "        ⚠ 补丁还原失败（可手动 node bridge\bin\patch-dsh.mjs --revert）" -ForegroundColor Yellow
+}
