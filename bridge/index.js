@@ -567,6 +567,18 @@ function applyBridge(ctx, config) {
   let sessionController = null;
   let agentRegistry = null;
   let workspaceRegistry = null;
+
+  /// 取 workspaceRegistry：**只能用 ctx.inject 拿到的那份**。
+  /// cordis 的 ctx 有访问闸门，直接 `ctx.workspaceRegistry` 会抛
+  /// "cannot get property ... without inject"，被 try 吞掉后就变成"归档永远为空"。
+  function resolveRegistry() {
+    if (workspaceRegistry) return workspaceRegistry;
+    try {
+      return ctx.get?.("workspaceRegistry") || null;
+    } catch {
+      return null;
+    }
+  }
   let server = null;
   let closed = false;
   let resolveReady;
@@ -1714,11 +1726,10 @@ function applyBridge(ctx, config) {
       // 归档来源是否可用：手机端归档列表为空时，先看这里
       let registryReport = { hasRegistry: false, archived: null };
       try {
-        const reg = ctx.workspaceRegistry || ctx.get?.("workspaceRegistry");
+        const reg = resolveRegistry();
         registryReport = {
           hasRegistry: Boolean(reg),
-          viaGet: Boolean(ctx.get?.("workspaceRegistry")),
-          viaCtx: Boolean(ctx.workspaceRegistry),
+          injected: Boolean(workspaceRegistry),
           archived: Array.isArray(reg?.archivedSessionIds) ? reg.archivedSessionIds.length : null,
         };
       } catch (error) {
@@ -2076,8 +2087,9 @@ function applyBridge(ctx, config) {
       const wantArchived = url.searchParams.get("archived") === "1";
       let archivedIds = [];
       try {
-        // 两种取法都试：DSH 的服务直接挂在 ctx 上，ctx.get() 未必能解析到
-        const registry = ctx.workspaceRegistry || ctx.get?.("workspaceRegistry");
+        // 必须用 ctx.inject 拿到的那份：cordis 里直接 ctx.workspaceRegistry 会抛
+        // "cannot get property ... without inject"（实拍：归档列表一直为空）
+        const registry = resolveRegistry();
         if (registry && Array.isArray(registry.archivedSessionIds)) {
           archivedIds = registry.archivedSessionIds;
         } else {
@@ -2720,7 +2732,7 @@ function applyBridge(ctx, config) {
 
     if (method === "POST" && pathname === "/v1/session/archive") {
       const body = await readJsonBody();
-      const registry = workspaceRegistry || ctx.workspaceRegistry;
+      const registry = resolveRegistry();
       const sessionId = String(body.sessionId || "");
       const wantArchived = body.archived !== false;
       if (!registry || !sessionId) throw new HttpError(400, "bad-request", "需要 sessionId（且 workspaceRegistry 可用）");
