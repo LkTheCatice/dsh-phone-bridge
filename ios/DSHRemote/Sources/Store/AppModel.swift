@@ -947,7 +947,13 @@ final class AppModel: ObservableObject {
             // 「镜像 + 遥控」模型：提问本身走 DSH 原生通道（电脑端是主人），
             // 手机这边从**同一帧**的 args.questions 里还原出选项卡片。
             // 不在桥上拦截提问，也就不存在"电脑端关不掉的面板"。
-            if name == "ask_user_question" || name == "request_user_input" {
+            // 只对**实时帧**做镜像：
+            // 补历史时会重放 tool.call，紧接着又会重放 tool.result，
+            // 于是卡片会"出现→消失"闪一下（实测日志里同一个 callId 交替出现）。
+            // 历史里那些提问早就结算了，不需要再显示。
+            if !isHistory,
+               pendingAsk?.id != callId,
+               name == "ask_user_question" || name == "request_user_input" {
                 if let ask = Self.parseAsk(id: callId, sessionId: sid, args: frame["args"]) {
                     pendingAsk = ask
                     pingDiagnostic("ask.mirror id=\(callId.prefix(8)) n=\(ask.questions.count)")
