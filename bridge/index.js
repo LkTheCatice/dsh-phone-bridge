@@ -2490,6 +2490,37 @@ function applyBridge(ctx, config) {
       return sendJson(res, 200, { ok: true }, ctxEnc);
     }
 
+    // 自测：造一条假提问推到手机，等它回答。
+    // 用途：验证「桥 → 手机 → 桥」这条链路；真实提问要靠 ask_user_question 工具，
+    // 而 agent 侧不一定有这个工具，所以留一个可点名触发的自测入口。
+    if (method === "POST" && pathname === "/v1/ask/selftest") {
+      if (!streamClients.size) throw new HttpError(409, "no-client", "手机还没连上");
+      askSerial += 1;
+      const id = "selftest_" + askSerial;
+      const payload = [
+        {
+          id: "q1",
+          header: "自测",
+          question: "这是一条来自桥的自测提问，随便选一个",
+          options: [
+            { label: "选项 A", description: "第一个选项" },
+            { label: "选项 B" },
+          ],
+          multiSelect: false,
+        },
+      ];
+      const answer = await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pendingAsks.delete(id);
+          broadcast({ type: "ask.cancelled", id, reason: "timeout" });
+          resolve(null);
+        }, 60_000);
+        pendingAsks.set(id, { resolve, timer, sessionId: "" });
+        broadcast({ type: "ask.asked", id, sessionId: "", callId: "", questions: payload });
+      });
+      return sendJson(res, 200, { ok: Boolean(answer), answer }, ctxEnc);
+    }
+
     if (method === "GET" && pathname === "/v1/ask/pending") {
       const list = [];
       for (const [id, item] of pendingAsks) list.push({ id, sessionId: item.sessionId });
