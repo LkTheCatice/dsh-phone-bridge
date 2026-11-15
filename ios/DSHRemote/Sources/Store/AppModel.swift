@@ -1373,7 +1373,12 @@ final class AppModel: ObservableObject {
     private var lastSessionsFetch: Date = .distantPast
     private var sessionsFetchInFlight = false
 
-    func refreshSessions(force: Bool = false) async {
+    /// 刷会话列表。
+    ///
+    /// `includeArchived = false` 时只拉主列表 —— 发送后调用它，省掉一次
+    /// `/v1/sessions?archived=1`（本机实测每条约 370ms，两条并行也占带宽）。
+    /// 归档列表在打开会话面板时再补。
+    func refreshSessions(force: Bool = false, includeArchived: Bool = true) async {
         guard let client else { return }
         guard !sessionsFetchInFlight else { return }
         if !force, Date().timeIntervalSince(lastSessionsFetch) < 2 { return }
@@ -1381,18 +1386,12 @@ final class AppModel: ObservableObject {
         lastSessionsFetch = Date()
         defer { sessionsFetchInFlight = false }
 
-        // 两个请求并行：串行要 2×RTT（实测 220ms），并行只花一次往返。
-        // 这段在主线程上等，直接决定「打字时会不会丢字母」。
-        async let mainTask = client.fetchSessions()
-        async let archTask = client.sessions(archived: true)
-        let mainResult = try? await mainTask
-        let archResult = try? await archTask
-
-        if let rows = mainResult?["sessions"] as? [[String: Any]] {
+        if let rows = (try? await client.fetchSessions())?["sessions"] as? [[String: Any]] {
             sessionList.rows = rows.compactMap(SessionRow.parse)
         }
-        // 已归档的会话单独一份，列表里给它一个分区
-        if let rows = archResult?["sessions"] as? [[String: Any]] {
+
+        guard includeArchived else { return }
+        if let rows = (try? await client.sessions(archived: true))?["sessions"] as? [[String: Any]] {
             sessionList.archived = rows.compactMap(SessionRow.parse)
         }
     }
@@ -1573,7 +1572,8 @@ final class AppModel: ObservableObject {
                 }
                 let t5 = CFAbsoluteTimeGetCurrent()
                 trace("s4-move=\(Int((t5 - t4) * 1000))ms")
-                await refreshSessions()
+                // 发送后只需要主列表（新会话可能出现），归档表留到打开面板时再刷
+                await refreshSessions(includeArchived: false)
                 let t6 = CFAbsoluteTimeGetCurrent()
                 trace("s5-refresh=\(Int((t6 - t5) * 1000))ms")
             }
