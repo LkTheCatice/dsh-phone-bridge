@@ -466,6 +466,11 @@ function applyBridge(ctx, config) {
   const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
   const ASK_TIMEOUT_MS = 100_000;
   let askSerial = 0;
+  // 最近一次见到手机的时刻（连上 / 上报 askReady 都算）。
+  // 用途：手机在后台被挂起时 streamClients 会归零，但我们不该立刻放弃它 ——
+  // 用户可能只是锁屏了，解锁后就要看到这张卡片。
+  let lastPhoneSeen = 0;
+  const PHONE_AROUND_MS = 15 * 60_000;
   let sessionController = null;
   let agentRegistry = null;
   let workspaceRegistry = null;
@@ -703,10 +708,23 @@ function applyBridge(ctx, config) {
         done = true;
         const item = pendingAsks.get(id);
         if (item) clearTimeout(item.timer);
+        clearTimeout(nudge);
         pendingAsks.delete(id);
         resolve(value);
       };
     });
+
+    // 8 秒还没人答 → 发一条推送（手机在后台也能弹通知）
+    const nudge = setTimeout(() => {
+      if (!notifier.enabled) return;
+      const first = (request?.questions || [])[0];
+      notifier.push({
+        title: "电脑在等你回答",
+        body: String(first?.question || "有一个提问等你处理"),
+        group: "DSH",
+      }).catch(() => {});
+      logLine({ step: "ask.push", id });
+    }, 8_000);
 
     const timer = setTimeout(() => {
       // 超时：撤回手机上的卡片，交回给桌面端继续等
@@ -714,7 +732,12 @@ function applyBridge(ctx, config) {
       finish(null);
     }, ASK_TIMEOUT_MS);
 
-    pendingAsks.set(id, { resolve: (value) => finish(value), timer, sessionId });
+    pendingAsks.set(id, {
+      resolve: (value) => finish(value),
+      timer,
+      sessionId,
+      questions: request?.questions || [],
+    });
     broadcast({
       type: "ask.asked",
       id,
@@ -738,7 +761,12 @@ function applyBridge(ctx, config) {
   try {
     if (typeof ctx.on !== "function") throw new Error("ctx.on 不可用");
     const off = ctx.on("user-questions/request", async function (request, next) {
-      const phoneReady = streamClients.size > 0 && Date.now() < askReadyUntil;
+      const online = streamClients.size > 0;
+      if (online) lastPhoneSeen = Date.now();
+      // 在线且声明过能力 → 直接接；不在线但十分钟内还见过（多半是锁屏/后台）→ 也接，
+      // 桌面端照常弹面板，用户可以任选一边答。
+      const phoneReady = (online && Date.now() < askReadyUntil)
+        || Date.now() - lastPhoneSeen < PHONE_AROUND_MS;
       logLine({
         step: "ask.hook",
         sessions: streamClients.size,
@@ -2589,12 +2617,15 @@ function applyBridge(ctx, config) {
 
     if (method === "POST" && pathname === "/v1/ask/ready") {
       askReadyUntil = Date.now() + ASK_READY_TTL_MS;
+      lastPhoneSeen = Date.now();
       return sendJson(res, 200, { ok: true, ttlMs: ASK_READY_TTL_MS, clients: streamClients.size }, ctxEnc);
     }
 
     if (method === "GET" && pathname === "/v1/ask/pending") {
       const list = [];
-      for (const [id, item] of pendingAsks) list.push({ id, sessionId: item.sessionId });
+      for (const [id, item] of pendingAsks) {
+        list.push({ id, sessionId: item.sessionId, questions: item.questions || [] });
+      }
       return sendJson(res, 200, { ok: true, pending: list }, ctxEnc);
     }
 

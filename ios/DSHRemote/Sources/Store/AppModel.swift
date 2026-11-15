@@ -506,7 +506,11 @@ final class AppModel: ObservableObject {
             // 立刻声明「我能回答提问」：
             // 否则装完新版本、或刚重连时，前 15 秒内到达的提问会被当成
             // 「手机没能力」，直接交给桌面端（实测踩过一次）。
-            Task { _ = try? await client.askReady() }
+            Task {
+                _ = try? await client.askReady()
+                // 后台被挂起期间可能有提问过期了，这里补一次状态
+                await syncPendingAsk()
+            }
             // 把签名到期时间报给电脑：7 天免费签名到期后 App 直接打不开，
             // 电脑端面板据此提前提醒（手机自己知道，但用户不会天天看设置页）。
             Task {
@@ -677,6 +681,26 @@ final class AppModel: ObservableObject {
     /// 这段**故意不放在** apply 的大 switch 里：那个 switch 前面有一道
     /// 「帧的 sessionId 不是当前会话就丢弃」的过滤，而提问是跨会话的 ——
     /// 电脑在等回答时，用户可能正看着别的会话，卡片仍然要弹。
+    /// 重连 / 回前台时补一次状态：手机在后台被挂起期间到达的提问，
+    /// 靠这一条把卡片补回来（帧可能已经过期或桥那边还挂着）。
+    func syncPendingAsk() async {
+        guard let client else { return }
+        do {
+            let json = try await client.pendingAsks()
+            let list = (json["pending"] as? [[String: Any]]) ?? []
+            guard let first = list.first,
+                  let id = first["id"] as? String,
+                  pendingAsk?.id != id
+            else { return }
+            var frame = first
+            frame["type"] = "ask.asked"
+            handleAskFrame(type: "ask.asked", frame: frame)
+            pingDiagnostic("ask.sync id=\(id)")
+        } catch {
+            // 老版本桥没有这个接口，忽略即可
+        }
+    }
+
     private func handleAskFrame(type: String, frame: [String: Any]) {
         switch type {
         case "ask.asked":
