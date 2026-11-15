@@ -756,8 +756,10 @@ final class AppModel: ObservableObject {
                     list[idx].text = L("✅ 已在手机上回答", "✅ Answered on the phone")
                 } else if reason == "answered-on-desktop" {
                     list[idx].text = L("✅ 已在电脑上回答", "✅ Answered on the computer")
-                } else if reason == "timeout" {
-                    list[idx].text = L("⌛️ 提问已超时（自动交回电脑）", "⌛️ The question timed out")
+                } else if reason == "handed-to-desktop" || reason == "timeout" {
+                    // 桥把这次提问交回电脑了（手机 30 秒没答）——
+                    // 必须让用户知道"这里已经不能答了，去电脑上答"
+                    list[idx].text = L("⌛️ 已交回电脑处理", "⌛️ Handed back to the computer")
                 } else {
                     list[idx].text = L("⌛️ 提问已结束", "⌛️ The question closed")
                 }
