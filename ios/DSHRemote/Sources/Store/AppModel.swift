@@ -720,6 +720,17 @@ final class AppModel: ObservableObject {
         case "ask.answered", "ask.cancelled":
             pingDiagnostic("ask.clear type=\(type)")
             pendingAsk = nil
+            // 把聊天里那条「电脑在等你回答」改成完成态。
+            // 不然后面滑回去看，还会看到一条像"仍在等待"的橙色提示。
+            let askId = (frame["id"] as? String) ?? ""
+            if !askId.isEmpty, let sid = selectedSessionId, var list = entries[sid],
+               let idx = list.firstIndex(where: { $0.id == "\(sid)#ask\(askId)" }) {
+                list[idx].warning = false
+                list[idx].text = type == "ask.answered"
+                    ? L("✅ 已在手机上回答", "✅ Answered on the phone")
+                    : L("⌛️ 提问已结束（未回答）", "⌛️ The question closed unanswered")
+                entries[sid] = list
+            }
 
         default:
             break
@@ -1860,7 +1871,7 @@ final class AppModel: ObservableObject {
         do {
             try await client.answerAsk(id: ask.id, answers: answers)
             pendingAsk = nil
-            toast = L("已提交回答", "Answer sent")
+            toast = L("已提交回答，电脑继续执行", "Answer sent — the computer keeps going")
         } catch {
             lastError = error.localizedDescription
         }

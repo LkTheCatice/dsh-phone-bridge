@@ -1,2 +1,2 @@
-OK Net/BridgeClient.swift :: client-ask-ready
-MISS Store/AppModel.swift :: appmodel-ask-ready
+OK Store/AppModel.swift :: toast-answer
+OK Store/AppModel.swift :: ask-entry-done
