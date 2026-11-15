@@ -466,6 +466,45 @@ function applyBridge(ctx, config) {
   const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
   const ASK_TIMEOUT_MS = 100_000;
   let askSerial = 0;
+    // ── 手机端回答「提问」（两边同时显示，谁先答谁生效） ────────────────
+  //
+  // DSH 的 ask_user_question 是**阻塞式**的，走一条 waterfall：
+  //   ctx.waterfall("user-questions/request", request, noAnswerer)
+  // 桌面端插件在这条链上注册了应答者，渲染面板、点完把 { answers } 返回来。
+  //
+  // 这里同时接两条路：
+  //   · next()  → 交给桌面端（它照常弹面板）
+  //   · 手机    → 推 ask.asked 给 App
+  // 两个答案赛跑，谁先到谁生效；**输的那一侧立刻清掉**：
+  //   · 桌面先答 → 广播 ask.cancelled，手机卡片消失
+  //   · 手机先答 → 直接把答案 return，桌面面板由它自己收尾
+
+  /// 建一个"等手机回答"的挂起项，返回 { id, promise, cancel }
+  /// 尽力让桌面端把面板收起来。
+  ///
+  /// 桌面卡片只有在 `hasWaterfall()` 变成 false 后才会被 reconcile 移除。
+  /// 带 timeout 的提问在宿主侧有一份 wait（`userQuestions.waits`），
+  /// 把它 close 掉会 abort 掉前端那条 claim 流 —— 前端于是 detach waterfall，面板收起。
+  ///
+  /// 这是**内部字段**，DSH 换版本可能变；所以整段 try/catch + 留痕，
+  /// 失败也不影响答案已经正确返回这件事。
+  function closeDesktopPanel(agent, callId) {
+    if (!agent || !callId) return;
+    try {
+      const uq = ctx.get?.("userQuestions") || ctx.userQuestions;
+      const waits = uq?.waits;
+      const calls = waits?.get?.(agent);
+      const wait = calls?.get?.(callId);
+      if (wait?.close) {
+        wait.close(new Error("answered-on-phone"));
+        logLine({ step: "ask.desktop-close", ok: true });
+      } else {
+        logLine({ step: "ask.desktop-close", ok: false, why: "no-wait" });
+      }
+    } catch (error) {
+      logLine({ step: "ask.desktop-close", ok: false, why: String(error?.message || error) });
+    }
+  }
   // 最近一次见到手机的时刻（连上 / 上报 askReady 都算）。
   // 用途：手机在后台被挂起时 streamClients 会归零，但我们不该立刻放弃它 ——
   // 用户可能只是锁屏了，解锁后就要看到这张卡片。
@@ -689,45 +728,6 @@ function applyBridge(ctx, config) {
     console.warn("[phone-bridge] sessionController 注入失败:", error?.message || error);
   }
   try {
-    // ── 手机端回答「提问」（两边同时显示，谁先答谁生效） ────────────────
-  //
-  // DSH 的 ask_user_question 是**阻塞式**的，走一条 waterfall：
-  //   ctx.waterfall("user-questions/request", request, noAnswerer)
-  // 桌面端插件在这条链上注册了应答者，渲染面板、点完把 { answers } 返回来。
-  //
-  // 这里同时接两条路：
-  //   · next()  → 交给桌面端（它照常弹面板）
-  //   · 手机    → 推 ask.asked 给 App
-  // 两个答案赛跑，谁先到谁生效；**输的那一侧立刻清掉**：
-  //   · 桌面先答 → 广播 ask.cancelled，手机卡片消失
-  //   · 手机先答 → 直接把答案 return，桌面面板由它自己收尾
-
-  /// 建一个"等手机回答"的挂起项，返回 { id, promise, cancel }
-  /// 尽力让桌面端把面板收起来。
-  ///
-  /// 桌面卡片只有在 `hasWaterfall()` 变成 false 后才会被 reconcile 移除。
-  /// 带 timeout 的提问在宿主侧有一份 wait（`userQuestions.waits`），
-  /// 把它 close 掉会 abort 掉前端那条 claim 流 —— 前端于是 detach waterfall，面板收起。
-  ///
-  /// 这是**内部字段**，DSH 换版本可能变；所以整段 try/catch + 留痕，
-  /// 失败也不影响答案已经正确返回这件事。
-  function closeDesktopPanel(agent, callId) {
-    if (!agent || !callId) return;
-    try {
-      const uq = ctx.get?.("userQuestions") || ctx.userQuestions;
-      const waits = uq?.waits;
-      const calls = waits?.get?.(agent);
-      const wait = calls?.get?.(callId);
-      if (wait?.close) {
-        wait.close(new Error("answered-on-phone"));
-        logLine({ step: "ask.desktop-close", ok: true });
-      } else {
-        logLine({ step: "ask.desktop-close", ok: false, why: "no-wait" });
-      }
-    } catch (error) {
-      logLine({ step: "ask.desktop-close", ok: false, why: String(error?.message || error) });
-    }
-  }
 
   function createAskWaiter(request, timeoutMs = ASK_TIMEOUT_MS) {
     askSerial += 1;
@@ -2768,7 +2768,14 @@ function applyBridge(ctx, config) {
       pendingAsks.delete(id);
       item.resolve({ answers: clean });
       // 错开一拍再叫停桌面面板：先保证答案已经交回去
-      setTimeout(() => closeDesktopPanel(item.agent, item.callId), 0);
+      setTimeout(() => {
+        // 防御：这个函数必须存在于当前作用域，否则宁可不动也不许抛（曾把宿主打崩）
+        try {
+          if (typeof closeDesktopPanel === "function") closeDesktopPanel(item.agent, item.callId);
+        } catch (error) {
+          logLine({ step: "ask.desktop-close", ok: false, why: String(error?.message || error) });
+        }
+      }, 0);
       broadcast({ type: "ask.answered", id, via: "waterfall" });
       logLine({ step: "ask.answered", id, n: clean.length, via: "waterfall" });
       return sendJson(res, 200, { ok: true, via: "waterfall" }, ctxEnc);
