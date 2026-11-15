@@ -458,12 +458,13 @@ function applyBridge(ctx, config) {
   const seenEvents = new WeakSet();
 
   let seq = 0;
-  // 手机回答提问用的共享状态：**必须声明在 applyBridge 作用域**，
-  // 否则 HTTP 路由里引用不到（之前写成块级 const，实测 ReferenceError）。
+  // 手机回答提问用的共享状态。
+  // 注意：这里声明在 applyBridge 作用域，因为 HTTP 路由里也要用；
+  // 下面的 ask 块里还会再声明一份同名变量用于本地逻辑，靠块作用域隔开。
   let askReadyUntil = 0;
   const ASK_READY_TTL_MS = 30_000;
-  const ASK_TIMEOUT_MS = 100_000;
   const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
+  const ASK_TIMEOUT_MS = 100_000;
   let askSerial = 0;
   let sessionController = null;
   let agentRegistry = null;
@@ -675,65 +676,110 @@ function applyBridge(ctx, config) {
     console.warn("[phone-bridge] sessionController 注入失败:", error?.message || error);
   }
   try {
-    // ── 手机端回答「提问」 ────────────────────────────────────────────────
+    // ── 手机端回答「提问」（两边同时显示，谁先答谁生效） ────────────────
   //
-  // DSH 的 ask_user_question 是**阻塞式**的：它走一条 waterfall
+  // DSH 的 ask_user_question 是**阻塞式**的，走一条 waterfall：
   //   ctx.waterfall("user-questions/request", request, noAnswerer)
-  // 桌面端的插件（dsh-client-ui-user-questions）在这条链上注册了一个应答者，
-  // 渲染面板、点完把 { answers } 返回去。手机端原来没人接 → 工具直接报
-  // NO_PROVIDER，手机上只看到一行 "> Asked"。
+  // 桌面端插件在这条链上注册了应答者，渲染面板、点完把 { answers } 返回来。
   //
-  // 这里补一个应答者：
-  //   · 有手机连着 → 推到手机，等它 POST /v1/ask/answer
-  //   · 没有手机 / 超时 / 取消 → next()，交回桌面端（不改变原有行为）
-  // 手机是否"能回答提问"需要它自己声明：
-  //   App 每 15 秒 POST /v1/ask/ready，这里记录一个 30 秒有效的时间窗。
-  // 为什么必须这样：钩子一旦接住提问，桌面端的 UI 就收不到了（waterfall 只走一个）。
-  // 老版本 App 没有回答界面 —— 直接接住会让**两边都没人答**，工具挂死。
-  // 所以默认 0：不声明就一律 next()，桌面端行为完全不变。
+  // 这里同时接两条路：
+  //   · next()  → 交给桌面端（它照常弹面板）
+  //   · 手机    → 推 ask.asked 给 App
+  // 两个答案赛跑，谁先到谁生效；**输的那一侧立刻清掉**：
+  //   · 桌面先答 → 广播 ask.cancelled，手机卡片消失
+  //   · 手机先答 → 直接把答案 return，桌面面板由它自己收尾
 
-  function waitForPhoneAnswer(request) {
-    return new Promise((resolve) => {
-      askSerial += 1;
-      const id = "ask_" + askSerial;
-      const sessionId = String(request?.agent?.session || "");
-      const timer = setTimeout(() => {
+  /// 建一个"等手机回答"的挂起项，返回 { id, promise, cancel }
+  function createAskWaiter(request) {
+    askSerial += 1;
+    const id = "ask_" + askSerial;
+    const sessionId = String(request?.agent?.session || "");
+    let done = false;
+    let finish = () => {};
+
+    const promise = new Promise((resolve) => {
+      finish = (value) => {
+        if (done) return;
+        done = true;
+        const item = pendingAsks.get(id);
+        if (item) clearTimeout(item.timer);
         pendingAsks.delete(id);
-        // 撤回提示：手机上那张卡片要消失，否则用户答了也没人接
-        broadcast({ type: "ask.cancelled", id, reason: "timeout" });
-        resolve(null);
-      }, ASK_TIMEOUT_MS);
-      pendingAsks.set(id, { resolve, timer, sessionId });
-      broadcast({
-        type: "ask.asked",
-        id,
-        sessionId,
-        callId: String(request?.wait?.callId || ""),
-        questions: request?.questions || [],
-      });
+        resolve(value);
+      };
     });
+
+    const timer = setTimeout(() => {
+      // 超时：撤回手机上的卡片，交回给桌面端继续等
+      broadcast({ type: "ask.cancelled", id, reason: "timeout" });
+      finish(null);
+    }, ASK_TIMEOUT_MS);
+
+    pendingAsks.set(id, { resolve: (value) => finish(value), timer, sessionId });
+    broadcast({
+      type: "ask.asked",
+      id,
+      sessionId,
+      callId: String(request?.wait?.callId || ""),
+      questions: request?.questions || [],
+    });
+
+    return {
+      id,
+      promise,
+      /// 另一侧先答了：清掉手机上的卡片
+      cancel(reason) {
+        if (done) return;
+        broadcast({ type: "ask.cancelled", id, reason: String(reason || "cancelled") });
+        finish(null);
+      },
+    };
   }
 
   try {
     if (typeof ctx.on !== "function") throw new Error("ctx.on 不可用");
     const off = ctx.on("user-questions/request", async function (request, next) {
-      // 记一行：证明这条 waterfall 真的到我们这儿了（排查时最关键的一条）
+      const phoneReady = streamClients.size > 0 && Date.now() < askReadyUntil;
       logLine({
         step: "ask.hook",
         sessions: streamClients.size,
         qs: Array.isArray(request?.questions) ? request.questions.length : -1,
-        hasNext: typeof next === "function",
+        phoneReady,
       });
-      const phoneReady = streamClients.size > 0 && Date.now() < askReadyUntil;
-      logLine({ step: "ask.hook.ready", phoneReady, sessions: streamClients.size });
       if (!phoneReady) return next();
+
+      const waiter = createAskWaiter(request);
+      // 桌面端同时拿到这次提问（它会把面板弹出来）
+      let desktop;
       try {
-        const answer = await waitForPhoneAnswer(request);
-        if (answer) return answer;
+        desktop = Promise.resolve(next());
       } catch (error) {
-        logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
+        desktop = Promise.reject(error);
       }
-      return next();
+
+      try {
+        const winner = await Promise.race([
+          waiter.promise.then((answer) => ({ from: answer ? "phone" : "none", answer })),
+          desktop.then((answer) => ({ from: "desktop", answer })),
+        ]);
+
+        if (winner.from === "desktop") {
+          // 桌面先答：手机卡片立刻消失
+          waiter.cancel("answered-on-desktop");
+          logLine({ step: "ask.won", by: "desktop" });
+          return winner.answer;
+        }
+        if (winner.from === "phone") {
+          logLine({ step: "ask.won", by: "phone" });
+          return winner.answer;
+        }
+        // 手机超时（answer=null）：继续等桌面端那一份
+        logLine({ step: "ask.won", by: "desktop-after-timeout" });
+        return await desktop;
+      } catch (error) {
+        waiter.cancel("error");
+        logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
+        return next();
+      }
     });
     logLine({ step: "ask.registered", off: typeof off === "function" });
   } catch (error) {

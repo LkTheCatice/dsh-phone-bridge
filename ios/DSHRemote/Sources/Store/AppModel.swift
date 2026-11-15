@@ -726,9 +726,17 @@ final class AppModel: ObservableObject {
             if !askId.isEmpty, let sid = selectedSessionId, var list = entries[sid],
                let idx = list.firstIndex(where: { $0.id == "\(sid)#ask\(askId)" }) {
                 list[idx].warning = false
-                list[idx].text = type == "ask.answered"
-                    ? L("✅ 已在手机上回答", "✅ Answered on the phone")
-                    : L("⌛️ 提问已结束（未回答）", "⌛️ The question closed unanswered")
+                // 三种收尾要分清：手机答的 / 电脑答的 / 超时没人答
+                let reason = (frame["reason"] as? String) ?? ""
+                if type == "ask.answered" {
+                    list[idx].text = L("✅ 已在手机上回答", "✅ Answered on the phone")
+                } else if reason == "answered-on-desktop" {
+                    list[idx].text = L("✅ 已在电脑上回答", "✅ Answered on the computer")
+                } else if reason == "timeout" {
+                    list[idx].text = L("⌛️ 提问已超时（自动交回电脑）", "⌛️ The question timed out")
+                } else {
+                    list[idx].text = L("⌛️ 提问已结束", "⌛️ The question closed")
+                }
                 entries[sid] = list
             }
 
