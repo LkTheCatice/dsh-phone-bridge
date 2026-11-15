@@ -6,6 +6,8 @@ struct SettingsView: View {
     @ObservedObject private var lang = I18N.shared
     @ObservedObject private var theme = UITheme.shared
     @ObservedObject private var motion = UIMotion.shared
+    /// 选了但还没确认的语言
+    @State private var pendingLang: AppLang?
     @State private var confirmingForget = false
 
     var body: some View {
@@ -45,11 +47,17 @@ struct SettingsView: View {
                     Text(L("动效", "Motion"))
                 }
 
-                // 语言：跟随系统 / 中文 / English。切换即时生效（不重启 App）
+                // 语言：跟随系统 / 中文 / English。
+                // 选完先弹确认 —— 因为切换后要重启进程，不确认的话看起来像闪退。
                 Section(L("语言", "Language")) {
                     Picker(L("界面语言", "Interface language"), selection: Binding(
                         get: { lang.selection },
-                        set: { lang.set($0) }
+                        set: { picked in
+                            if picked == lang.selection {
+                                return
+                            }
+                            pendingLang = picked
+                        }
                     )) {
                         ForEach(AppLang.allCases) { item in
                             Text(item.label).tag(item)
@@ -227,6 +235,23 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle(L("设置", "Settings"))
+            // 切语言要重启进程：先问一句，否则用户以为闪退
+            .alert(L("切换语言需要重启", "Restart needed"),
+                   isPresented: Binding(
+                        get: { pendingLang != nil },
+                        set: { if !$0 { pendingLang = nil } }
+                   ),
+                   presenting: pendingLang) { target in
+                Button(L("取消", "Cancel"), role: .cancel) { pendingLang = nil }
+                Button(L("切换并重启", "Switch and restart"), role: .destructive) {
+                    let next = target
+                    pendingLang = nil
+                    lang.set(next)          // set() 内部会安排退出
+                }
+            } message: { _ in
+                Text(L("为保证所有界面（含消息列表）都换到新语言，App 会关闭一次，重新打开后生效。",
+                       "To make sure every screen (including the message list) switches, the app will close once — reopen it to apply."))
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.visible, for: .navigationBar)
             .task {
