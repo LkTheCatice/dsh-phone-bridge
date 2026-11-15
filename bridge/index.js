@@ -836,10 +836,12 @@ function applyBridge(ctx, config) {
     const off = ctx.on("user-questions/request", async function (request, next) {
       const online = streamClients.size > 0;
       if (online) lastPhoneSeen = Date.now();
-      // 在线且声明过能力 → 直接接；不在线但十分钟内还见过（多半是锁屏/后台）→ 也接，
-      // 桌面端照常弹面板，用户可以任选一边答。
-      const phoneReady = (online && Date.now() < askReadyUntil)
-        || Date.now() - lastPhoneSeen < PHONE_AROUND_MS;
+      // **必须同时满足**：手机真的连着（SSE 在）+ 它明确声明过能回答（askReady 未过期）。
+      //
+      // 为什么不再用"15 分钟内见过"兜底：那种判断下手机可能正在睡觉，
+      // 桥却把提问握在手里 —— 手机上收不到（没连接），电脑上也不弹（被我们拦了），
+      // 就出现"两端全都没有"的空窗。宁可交给电脑，也不能两边都看不到。
+      const phoneReady = online && Date.now() < askReadyUntil;
       logLine({
         step: "ask.hook",
         sessions: streamClients.size,
@@ -851,7 +853,7 @@ function applyBridge(ctx, config) {
       if (askMode === "auto") {
         // 单端模式：手机在前台就只给手机，computer 端不参与 —— 不会留下关不掉的面板
         // 单端模式没人兜底，等 45 秒就交回电脑（100 秒对"只有手机能答"太久）
-        const waiter = createAskWaiter(request, 45_000);
+        const waiter = createAskWaiter(request, 30_000);
         try {
           const answer = await waiter.promise;
           if (answer) {
@@ -861,7 +863,9 @@ function applyBridge(ctx, config) {
         } catch (error) {
           logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
         }
-        // 手机超时没答 → 交回电脑
+        // 手机 30 秒没答 → 立刻交回电脑，并把手机那张卡收掉
+        // （收不掉的卡比"没卡"更糟：用户以为还能答，其实已经交出去了）
+        waiter.cancel("handed-to-desktop");
         logLine({ step: "ask.won", by: "desktop-after-timeout" });
         return next();
       }
