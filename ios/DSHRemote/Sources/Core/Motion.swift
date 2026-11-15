@@ -79,6 +79,22 @@ final class UIMotion: ObservableObject {
         }
     }
 
+    /// 流式帧合并间隔（秒）。
+    ///
+    /// 真正的大头不在动画，而在**每一帧都重排一次 attributed string + 高度缓存**。
+    /// 把进来的帧攒一小会儿再一次性应用，SwiftUI 只重绘一次：
+    ///   效率 120ms（≈8 次/秒，肉眼够用，主线程压力降 ~8 倍）
+    ///   均衡 33ms（≈30 次/秒）
+    ///   质量 16ms（≈60 次/秒，最顺）
+    var streamInterval: TimeInterval {
+        guard !reduceMotion else { return 0.12 }
+        switch level {
+        case .efficiency: return 0.12
+        case .balanced: return 0.033
+        case .quality: return 0.016
+        }
+    }
+
     /// 是否用模糊材质（效率档换成实色，省 GPU）
     var usesMaterials: Bool { animationsEnabled }
 

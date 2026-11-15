@@ -505,6 +505,7 @@ final class AppModel: ObservableObject {
     }
 
     func disconnect() {
+        flushFrames()          // 断开前把攒着的帧应用掉，别丢最后半句
         streamTask?.cancel()
         streamTask = nil
         client = nil
@@ -586,7 +587,7 @@ final class AppModel: ObservableObject {
                 self.trace("stream.connecting since=\(since)")
                 do {
                     try await EventStream.run(client: client, since: since) { [weak self] seq, frame in
-                        Task { @MainActor in self?.apply(seq: seq, frame: frame) }
+                        Task { @MainActor in self?.enqueue(seq: seq, frame: frame) }
                     }
                 } catch {
                     if Task.isCancelled {
@@ -619,6 +620,35 @@ final class AppModel: ObservableObject {
     /// 历史回填会连续调用几百次，实测一口气跑完占主线程 1032ms
     /// （看门狗 `stall=1032ms`，而 /v1/transcript 服务端只用了 25ms），
     /// 所以 loadHistory 里做了分片 + Task.yield，见那里的注释。
+    /// 攒帧：按动效档位每 N 毫秒一次性应用。
+    ///
+    /// 为什么这么做：`assistant.delta` 一秒能来几十上百个，每个都触发一次
+    /// entries 变更 → 重排 + 高度缓存 → 主线程排队。攒起来一次性应用，
+    /// 界面照样"逐字出现"，但重排次数降到 1/8（效率档）。
+    private var frameBuffer: [(Int, [String: Any])] = []
+    private var flushScheduled = false
+
+    private func enqueue(seq: Int, frame: [String: Any]) {
+        frameBuffer.append((seq, frame))
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        let interval = Motion.ui.streamInterval
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            self?.flushFrames()
+        }
+    }
+
+    private func flushFrames() {
+        flushScheduled = false
+        guard !frameBuffer.isEmpty else { return }
+        let batch = frameBuffer
+        frameBuffer.removeAll(keepingCapacity: true)
+        for (seq, frame) in batch {
+            apply(seq: seq, frame: frame)
+        }
+    }
+
     private func apply(seq: Int, frame: [String: Any], isHistory: Bool = false) {
         if seq > lastSeq {
             lastSeq = seq
