@@ -360,71 +360,68 @@ enum MarkdownNS {
                     let headFont = indexFont
                     let colon = I18N.shared.isEnglish ? ": " : "："
 
+                    // ── 版式（2026-11-15 重做：改成"键在上、值在下"的列表）────────────
+                    //
+                    // 走过的三条错路：
+                    //   ① 首列 + 第二列同一行（无悬挂缩进）→ 换行退回行首，读起来像断句
+                    //   ② tabStops 对齐 → 窄气泡里列位置被算得很远，第二列前面一大块空白
+                    //   ③ 全角空格凑缩进 → 英文下那个空隙大得离谱
+                    //
+                    // 现在不做"列"了，改成定义列表：
+                    //   ▍ MarkdownNS
+                    //      See the full table…, ▦ … more rows, Table collapsed
+                    // 首列当小标题（次要色、等宽），其余内容整段在下面 ——
+                    // 窄屏下这是唯一不会出现"诡异的空白列"的排法，中英文都稳。
+                    let colon = I18N.shared.isEnglish ? ": " : "："
+                    let headFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+                    let nameFont = UIFont.systemFont(ofSize: 12, weight: .regular)
+                    let valueFont = UIFont.systemFont(ofSize: 14, weight: .regular)
+                    let indent: CGFloat = 14
+
                     for (r, row) in shown.enumerated() {
-                        let head = row.first ?? ""
-                        let second = row.count > 1 ? row[1] : ""
+                        let head = InlineParser.stripResidual(row.first ?? "").trimmingCharacters(in: .whitespaces)
 
-                        let headWidth = head.isEmpty
-                            ? 0
-                            : (head + "  ").size(withAttributes: [.font: headFont]).width
-                        let column = min(max(34, headWidth + 16), 132)
-
-                        let title = NSMutableAttributedString()
-                        title.append(NSAttributedString(string: "▍", attributes: [
-                            .font: UIFont.systemFont(ofSize: 13, weight: .regular),
-                            .foregroundColor: UIColor.tertiaryLabel,
-                        ]))
+                        // 首列：小标题一行（▍ + 等宽字，次要色）
                         if !head.isEmpty {
-                            title.append(NSAttributedString(string: head, attributes: [
+                            let title = NSMutableAttributedString(string: "▍", attributes: [
+                                .font: UIFont.systemFont(ofSize: 13, weight: .regular),
+                                .foregroundColor: UIColor.tertiaryLabel,
+                                .paragraphStyle: Self.style(
+                                    spacingAfter: 1,
+                                    spacingBefore: r == 0 ? 0 : 12,
+                                    lineSpacing: 1,
+                                    headIndent: indent,
+                                    firstLineIndent: 0
+                                ),
+                            ])
+                            title.append(NSAttributedString(string: " " + head, attributes: [
                                 .font: headFont,
                                 .foregroundColor: UIColor.secondaryLabel,
                             ]))
-                        }
-                        if !second.isEmpty {
-                            title.append(NSAttributedString(string: "\t", attributes: [.font: valueFont]))
-                            title.append(Self.inline(second, base: valueFont))
+                            out.append(title)
+                            out.append(NSAttributedString(string: "\n"))
                         }
 
-                        let titleStyle = Self.style(
-                            spacingAfter: 2,
-                            spacingBefore: r == 0 ? 0 : 13,
-                            lineSpacing: 2,
-                            headIndent: second.isEmpty ? 14 : column,
-                            firstLineIndent: 0
-                        )
-                        if !second.isEmpty {
-                            // tab 停靠点 = 第二列起点；换行后由 headIndent 对齐到同一列
-                            titleStyle.tabStops = [
-                                NSTextTab(textAlignment: .left, location: column, options: [:])
-                            ]
-                        }
-                        title.addAttribute(
-                            .paragraphStyle,
-                            value: titleStyle,
-                            range: NSRange(location: 0, length: title.length)
-                        )
-                        out.append(title)
-                        out.append(NSAttributedString(string: "\n"))
-
-                        // 第三列起：挂在同一条记录下面。不再用全角空格凑缩进
-                        // （英文下那个空隙会大得离谱），改成悬挂缩进 + 随语言换冒号。
-                        for (c, cell) in row.enumerated() where c > 1 {
-                            let name = c < headers.count ? headers[c] : ""
+                        // 其余列：每列一段「列名：值」，统一缩进，换行与首行对齐
+                        for (c, cell) in row.enumerated() where c > 0 {
+                            let text = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if text.isEmpty { continue }
+                            let name = c < headers.count ? InlineParser.stripResidual(headers[c]) : ""
                             let line = NSMutableAttributedString()
                             if !name.isEmpty {
                                 line.append(NSAttributedString(string: name + colon, attributes: [
                                     .font: nameFont,
-                                    .foregroundColor: UIColor.secondaryLabel,
+                                    .foregroundColor: UIColor.tertiaryLabel,
                                 ]))
                             }
-                            line.append(Self.inline(cell, base: valueFont))
+                            line.append(Self.inline(text, base: valueFont))
                             line.addAttribute(
                                 .paragraphStyle,
                                 value: Self.style(
                                     spacingAfter: 0,
                                     lineSpacing: 2,
-                                    headIndent: 20,
-                                    firstLineIndent: 16
+                                    headIndent: indent,
+                                    firstLineIndent: indent
                                 ),
                                 range: NSRange(location: 0, length: line.length)
                             )
