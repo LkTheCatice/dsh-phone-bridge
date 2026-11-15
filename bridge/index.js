@@ -513,14 +513,20 @@ function applyBridge(ctx, config) {
   // 最近一次见到手机的时刻（连上 / 上报 askReady 都算）。
   // 用途：手机在后台被挂起时 streamClients 会归零，但我们不该立刻放弃它 ——
   // 用户可能只是锁屏了，解锁后就要看到这张卡片。
-  // 提问的分发策略：
-  //   "dual"（默认）  手机与电脑同时看到，谁先答谁生效。
-  //                   电脑端面板的生命周期绑在它自己的倒计时上 ——
-  //                   只要提问带 timeout（我们一律带），最迟到点必被收起。
-  //   "auto"          手机在前台时只给手机，电脑完全不参与。
-  const askMode = String(config?.ask?.mode || config?.askMode || "dual").toLowerCase() === "auto"
-    ? "auto"
-    : "dual";
+  // 提问的分发策略。
+  //
+  // 为什么默认是 "auto"（单端）而不是两端同时弹：
+  // 本机装的 ask_user_question 是 **legacy 模式**（dsh-tool-ask-user 的
+  // config.mode 默认 legacy），它没有 timeout、没有 callId —— 于是
+  //   · 桌面那张卡没有倒计时，不会自己消失
+  //   · 宿主侧没有 wait 可关，桥也没法替它收尾
+  // 结论：这种提问**只能有一个主人**。手机在线就手机答，手机不在才给电脑。
+  //
+  // 如果哪天把 tool-ask-user 切成 timed 模式（有 timeout / callId），
+  // 就可以把这里改成 "dual"：两端同时显示，靠倒计时和 waits.close() 收尾。
+  const askMode = String(config?.ask?.mode || config?.askMode || "auto").toLowerCase() === "dual"
+    ? "dual"
+    : "auto";
   let lastPhoneSeen = 0;
   const PHONE_AROUND_MS = 15 * 60_000;
   let sessionController = null;
