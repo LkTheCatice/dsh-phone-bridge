@@ -721,17 +721,44 @@ function applyBridge(ctx, config) {
     });
   }
 
+  // ── 审批：手机**只做提醒，不做决策** ──────────────────────────────
+  //
+  // 之前是"拦下来等手机决定"，有两个问题：
+  //   · 手机端有意不提供批准按钮（安全决定应该在电脑上做），于是必然等到超时
+  //   · 拦着的时候桌面端审批框根本不出现，等于把电脑也一起拖住 90 秒
+  //
+  // 现在改成纯通知：广播 approval.asked → **立刻 next()** 交给桌面端 →
+  // 拿到真实结果后再广播 approval.decided（手机上那条记录随之变成已完成态）。
+  // 桥不参与决策，也绝不阻塞。
   try {
     ctx.on("approval/request", async (request, next) => {
       const proceed = () => (typeof next === "function" ? next() : undefined);
-      if (!cfg.askPhone || closed || !phoneOnline()) return proceed();
-      const decision = await askPhone(request);
-      if (decision === "allow") return proceed();
-      if (decision === "deny") return "deny";
-      return proceed();
+      if (closed || !phoneOnline()) return proceed();
+
+      const id = String(request?.callId || request?.id || randomUUID());
+      const tool = String(request?.toolName || request?.tool || "permission");
+      const reason = String(request?.displayReason || request?.reason || "");
+      const sessionId = String(request?.sessionId || "");
+
+      broadcast({ type: "approval.asked", id, tool, reason, sessionId });
+      logLine({ step: "approval.notify", id, tool, sessionId: sessionId.slice(-8) });
+
+      let result;
+      try {
+        result = await proceed();
+      } catch (error) {
+        broadcast({ type: "approval.decided", id, decision: "error", sessionId });
+        logLine({ step: "approval.error", id, msg: String(error?.message || error) });
+        throw error;
+      }
+
+      const decision = result === "deny" ? "deny" : result === "allow" ? "allow" : String(result || "allow");
+      broadcast({ type: "approval.decided", id, decision, sessionId });
+      logLine({ step: "approval.decided", id, decision });
+      return result;
     });
   } catch (error) {
-    console.warn("[phone-bridge] 无法挂载审批中间件:", error?.message || error);
+    logLine({ step: "approval.register-failed", msg: String(error?.message || error) });
   }
 
   // ── 延迟获取 DSH 服务 ───────────────────────────────────────────────────────
