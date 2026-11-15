@@ -1258,7 +1258,7 @@ final class AppModel: ObservableObject {
                 currentModel = option
             }
         } catch {
-            lastError = L("读取模型列表失败：\(error.localizedDescription)", "Failed to load models: \\(error.localizedDescription)")
+            lastError = L("读取模型列表失败：\(error.localizedDescription)", "Failed to load models: \(error.localizedDescription)")
         }
     }
 
@@ -1276,7 +1276,7 @@ final class AppModel: ObservableObject {
             )
             currentModel = option
         } catch {
-            lastError = L("切换模型失败：\(error.localizedDescription)", "Model switch failed: \\(error.localizedDescription)")
+            lastError = L("切换模型失败：\(error.localizedDescription)", "Model switch failed: \(error.localizedDescription)")
         }
     }
 
@@ -1844,7 +1844,7 @@ final class AppModel: ObservableObject {
             lastError = nil
         } catch {
             lastError = error.localizedDescription
-            append(selectedSessionId ?? "pending", ChatEntry(id: UUID().uuidString, kind: .system, text: L("发送失败：\(error.localizedDescription)", "Send failed: \\(error.localizedDescription)"), at: Date()))
+            append(selectedSessionId ?? "pending", ChatEntry(id: UUID().uuidString, kind: .system, text: L("发送失败：\(error.localizedDescription)", "Send failed: \(error.localizedDescription)"), at: Date()))
         }
         let tEnd = CFAbsoluteTimeGetCurrent()
         trace("s9-total=\(Int((tEnd - t0) * 1000))ms")
@@ -1932,7 +1932,7 @@ final class AppModel: ObservableObject {
             // ③ 再从服务端校准一次（force 绕过 2 秒节流）
             await refreshSessions(force: true)
         } catch {
-            lastError = L("新建会话失败：\(error.localizedDescription)", "Couldn't start a session: \\(error.localizedDescription)")
+            lastError = L("新建会话失败：\(error.localizedDescription)", "Couldn't start a session: \(error.localizedDescription)")
         }
     }
 
@@ -2028,7 +2028,7 @@ final class AppModel: ObservableObject {
         }
 
         guard let payload = data else {
-            lastError = L("读取不了这个文件：\(url.lastPathComponent)", "Can't read this file: \\(url.lastPathComponent)")
+            lastError = L("读取不了这个文件：\(url.lastPathComponent)", "Can't read this file: \(url.lastPathComponent)")
             return
         }
         pendingIncoming = IncomingFile(name: url.lastPathComponent, data: payload)
@@ -2283,7 +2283,7 @@ final class AppModel: ObservableObject {
         } catch {
             suppressTrim = false
             endBatch()
-            lastError = L("读取历史失败：\(error.localizedDescription)", "Failed to load history: \\(error.localizedDescription)")
+            lastError = L("读取历史失败：\(error.localizedDescription)", "Failed to load history: \(error.localizedDescription)")
         }
     }
 

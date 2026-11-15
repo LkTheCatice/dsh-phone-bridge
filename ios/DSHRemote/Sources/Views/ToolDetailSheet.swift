@@ -40,7 +40,7 @@ struct ToolDetailContent: View {
     private var shown: String {
         guard let detail = entry.detail else { return "" }
         if detail.count <= Self.limit { return detail }
-        return String(detail.prefix(Self.limit)) + L("\n…（其余 \(detail.count - Self.limit) 字已省略）", "\\n… (\\(detail.count - Self.limit) more characters omitted)")
+        return String(detail.prefix(Self.limit)) + L("\n…（其余 \(detail.count - Self.limit) 字已省略）", "\n… (\(detail.count - Self.limit) more characters omitted)")
     }
 
     var body: some View {

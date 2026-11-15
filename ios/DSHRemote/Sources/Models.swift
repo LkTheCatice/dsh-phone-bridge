@@ -186,9 +186,9 @@ struct ComfyStatus: Equatable {
     var label: String {
         if !online { return L("ComfyUI 离线", "ComfyUI offline") }
         if generating {
-            return pending > 0 ? L("生图中 · 队列 \(pending)", "Image busy · \\(pending) queued") : L("生图中", "Image busy")
+            return pending > 0 ? L("生图中 · 队列 \(pending)", "Image busy · \(pending) queued") : L("生图中", "Image busy")
         }
-        return pending > 0 ? L("空闲 · 队列 \(pending)", "Idle · \\(pending) queued") : L("空闲", "Idle")
+        return pending > 0 ? L("空闲 · 队列 \(pending)", "Idle · \(pending) queued") : L("空闲", "Idle")
     }
 }
 

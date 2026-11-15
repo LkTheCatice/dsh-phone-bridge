@@ -367,7 +367,7 @@ struct ChatView: View {
                             Button {
                                 showingModels = true
                             } label: {
-                                Label(model.currentModel.map { L("模型 · \($0.name)", "Model · \\($0.name)") } ?? L("选择模型", "Choose model"),
+                                Label(model.currentModel.map { L("模型 · \($0.name)", "Model · \($0.name)") } ?? L("选择模型", "Choose model"),
                                       systemImage: "cpu")
                             }
                             Divider()
@@ -498,7 +498,7 @@ struct ChatView: View {
         guard let progress = uploadProgress, progress.total > 1 else {
             return L("正在上传附件…", "Uploading attachment…")
         }
-        return L("正在上传 \(min(progress.done + 1, progress.total))/\(progress.total)", "Uploading \\(min(progress.done + 1, progress.total))/\\(progress.total)")
+        return L("正在上传 \(min(progress.done + 1, progress.total))/\(progress.total)", "Uploading \(min(progress.done + 1, progress.total))/\(progress.total)")
     }
 
     private var statusColor: Color {
@@ -847,7 +847,7 @@ struct ChatView: View {
                 let remote = try await model.uploadAttachment(data, filename: name)
                 attachments.append(remote)
             } catch {
-                model.showToast(L("粘贴失败：\(error.localizedDescription)", "Paste failed: \\(error.localizedDescription)"))
+                model.showToast(L("粘贴失败：\(error.localizedDescription)", "Paste failed: \(error.localizedDescription)"))
             }
             uploading = false
         }
@@ -950,7 +950,7 @@ struct ChatView: View {
                 attachments.append(remote)
                 uploadProgress = (index + 1, items.count)
             } catch {
-                model.showToast(L("第 \(index + 1) 张上传失败：\(error.localizedDescription)", "Image \\(index + 1) failed: \\(error.localizedDescription)"))
+                model.showToast(L("第 \(index + 1) 张上传失败：\(error.localizedDescription)", "Image \(index + 1) failed: \(error.localizedDescription)"))
                 uploadProgress = (index + 1, items.count)
             }
         }
@@ -977,7 +977,7 @@ struct ChatView: View {
                 attachments.append(remote)
                 uploadProgress = (index + 1, items.count)
             } catch {
-                model.showToast(L("第 \(index + 1) 个视频上传失败：\(error.localizedDescription)", "Video \\(index + 1) failed: \\(error.localizedDescription)"))
+                model.showToast(L("第 \(index + 1) 个视频上传失败：\(error.localizedDescription)", "Video \(index + 1) failed: \(error.localizedDescription)"))
                 uploadProgress = (index + 1, items.count)
             }
         }
@@ -995,7 +995,7 @@ struct ChatView: View {
             editingAttachmentIndex = index
             editorImage = image
         } catch {
-            model.showToast(L("打开编辑失败：\(error.localizedDescription)", "Couldn't open the editor: \\(error.localizedDescription)"))
+            model.showToast(L("打开编辑失败：\(error.localizedDescription)", "Couldn't open the editor: \(error.localizedDescription)"))
         }
     }
 
@@ -1014,7 +1014,7 @@ struct ChatView: View {
                 attachments[index] = remote
             }
         } catch {
-            model.showToast(L("替换失败：\(error.localizedDescription)", "Replace failed: \\(error.localizedDescription)"))
+            model.showToast(L("替换失败：\(error.localizedDescription)", "Replace failed: \(error.localizedDescription)"))
         }
     }
 
@@ -1029,7 +1029,7 @@ struct ChatView: View {
     private func handleFile(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            model.lastError = L("选择文件失败：\(error.localizedDescription)", "File picker failed: \\(error.localizedDescription)")
+            model.lastError = L("选择文件失败：\(error.localizedDescription)", "File picker failed: \(error.localizedDescription)")
         case .success(let urls):
             guard let url = urls.first else { return }
             let scoped = url.startAccessingSecurityScopedResource()
@@ -1044,7 +1044,7 @@ struct ChatView: View {
                     let remote = try await model.uploadAttachment(data, filename: url.lastPathComponent)
                     attachments.append(remote)
                 } catch {
-                    model.showToast(L("上传失败：\(error.localizedDescription)", "Upload failed: \\(error.localizedDescription)"))
+                    model.showToast(L("上传失败：\(error.localizedDescription)", "Upload failed: \(error.localizedDescription)"))
                 }
                 uploading = false
             }
@@ -1133,7 +1133,7 @@ struct ComfyBadge: View {
     private var short: String {
         if !comfy.status.online { return L("画图离线", "Image offline") }
         if comfy.status.generating {
-            return comfy.status.pending > 0 ? L("画图中 \(comfy.status.pending)", "Image busy (\\(comfy.status.pending))") : L("画图中", "Image busy")
+            return comfy.status.pending > 0 ? L("画图中 \(comfy.status.pending)", "Image busy (\(comfy.status.pending))") : L("画图中", "Image busy")
         }
         return L("画图空闲", "Image idle")
     }

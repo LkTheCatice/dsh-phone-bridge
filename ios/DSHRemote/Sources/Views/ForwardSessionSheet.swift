@@ -136,7 +136,7 @@ struct ForwardSessionSheet: View {
             )
             dismiss()
         } catch {
-            self.error = L("发送失败：\(error.localizedDescription)", "Send failed: \\(error.localizedDescription)")
+            self.error = L("发送失败：\(error.localizedDescription)", "Send failed: \(error.localizedDescription)")
         }
     }
 }

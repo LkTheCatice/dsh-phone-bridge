@@ -65,7 +65,7 @@ final class BridgeClient {
                 throw BridgeServerError(
                     status: 495,
                     code: "fingerprint-mismatch",
-                    message: L("电脑公钥指纹不一致，可能连到了别的服务；指纹 \(actual)", "Computer fingerprint mismatch — you may be talking to something else (got \\(actual))")
+                    message: L("电脑公钥指纹不一致，可能连到了别的服务；指纹 \(actual)", "Computer fingerprint mismatch — you may be talking to something else (got \(actual))")
                 )
             }
         }

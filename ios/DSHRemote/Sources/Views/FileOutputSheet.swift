@@ -179,7 +179,7 @@ struct FileOutputSheet: View {
             }
             annotateImage = image
         } catch {
-            self.error = L("取原图失败：\(error.localizedDescription)", "Failed to fetch the original: \\(error.localizedDescription)")
+            self.error = L("取原图失败：\(error.localizedDescription)", "Failed to fetch the original: \(error.localizedDescription)")
         }
     }
 
@@ -201,7 +201,7 @@ struct FileOutputSheet: View {
             shareURL = url
             showShare = true
         } catch {
-            self.error = L("下载失败：\(error.localizedDescription)", "Download failed: \\(error.localizedDescription)")
+            self.error = L("下载失败：\(error.localizedDescription)", "Download failed: \(error.localizedDescription)")
         }
     }
 }

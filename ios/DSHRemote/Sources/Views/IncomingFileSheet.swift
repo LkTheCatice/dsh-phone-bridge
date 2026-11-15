@@ -112,7 +112,7 @@ struct IncomingFileSheet: View {
             model.pendingIncoming = nil
             dismiss()
         } catch {
-            localError = L("发送失败：\(error.localizedDescription)", "Send failed: \\(error.localizedDescription)")
+            localError = L("发送失败：\(error.localizedDescription)", "Send failed: \(error.localizedDescription)")
         }
     }
 }
