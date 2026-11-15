@@ -15,6 +15,7 @@ struct DSHRemoteApp: App {
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @ObservedObject private var theme = UITheme.shared
 
     var body: some View {
         Group {
@@ -27,6 +28,8 @@ struct RootView: View {
         // 切语言时整棵树重建：SwiftUI 不会因为 UserDefaults 变化重算，
         // 而我们的文案是 L() 现取的字符串，必须靠身份变化触发一次完整求值。
         .id(I18N.shared.token)
+        // 外观：界面里没有写死的颜色，挂在这里整套跟着变
+        .preferredColorScheme(theme.selection.colorScheme)
         // 微信 / QQ / 文件 App 里「用其他应用打开」递进来的文件
         .onOpenURL { url in
             Task { await model.ingestExternalFile(url) }

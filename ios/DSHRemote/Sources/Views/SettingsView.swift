@@ -4,11 +4,25 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var wallet: WalletStore
     @ObservedObject private var lang = I18N.shared
+    @ObservedObject private var theme = UITheme.shared
     @State private var confirmingForget = false
 
     var body: some View {
         NavigationStack {
             Form {
+                // 外观：跟随系统 / 浅色 / 深色（界面全用语义色，切换即时生效）
+                Section(L("外观", "Appearance")) {
+                    Picker(L("主题", "Theme"), selection: Binding(
+                        get: { theme.selection },
+                        set: { theme.set($0) }
+                    )) {
+                        ForEach(AppTheme.allCases) { item in
+                            Text(item.label).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 // 语言：跟随系统 / 中文 / English。切换即时生效（不重启 App）
                 Section(L("语言", "Language")) {
                     Picker(L("界面语言", "Interface language"), selection: Binding(

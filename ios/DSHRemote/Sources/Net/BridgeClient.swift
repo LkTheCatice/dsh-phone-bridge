@@ -6,7 +6,8 @@ struct BridgeServerError: LocalizedError {
     let code: String
     let message: String
 
-    var errorDescription: String? { "\(code)（HTTP \(status)）：\(message)" }
+    /// 只给用户看人话；机器码留在 `code` 里（日志/报障用），不上屏
+    var errorDescription: String? { localizedBridgeError(code: code, fallback: message) }
 }
 
 /// 与 bridge 的 HTTP 通道：握手 → 每个请求单独加密封包。
