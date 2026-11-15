@@ -1331,10 +1331,12 @@ enum MessageRender {
             body = NSAttributedString(
                 string: entry.text,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 10.5),
+                    .font: UIFont.systemFont(ofSize: entry.warning ? 12 : 10.5, weight: entry.warning ? .medium : .regular),
                     // 用 secondaryLabel 的 55% —— tertiaryLabel 在某些背景下
                     // 看起来偏深（用户反馈「仍是黑色字」），这档更轻。
-                    .foregroundColor: UIColor.secondaryLabel.withAlphaComponent(0.55),
+                    .foregroundColor: entry.warning
+                        ? UIColor.systemOrange
+                        : UIColor.secondaryLabel.withAlphaComponent(0.55),
                     .paragraphStyle: centered,
                 ]
             )

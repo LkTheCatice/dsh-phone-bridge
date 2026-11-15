@@ -118,6 +118,11 @@ struct ChatEntry: Identifiable, Hashable {
     var folded: [ChatEntry] = []
     /// 时间标签：只有和上一条隔了 5 分钟以上才填，nil 表示不显示
     var timeLabel: String? = nil
+    /// 这条 system 行要用"警告色"（橙）显示。
+    /// 目前只有一种用途：**电脑在等你确认某个操作** ——
+    /// 手机上不做确认按钮（容易点错，也绕过了电脑端的策略），
+    /// 只提示用户去电脑上处理。
+    var warning: Bool = false
     /// 工具行的一行摘要（收到帧时算好；放 View 里现算会让滚动变卡）
     var summary: String? = nil
 }

@@ -874,11 +874,31 @@ final class AppModel: ObservableObject {
             )
             if !pendingApprovals.contains(where: { $0.id == id }) {
                 pendingApprovals.append(row)
+                // 在聊天里留一条橙色提示：手机上不做确认，只让人知道"该去电脑了"
+                append(sid, ChatEntry(
+                    id: "\(sid)#approval\(id)",
+                    kind: .system,
+                    text: L("⚠️ 需要你在电脑上确认：\(row.tool)",
+                           "⚠️ Confirm on your computer: \(row.tool)"),
+                    at: Self.frameDate(frame),
+                    turn: turn,
+                    warning: true
+                ))
             }
 
         case "approval.decided":
             let id = (frame["id"] as? String) ?? ""
             pendingApprovals.removeAll { $0.id == id }
+            // 那条橙色提示不用删：改成"已处理"，用户回来能看到自己错过什么
+            if var list = entries[sid],
+               let idx = list.firstIndex(where: { $0.id == "\(sid)#approval\(id)" }) {
+                let allowed = (frame["allowed"] as? Bool) ?? (frame["decision"] as? String == "allow")
+                list[idx].warning = false
+                list[idx].text = allowed
+                    ? L("✅ 你已在电脑上允许该操作", "✅ You allowed it on the computer")
+                    : L("⛔️ 你已在电脑上拒绝该操作", "⛔️ You denied it on the computer")
+                entries[sid] = list
+            }
 
         case "turn.end":
             // reason 是对象 {"kind":"completed"}，别把 JSON 原样怼到界面上

@@ -183,15 +183,20 @@ struct DisconnectBanner: View {
     }
 }
 
-struct ApprovalBanner: View {    @EnvironmentObject private var model: AppModel
+/// 电脑端的权限确认提示（**只提示，不在手机上确认**）。
+///
+/// 为什么不做手机端确认：批准某个操作等于替电脑端做安全决定，
+/// 而手机上既看不到现场（谁改了什么、影响哪个目录），也没有
+/// 电脑端那套策略提示。让用户在电脑上点，是最不容易出错的路径。
+/// 所以这里只做一件事：**用橙色把人叫过去**。
+struct ApprovalBanner: View {
     let approval: ApprovalRow
-    @State private var working = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
-                Text(L("电脑在等你确认：\(approval.tool)", "Waiting for your approval: \(approval.tool)"))
+                Text(L("需要在电脑上确认：\(approval.tool)", "Confirm on your computer: \(approval.tool)"))
                     .font(.subheadline.weight(.semibold))
                 Spacer()
             }
@@ -201,38 +206,17 @@ struct ApprovalBanner: View {    @EnvironmentObject private var model: AppModel
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
-            HStack(spacing: 10) {
-                Button(role: .destructive) {
-                    Task {
-                        working = true
-                        await model.decide(approval, allow: false)
-                        working = false
-                    }
-                } label: {
-                    Text(L("拒绝", "Deny")).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    Task {
-                        working = true
-                        await model.decide(approval, allow: true)
-                        working = false
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        if working { ProgressView().controlSize(.mini) }
-                        Text(L("允许", "Allow")).frame(maxWidth: .infinity)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .disabled(working)
+            Text(L("请到电脑上的 DSH 点「允许 / 拒绝」。手机上不提供确认，避免点错。",
+                   "Tap Allow / Deny on the computer. Confirming on the phone is intentionally not offered."))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
             if let deadline = approval.deadline {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     let left = max(0, Int(deadline.timeIntervalSince(ctx.date)))
-                    Text(left > 0 ? L("\(left) 秒后自动交回电脑处理", "Handed back to the computer in \(left)s") : L("已超时，交回电脑处理", "Timed out — handed back to the computer"))
+                    Text(left > 0
+                         ? L("\(left) 秒后自动交回电脑处理", "Handed back to the computer in \(left)s")
+                         : L("已超时，交回电脑处理", "Timed out — handed back to the computer"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -240,7 +224,7 @@ struct ApprovalBanner: View {    @EnvironmentObject private var model: AppModel
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.orange.opacity(0.4)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.orange.opacity(0.45)))
     }
 }
 
