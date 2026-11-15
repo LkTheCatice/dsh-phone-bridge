@@ -344,21 +344,8 @@ enum MarkdownNS {
                 let cannotFit = colCount >= 3 || estimated > 44
                 if cannotFit {
                     let out = NSMutableAttributedString()
-                    let indexFont = UIFont.systemFont(ofSize: 12, weight: .bold)
-                    let nameFont = UIFont.systemFont(ofSize: 12, weight: .regular)
-                    let valueFont = UIFont.systemFont(ofSize: 14, weight: .regular)
                     let shown = Array(rows.prefix(6))
 
-                    // 版式（2026-11-14 重做）：
-                    //   · 首列（序号/文件名）与第二列**同一行**，不再孤零零占一行
-                    //   · 同一块的后续列缩进两格对齐在下面，和"序号"一起读成一条记录
-                    //   · 块与块之间留 14pt，比块内行距大，视觉上分组清楚
-                    //   · 末尾给一条可点的「查看完整表格」，走 dsh://detail（详情页只渲染表格）
-                    // 版式（2026-11-15 修英文）：首列 + 第二列同一行，用 **tab 停靠**对齐 ——
-                    // 第二列换行时自动挂在同一列位置，不会退回行首；
-                    // 首列宽度按实际渲染宽度算（英文的长标识符也不会挤成一团）。
-                    let headFont = indexFont
-                    let colon = I18N.shared.isEnglish ? ": " : "："
 
                     // ── 版式（2026-11-15 重做：改成"键在上、值在下"的列表）────────────
                     //
