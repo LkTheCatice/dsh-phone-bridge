@@ -95,9 +95,11 @@ final class UIMotion: ObservableObject {
             : .easeOut(duration: 0.2 * durationScale)
     }
 
-    /// 过渡：效率档直接 identity（没有入场动画）
-    func transition<T: Transition>(_ t: T) -> AnyTransition {
-        animationsEnabled ? AnyTransition(t) : AnyTransition.identity
+    /// 过渡：效率档直接 identity（没有入场动画）。
+    /// 参数用 AnyTransition 而不是泛型 Transition —— 泛型会让 `.move(edge:)`
+    /// 解析到 iOS 17 才有的静态成员，在 iOS 16 上编译不过（CI 已踩）。
+    func transition(_ t: AnyTransition) -> AnyTransition {
+        animationsEnabled ? t : .identity
     }
 
     /// 材质：效率档回落成不透明色
@@ -118,7 +120,7 @@ enum Motion {
         ui.spring(response)
     }
 
-    static func transition<T: Transition>(_ t: T) -> AnyTransition {
+    static func transition(_ t: AnyTransition) -> AnyTransition {
         ui.transition(t)
     }
 
