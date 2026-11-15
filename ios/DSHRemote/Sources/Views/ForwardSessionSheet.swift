@@ -82,7 +82,7 @@ struct ForwardSessionSheet: View {
                     Section { Text(error).font(.system(size: 12)).foregroundStyle(.red) }
                 }
             }
-            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话")
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: L("搜索会话", "Search sessions"))
             .navigationTitle(L("转发到会话", "Forward to chat"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -504,7 +504,7 @@ struct ChatView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "text.line.first.and.arrowtriangle.forward")
                             .font(.system(size: 11))
-                        Text(L("队列 \(chat.queue.count) 条", "\\(chat.queue.count) queued"))
+                        Text(L("队列 \(chat.queue.count) 条", "\(chat.queue.count) queued"))
                             .font(.caption.weight(.medium))
                         Text(chat.queue.first?.text ?? "")
                             .font(.caption2)

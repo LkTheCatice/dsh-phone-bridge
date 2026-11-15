@@ -25,17 +25,17 @@ struct TurnLogSheet: View {
             List {
                 Section {
                     HStack(spacing: 10) {
-                        Label(L("第 \(entry.turn) 轮", "Turn \\(entry.turn)"), systemImage: "number")
+                        Label(L("第 \(entry.turn) 轮", "Turn \(entry.turn)"), systemImage: "number")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                         if thinkCount > 0 {
-                            Text(L("思考 \(thinkCount)", "Thinking \\(thinkCount)"))
+                            Text(L("思考 \(thinkCount)", "Thinking \(thinkCount)"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
                         if toolCount > 0 {
-                            Text(L("工具 \(toolCount)", "Tools \\(toolCount)"))
+                            Text(L("工具 \(toolCount)", "Tools \(toolCount)"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
@@ -55,7 +55,7 @@ struct TurnLogSheet: View {
                         }
                     }
                 } header: {
-                    Text(L("过程 · \(steps.count) 步", "Trace · \\(steps.count) steps"))
+                    Text(L("过程 · \(steps.count) 步", "Trace · \(steps.count) steps"))
                 }
             }
             .listStyle(.insetGrouped)

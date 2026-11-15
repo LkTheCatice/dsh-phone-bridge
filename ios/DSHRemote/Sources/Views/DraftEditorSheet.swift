@@ -31,7 +31,7 @@ struct DraftEditorSheet: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     HStack(spacing: 6) {
-                        Text(L("\(text.count) 字", "\\(text.count) chars"))
+                        Text(L("\(text.count) 字", "\(text.count) chars"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)

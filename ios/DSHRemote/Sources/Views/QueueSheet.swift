@@ -49,7 +49,7 @@ struct QueueSheet: View {
                                 row(index: index, item: item)
                             }
                         } header: {
-                            Text(L("排队中 · \(chat.queue.count) 条", "Queued · \\(chat.queue.count)"))
+                            Text(L("排队中 · \(chat.queue.count) 条", "Queued · \(chat.queue.count)"))
                         } footer: {
                             Text(L("电脑端排的队也会出现在这里。点「插队」可以让它立刻执行。", "Queues created on the computer show up here too. Tap Jump to run one right away."))
                         }

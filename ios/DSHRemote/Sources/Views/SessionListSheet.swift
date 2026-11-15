@@ -86,7 +86,7 @@ struct SessionListSheet: View {
                         }
                     }
                 } header: {
-                    Text(L("会话 \(filtered.count)", "Chats (\\(filtered.count))"))
+                    Text(L("会话 \(filtered.count)", "Chats (\(filtered.count))"))
                 }
 
                 if filtered.isEmpty && !search.isEmpty {
@@ -109,7 +109,7 @@ struct SessionListSheet: View {
                                         Text(session.displayTitle)
                                             .lineLimit(1)
                                             .foregroundStyle(.secondary)
-                                        Text(L("已归档 · \(session.timeLabel)", "Archived · \\(session.timeLabel)"))
+                                        Text(L("已归档 · \(session.timeLabel)", "Archived · \(session.timeLabel)"))
                                             .font(.system(size: 11))
                                             .foregroundStyle(.tertiary)
                                     }
@@ -127,11 +127,11 @@ struct SessionListSheet: View {
                             }
                         }
                     } header: {
-                        Text(L("已归档 \(sessionList.archived.count)", "Archived (\\(sessionList.archived.count))"))
+                        Text(L("已归档 \(sessionList.archived.count)", "Archived (\(sessionList.archived.count))"))
                     }
                 }
             }
-            .searchable(text: $search, prompt: "搜索会话标题")
+            .searchable(text: $search, prompt: L("搜索会话标题", "Search chat titles"))
             .navigationTitle(L("会话", "Chats"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

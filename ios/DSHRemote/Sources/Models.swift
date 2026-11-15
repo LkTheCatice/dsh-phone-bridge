@@ -30,11 +30,17 @@ struct SessionRow: Identifiable, Hashable {
         guard let updatedMs else { return "" }
         let date = Date(timeIntervalSince1970: updatedMs / 1000)
         let diff = now.timeIntervalSince(date)
-        if diff < 0 { return "刚刚" }
-        if diff < 60 { return "刚刚" }
-        if diff < 3600 { return "\(Int(diff / 60)) 分钟前" }
-        if diff < 86400 { return "\(Int(diff / 3600)) 小时前" }
-        if diff < 86400 * 30 { return "\(Int(diff / 86400)) 天前" }
+        if diff < 0 { return L("刚刚", "just now") }
+        if diff < 60 { return L("刚刚", "just now") }
+        if diff < 3600 {
+            return L("\(Int(diff / 60)) 分钟前", "\(Int(diff / 60)) min ago")
+        }
+        if diff < 86400 {
+            return L("\(Int(diff / 3600)) 小时前", "\(Int(diff / 3600)) h ago")
+        }
+        if diff < 86400 * 30 {
+            return L("\(Int(diff / 86400)) 天前", "\(Int(diff / 86400)) d ago")
+        }
         return date.formatted(date: .numeric, time: .omitted)
     }
 

@@ -99,10 +99,12 @@ private struct StatusStack: View {
 
     /// 必须带「画图」前缀：光写「空闲/离线」会和上面的连接状态看混
     private var comfyText: String {
-        if !comfy.status.online { return "画图离线" }
+        if !comfy.status.online { return L("画图离线", "Image offline") }
         if comfy.status.generating {
-            return comfy.status.pending > 0 ? "画图中 \(comfy.status.pending)" : "画图中"
+            return comfy.status.pending > 0
+                ? L("画图中 \(comfy.status.pending)", "Image busy (\(comfy.status.pending))")
+                : L("画图中", "Image busy")
         }
-        return "画图空闲"
+        return L("画图空闲", "Image idle")
     }
 }

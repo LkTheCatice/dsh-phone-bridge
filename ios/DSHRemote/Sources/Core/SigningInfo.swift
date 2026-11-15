@@ -38,10 +38,19 @@ enum SigningInfo {
 
     /// 设置页那一行要显示的文字
     static var summary: String {
-        guard let days = daysLeft else { return "未检测到（非侧载安装或读不到描述文件）" }
-        if days < 0 { return "已过期 \(-days) 天 —— 需要重新签名安装" }
-        if days == 0 { return "今天到期 —— 请尽快重装" }
-        return "还剩 \(days) 天（到期后 App 会打不开，需用 Sideloadly 重新安装）"
+        guard let days = daysLeft else {
+            return L("未检测到（非侧载安装或读不到描述文件）",
+                     "Not detected (not sideloaded, or profile unreadable)")
+        }
+        if days < 0 {
+            return L("已过期 \(-days) 天 —— 需要重新签名安装",
+                     "Expired \(-days) days ago — reinstall to re-sign")
+        }
+        if days == 0 {
+            return L("今天到期 —— 请尽快重装", "Expires today — reinstall soon")
+        }
+        return L("还剩 \(days) 天（到期后 App 会打不开，需用 Sideloadly 重新安装）",
+                 "\(days) days left (after that it won't launch — reinstall with Sideloadly)")
     }
 
     /// 是否该给醒目提示

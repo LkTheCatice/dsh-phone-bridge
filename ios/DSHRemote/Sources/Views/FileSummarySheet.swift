@@ -44,7 +44,7 @@ struct FileSummarySheet: View {
                         .buttonStyle(.plain)
                     }
                 } header: {
-                    Text(L("本轮产出 · \(files.count) 个", "Artifacts from this turn · \\(files.count)"))
+                    Text(L("本轮产出 · \(files.count) 个", "Artifacts from this turn · \(files.count)"))
                 }
             }
             .navigationTitle(L("全部产物", "All artifacts"))

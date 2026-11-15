@@ -157,7 +157,7 @@ struct EffortPickerSheet: View {
                         .buttonStyle(.plain)
                     }
                 } header: {
-                    Text(L("\(target.name) · 推理强度", "\\(target.name) · reasoning effort"))
+                    Text(L("\(target.name) · 推理强度", "\(target.name) · reasoning effort"))
                 } footer: {
                     Text(L("档位越高思考越深、耗时越长。确定后会自动切换到这个模型。", "Higher effort means deeper thinking and longer runs. Confirming switches to this model."))
                         .font(.caption2)

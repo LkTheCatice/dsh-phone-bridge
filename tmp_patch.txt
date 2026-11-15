@@ -1,2 +1,5 @@
-OK Views/BottomBar.swift :: tab-scale
-OK Views/SettingsView.swift :: navbar
+OK Models.swift :: time-labels
+OK Views/SettingsView.swift :: channel
+OK Views/SettingsView.swift :: server
+OK Views/SettingsView.swift :: balance-cny
+OK Core/Lang.swift :: lang-system

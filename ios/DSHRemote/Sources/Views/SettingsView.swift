@@ -32,8 +32,10 @@ struct SettingsView: View {
                     }
                     if let pairing = model.pairing {
                         LabeledContent(L("地址", "Address"), value: pairing.displayName)
-                        LabeledContent(L("通道", "Channel"), value: pairing.useTLS ? "HTTPS（Tailscale）" : "HTTP + 端到端加密")
-                        LabeledContent(L("服务器", "Server"), value: model.serverInfo.isEmpty ? "未知" : model.serverInfo)
+                        LabeledContent(L("通道", "Channel"), value: pairing.useTLS
+                            ? L("HTTPS（Tailscale）", "HTTPS (Tailscale)")
+                            : L("HTTP + 端到端加密", "HTTP + end-to-end encryption"))
+                        LabeledContent(L("服务器", "Server"), value: model.serverInfo.isEmpty ? L("未知", "Unknown") : model.serverInfo)
                     }
                     LabeledContent(L("事件序号", "Event seq"), value: String(model.lastSeq))
                     Button(L("重新连接", "Reconnect")) { Task { await model.connect() } }
@@ -114,7 +116,9 @@ struct SettingsView: View {
                     } else {
                         ForEach(wallet.wallets) { wallet in
                             LabeledContent(
-                                wallet.isBonus ? "赠送额度（\(wallet.currency)）" : "余额（\(wallet.currency)）"
+                                wallet.isBonus
+                        ? L("赠送额度（\(wallet.currency)）", "Bonus credit (\(wallet.currency))")
+                        : L("余额（\(wallet.currency)）", "Balance (\(wallet.currency))")
                             ) {
                                 Text(wallet.balance)
                                     .font(.system(.body, design: .monospaced))
@@ -213,10 +217,10 @@ struct SettingsView: View {
 
     private var statusText: String {
         switch model.phase {
-        case .connected: return "已连接"
-        case .connecting: return "连接中"
-        case .disconnected: return "未连接"
-        case .failed(let reason): return "失败：\(reason)"
+        case .connected: return L("已连接", "Connected")
+        case .connecting: return L("连接中", "Connecting")
+        case .disconnected: return L("未连接", "Offline")
+        case .failed(let reason): return L("失败：\(reason)", "Failed: \(reason)")
         }
     }
 

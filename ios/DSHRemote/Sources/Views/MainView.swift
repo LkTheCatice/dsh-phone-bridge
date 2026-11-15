@@ -191,7 +191,7 @@ struct ApprovalBanner: View {    @EnvironmentObject private var model: AppModel
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
-                Text(L("电脑在等你确认：\(approval.tool)", "Waiting for your approval: \\(approval.tool)"))
+                Text(L("电脑在等你确认：\(approval.tool)", "Waiting for your approval: \(approval.tool)"))
                     .font(.subheadline.weight(.semibold))
                 Spacer()
             }
@@ -232,7 +232,7 @@ struct ApprovalBanner: View {    @EnvironmentObject private var model: AppModel
             if let deadline = approval.deadline {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     let left = max(0, Int(deadline.timeIntervalSince(ctx.date)))
-                    Text(left > 0 ? L("\(left) 秒后自动交回电脑处理", "Handed back to the computer in \\(left)s") : L("已超时，交回电脑处理", "Timed out — handed back to the computer"))
+                    Text(left > 0 ? L("\(left) 秒后自动交回电脑处理", "Handed back to the computer in \(left)s") : L("已超时，交回电脑处理", "Timed out — handed back to the computer"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

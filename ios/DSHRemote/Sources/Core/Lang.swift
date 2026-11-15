@@ -15,7 +15,7 @@ enum AppLang: String, CaseIterable, Identifiable {
     /// 语言名用各自语言书写，永远不翻译（切错了也能找回来）
     var label: String {
         switch self {
-        case .system: return "跟随系统"   // 这一项本身是"系统语言"的描述，保持中文
+        case .system: return L("跟随系统", "Follow system")
         case .zh: return "简体中文"
         case .en: return "English"
         }
