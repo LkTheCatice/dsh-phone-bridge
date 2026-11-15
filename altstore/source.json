@@ -5,7 +5,9 @@
   "description": "手机发一句话，电脑上的 DeepSeek Harness 真实执行（跑命令、改文件、调工具），思考与工具调用流式回到手机；动手前在手机上确认。内容端到端加密，只在局域网内直连。\n\n使用前需要先在电脑上安装桥接插件（见仓库 README）。",
   "iconURL": "https://raw.githubusercontent.com/LkTheCatice/dsh-phone-bridge/main/assets/icon-source.png",
   "tintColor": "#0A84FF",
-  "featuredApps": ["dev.yg.dshremote"],
+  "featuredApps": [
+    "dev.yg.dshremote"
+  ],
   "apps": [
     {
       "name": "DSH Helm",
@@ -19,12 +21,12 @@
       "screenshots": [],
       "versions": [
         {
-          "version": "0.1.0",
-          "buildVersion": "134",
-          "date": "2026-11-14T05:00:00Z",
+          "version": "0.2.35",
+          "buildVersion": "190",
+          "date": "2026-11-15",
           "localizedDescription": "首个可侧载版本：过程折叠 / 产物清单卡 / 文件与文本转发 / 会话内搜索 / 产物图片标注 / 断帧提示 / 签名到期可见。",
-          "downloadURL": "https://github.com/LkTheCatice/dsh-phone-bridge/releases/download/v0.1.0-134/DSHRemote-unsigned.ipa",
-          "size": 3780751,
+          "downloadURL": "https://github.com/LkTheCatice/dsh-phone-bridge/releases/download/v0.2.35/DSHRemote-unsigned.ipa",
+          "size": 3894884,
           "minOSVersion": "16.0"
         }
       ],
@@ -34,7 +36,8 @@
           "NSLocalNetworkUsageDescription": "用于连接你电脑上的 DeepSeek Harness 桥接服务（局域网直连时）",
           "NSPhotoLibraryAddUsageDescription": "把电脑传来的图片保存到相册"
         }
-      }
+      },
+      "version": "0.2.35"
     }
   ],
   "news": []
