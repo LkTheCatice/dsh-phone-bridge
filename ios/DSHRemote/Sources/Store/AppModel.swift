@@ -951,6 +951,10 @@ final class AppModel: ObservableObject {
                 if let ask = Self.parseAsk(id: callId, sessionId: sid, args: frame["args"]) {
                     pendingAsk = ask
                     pingDiagnostic("ask.mirror id=\(callId.prefix(8)) n=\(ask.questions.count)")
+                } else {
+                    // 名字对上了但参数解析不出来：把原始类型报回去，便于定位
+                    let shape = String(describing: type(of: frame["args"]))
+                    pingDiagnostic("ask.mirror.skip shape=\(shape) keys=\(Self.jsonObject(frame["args"])?.keys.joined(separator: ",") ?? "-")")
                 }
             }
 
@@ -1470,12 +1474,25 @@ final class AppModel: ObservableObject {
     }
 
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
+    /// 把帧里的「参数」还原成字典。
+    ///
+    /// DSH 的 tool/call 事件里 `arguments` 可能是**对象**，也可能是**JSON 字符串**
+    /// （不同版本/不同适配层不一致）。之前只按对象处理，于是 ask 的卡片
+    /// 在手机上一次也没出现过 —— 参数被当成字符串丢掉了。
+    static func jsonObject(_ value: Any?) -> [String: Any]? {
+        if let dict = value as? [String: Any] { return dict }
+        if let text = value as? String, let data = text.data(using: .utf8) {
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        return nil
+    }
+
     /// 从 ask_user_question 的调用参数里还原出一张卡片所需的数据。
     ///
     /// 参数形状（DSH 的 tool schema）：
     ///   { questions: [{ id, question, header?, detail?, options?: [{label, description?}], multiSelect? }] }
     static func parseAsk(id: String, sessionId: String, args: Any?) -> PendingAsk? {
-        guard let dict = args as? [String: Any],
+        guard let dict = Self.jsonObject(args),
               let raw = dict["questions"] as? [[String: Any]]
         else { return nil }
         let questions: [AskQuestion] = raw.compactMap { item in
@@ -1499,7 +1516,7 @@ final class AppModel: ObservableObject {
 
     /// 从 ask_user_question 的参数里取第一句问题
     static func askSummary(from args: Any?) -> String? {
-        guard let dict = args as? [String: Any],
+        guard let dict = Self.jsonObject(args),
               let questions = dict["questions"] as? [[String: Any]],
               let first = questions.first,
               let text = first["question"] as? String,
