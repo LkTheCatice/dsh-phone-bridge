@@ -944,6 +944,16 @@ final class AppModel: ObservableObject {
                 summary: Self.askSummary(from: frame["args"]) ?? ToolSummary.make(from: detail)
             ))
 
+            // 「镜像 + 遥控」模型：提问本身走 DSH 原生通道（电脑端是主人），
+            // 手机这边从**同一帧**的 args.questions 里还原出选项卡片。
+            // 不在桥上拦截提问，也就不存在"电脑端关不掉的面板"。
+            if name == "ask_user_question" || name == "request_user_input" {
+                if let ask = Self.parseAsk(id: callId, sessionId: sid, args: frame["args"]) {
+                    pendingAsk = ask
+                    pingDiagnostic("ask.mirror id=\(callId.prefix(8)) n=\(ask.questions.count)")
+                }
+            }
+
         case "tool.result":
             let callId = (frame["callId"] as? String) ?? ""
             let preview = Self.jsonText(frame["preview"])
@@ -954,6 +964,12 @@ final class AppModel: ObservableObject {
                 list[idx].running = false
                 list[idx].ok = ok
                 entries[sid] = list
+            }
+            // 这次提问结束了（电脑上答的、手机上答的、或者被取消）—— 卡片收掉。
+            // 这就是"log 出现变动即消失"：不依赖桥，也不依赖是谁答的。
+            if !callId.isEmpty, pendingAsk?.id == callId {
+                pendingAsk = nil
+                pingDiagnostic("ask.mirror.clear id=\(callId.prefix(8))")
             }
             // 找不到对应调用就丢掉：电脑端也不会把"工具完成"单独列一行
 
@@ -1454,6 +1470,33 @@ final class AppModel: ObservableObject {
     }
 
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
+    /// 从 ask_user_question 的调用参数里还原出一张卡片所需的数据。
+    ///
+    /// 参数形状（DSH 的 tool schema）：
+    ///   { questions: [{ id, question, header?, detail?, options?: [{label, description?}], multiSelect? }] }
+    static func parseAsk(id: String, sessionId: String, args: Any?) -> PendingAsk? {
+        guard let dict = args as? [String: Any],
+              let raw = dict["questions"] as? [[String: Any]]
+        else { return nil }
+        let questions: [AskQuestion] = raw.compactMap { item in
+            guard let qid = item["id"] as? String, let text = item["question"] as? String else { return nil }
+            let options = ((item["options"] as? [[String: Any]]) ?? []).compactMap { opt -> AskQuestion.Option? in
+                guard let label = opt["label"] as? String else { return nil }
+                return AskQuestion.Option(label: label, description: opt["description"] as? String)
+            }
+            return AskQuestion(
+                id: qid,
+                text: text,
+                header: item["header"] as? String,
+                detail: item["detail"] as? String,
+                options: options,
+                multiSelect: (item["multiSelect"] as? Bool) ?? false
+            )
+        }
+        guard !questions.isEmpty else { return nil }
+        return PendingAsk(id: id, sessionId: sessionId, questions: questions)
+    }
+
     /// 从 ask_user_question 的参数里取第一句问题
     static func askSummary(from args: Any?) -> String? {
         guard let dict = args as? [String: Any],

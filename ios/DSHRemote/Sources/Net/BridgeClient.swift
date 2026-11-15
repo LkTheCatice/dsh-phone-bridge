@@ -253,10 +253,10 @@ final class BridgeClient {
         try await postJSON("/v1/ask/ready", json: [:])
     }
 
-    /// 回答电脑端的提问（ask_user_question）。
+    /// 把手机选的答案交给桌面端，由它替用户按下「提交」。
     /// answers: [{ "id": 问题 id, "selected": [选项 label], "custom": "可选" }]
-    func answerAsk(id: String, answers: [[String: Any]]) async throws -> [String: Any] {
-        try await postJSON("/v1/ask/answer", json: ["id": id, "answers": answers])
+    func submitAsk(sessionId: String, answers: [[String: Any]]) async throws -> [String: Any] {
+        try await postJSON("/v1/ask/submit", json: ["sessionId": sessionId, "answers": answers])
     }
 
     func decide(approvalId: String, allow: Bool) async throws -> [String: Any] {

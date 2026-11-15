@@ -862,89 +862,21 @@ function applyBridge(ctx, config) {
     };
   }
 
-  try {
-    if (typeof ctx.on !== "function") throw new Error("ctx.on 不可用");
-    const off = ctx.on("user-questions/request", async function (request, next) {
-      const online = streamClients.size > 0;
-      if (online) lastPhoneSeen = Date.now();
-      // **必须同时满足**：手机真的连着（SSE 在）+ 它明确声明过能回答（askReady 未过期）。
-      //
-      // 为什么不再用"15 分钟内见过"兜底：那种判断下手机可能正在睡觉，
-      // 桥却把提问握在手里 —— 手机上收不到（没连接），电脑上也不弹（被我们拦了），
-      // 就出现"两端全都没有"的空窗。宁可交给电脑，也不能两边都看不到。
-      const phoneReady = online && Date.now() < askReadyUntil;
-      // 手机不在线但配了推送：也给一段"短等"，等推送把人叫回来开 App
-      const pushCanWake = !online && notifier.enabled;
-      const shouldHold = phoneReady || pushCanWake;
-      const holdMs = phoneReady ? ASK_HOLD_ONLINE_MS : (pushCanWake ? ASK_HOLD_PUSH_MS : 0);
-      logLine({ step: "ask.gate", online, phoneReady, pushCanWake, holdMs });
-      logLine({
-        step: "ask.hook",
-        sessions: streamClients.size,
-        qs: Array.isArray(request?.questions) ? request.questions.length : -1,
-        phoneReady,
-      });
-      if (!shouldHold) return next();
+  // ── 提问：**不再拦截**，只做"手机遥控桌面" ─────────────────────────
+  //
+  // 之前是桥接管 DSH 的提问 waterfall（等于自己当应答者），带来两个副作用：
+  //   · 电脑端要么看不到、要么看到一张关不掉的卡
+  //   · 桥得自己造等待窗口、超时、交回电脑一整套规则
+  //
+  // 现在改成：**DSH 的提问原样走它自己的通道，桌面端永远是主人**。
+  // 手机端只是"镜像 + 遥控"：
+  //   · 从 tool.call 帧里的 args.questions 还原出选项卡片（App 侧做）
+  //   · 手机选了之后 → POST /v1/ask/submit → ctx.emit("phone-bridge/ask-submit")
+  //   · 桌面端（打过补丁）收到事件后替用户按下提交 → 原生结算 → 两端一起收尾
+  //
+  // 于是这里不再注册应答者，只有一条"把手机的答案转发给桌面"的事件。
+  logLine({ step: "ask.passthrough", note: "不拦截提问，桌面端持有，手机为镜像+遥控" });
 
-      if (askMode === "auto") {
-        // 单端模式：手机在前台就只给手机，computer 端不参与 —— 不会留下关不掉的面板
-        // 单端模式：手机在线就久等，靠推送唤醒就短等，都没有则上面已经放行
-        const waiter = createAskWaiter(request, holdMs);
-        try {
-          const answer = await waiter.promise;
-          if (answer) {
-            logLine({ step: "ask.won", by: "phone-only" });
-            return answer;
-          }
-        } catch (error) {
-          logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
-        }
-        // 手机 30 秒没答 → 立刻交回电脑，并把手机那张卡收掉
-        // （收不掉的卡比"没卡"更糟：用户以为还能答，其实已经交出去了）
-        waiter.cancel("handed-to-desktop");
-        logLine({ step: "ask.won", by: "desktop-after-timeout" });
-        return next();
-      }
-
-      const waiter = createAskWaiter(request);
-      // 桌面端同时拿到这次提问（它会把面板弹出来）
-      let desktop;
-      try {
-        desktop = Promise.resolve(next());
-      } catch (error) {
-        desktop = Promise.reject(error);
-      }
-
-      try {
-        const winner = await Promise.race([
-          waiter.promise.then((answer) => ({ from: answer ? "phone" : "none", answer })),
-          desktop.then((answer) => ({ from: "desktop", answer })),
-        ]);
-
-        if (winner.from === "desktop") {
-          // 桌面先答：手机卡片立刻消失
-          waiter.cancel("answered-on-desktop");
-          logLine({ step: "ask.won", by: "desktop" });
-          return winner.answer;
-        }
-        if (winner.from === "phone") {
-          logLine({ step: "ask.won", by: "phone" });
-          return winner.answer;
-        }
-        // 手机超时（answer=null）：继续等桌面端那一份
-        logLine({ step: "ask.won", by: "desktop-after-timeout" });
-        return await desktop;
-      } catch (error) {
-        waiter.cancel("error");
-        logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
-        return next();
-      }
-    });
-    logLine({ step: "ask.registered", off: typeof off === "function", mode: askMode });
-  } catch (error) {
-    // 注册失败一定要留痕：console 输出在 DSH 里看不到
-    logLine({ step: "ask.register-failed", msg: String(error?.message || error) });
-  }
 
   ctx.inject(["agents"], (scope) => {
       agentRegistry = scope.agents || scope.get?.("agents") || null;
@@ -2750,6 +2682,38 @@ function applyBridge(ctx, config) {
       askReadyUntil = Date.now() + ASK_READY_TTL_MS;
       lastPhoneSeen = Date.now();
       return sendJson(res, 200, { ok: true, ttlMs: ASK_READY_TTL_MS, clients: streamClients.size }, ctxEnc);
+    }
+
+    // 手机提交提问的答案 → 转发给桌面端，由它替用户按下"提交"。
+    // 这是"镜像 + 遥控"模型的唯一入口：DSH 的提问通道完全不动。
+    if (method === "POST" && pathname === "/v1/ask/submit") {
+      const body = await readJsonBody();
+      const sessionId = String(body.sessionId || "");
+      const answers = Array.isArray(body.answers) ? body.answers : [];
+      if (!sessionId) throw new HttpError(400, "bad-request", "缺少 sessionId");
+      const clean = answers
+        .filter((a) => a && typeof a.id === "string")
+        .map((a) => ({
+          id: a.id,
+          selected: Array.isArray(a.selected) ? a.selected.filter((s) => typeof s === "string") : [],
+          ...(typeof a.custom === "string" && a.custom.trim() ? { custom: a.custom.trim() } : {}),
+        }));
+      if (clean.length === 0) throw new HttpError(400, "bad-request", "答案为空");
+
+      let emitted = false;
+      try {
+        if (typeof ctx.emit === "function") {
+          ctx.emit("phone-bridge/ask-submit", { sessionId, answers: clean });
+          emitted = true;
+        }
+      } catch (error) {
+        logLine({ step: "ask.submit.error", msg: String(error?.message || error) });
+      }
+      logLine({ step: "ask.submit", sessionId: sessionId.slice(-8), n: clean.length, emitted });
+      if (!emitted) {
+        throw new HttpError(503, "not-ready", "桌面端没接收这次提交（DSH 补丁未打或版本不匹配）");
+      }
+      return sendJson(res, 200, { ok: true }, ctxEnc);
     }
 
     if (method === "GET" && pathname === "/v1/ask/pending") {
