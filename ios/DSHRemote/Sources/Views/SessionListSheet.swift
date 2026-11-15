@@ -27,6 +27,35 @@ struct SessionListSheet: View {
         }
     }
 
+    /// 未分组的标题（会话没有 cwd，或者 cwd 解析不出目录名）
+    private var noFolderTitle: String { L("未分组", "No folder") }
+
+    /// 把当前过滤结果按工作区文件夹分组。
+    ///
+    /// 之前是**一整个平铺列表** —— 会话一多就分不清哪个是哪个项目的，
+    /// 用户实拍反馈"能否正确区分文件夹、未分组"。
+    /// 现在：按 cwd 的目录名分组，组内保持服务端给的时间序；
+    /// 组之间按"最近活动"排序，「未分组」永远排最后。
+    private var grouped: [(title: String, rows: [SessionRow])] {
+        var buckets: [String: [SessionRow]] = [:]
+        for row in filtered {
+            let name = (row.cwdName ?? "").trimmingCharacters(in: .whitespaces)
+            buckets[name.isEmpty ? noFolderTitle : name, default: []].append(row)
+        }
+        return buckets
+            .map { (title: $0.key, rows: $0.value) }
+            .sorted { a, b in
+                // 未分组永远最后
+                if a.title == noFolderTitle { return false }
+                if b.title == noFolderTitle { return true }
+                // 组内第一条就是最新那条（服务端已按时间倒序）
+                let at = a.rows.first?.updatedAt ?? 0
+                let bt = b.rows.first?.updatedAt ?? 0
+                if at != bt { return at > bt }
+                return a.title.localizedStandardCompare(b.title) == .orderedAscending
+            }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -60,8 +89,9 @@ struct SessionListSheet: View {
                 }
 
 
-                Section {
-                    ForEach(filtered) { session in
+                ForEach(grouped, id: \.title) { group in
+                    Section {
+                    ForEach(group.rows) { session in
                         Button {
                             model.selectedSessionId = session.id
                             model.markRead(session.id)
@@ -107,8 +137,17 @@ struct SessionListSheet: View {
                             .tint(.blue)
                         }
                     }
-                } header: {
-                    Text(L("会话 \(filtered.count)", "Chats (\(filtered.count))"))
+                    } header: {
+                        HStack(spacing: 6) {
+                            Image(systemName: group.title == noFolderTitle ? "tray" : "folder")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(group.title)
+                            Spacer(minLength: 0)
+                            Text("\(group.rows.count)")
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
 
                 if filtered.isEmpty && (!search.isEmpty || favoritesOnly) {
@@ -121,8 +160,10 @@ struct SessionListSheet: View {
                     }
                 }
 
-                // 已归档：之前归档后就彻底消失、无处找回，现在能在这里恢复
-                if !sessionList.archived.isEmpty {
+                // 已归档：之前归档后就彻底消失、无处找回，现在能在这里恢复。
+                // 只在「全部 + 没搜索」时显示 —— 否则点星标筛选收藏时，
+                // 下面还挂着一堆已归档会话，看起来像"收藏里混进了归档"（实拍反馈）。
+                if !sessionList.archived.isEmpty && !favoritesOnly && search.isEmpty {
                     Section {
                         ForEach(sessionList.archived) { session in
                             Button {
