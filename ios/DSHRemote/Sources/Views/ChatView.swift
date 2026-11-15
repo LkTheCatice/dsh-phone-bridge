@@ -592,7 +592,7 @@ struct ChatView: View {
             // 发送方式不再让用户选：一律排队（和电脑端一致）。
             // 想立刻执行的话，在队列里对那一条点「插队」—— 那是显式操作，
             // 比发送前猜「会不会打断当前轮」清楚得多。
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 6) {
                 // 附件入口跟 QQ 一样放在输入框左边
                 Menu {
                     // PhotosPicker 直接塞进 Menu 里不会触发选择器，必须用
@@ -619,9 +619,12 @@ struct ChatView: View {
                         }
                     }
                 } label: {
+                    // 固定 34×34 热区：三个控件同高，底对齐后字形中线才齐
                     Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 26))
+                        .font(.system(size: 24))
                         .foregroundStyle(uploading ? Color.secondary : Color.accentColor)
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
                 }
                 .disabled(uploading)
 
@@ -631,8 +634,10 @@ struct ChatView: View {
                     showDraftEditor = true
                 } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 17))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 34)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("全屏编辑")
@@ -654,7 +659,7 @@ struct ChatView: View {
                         onHeightChange: { h in
                             // 不设下限：UITextView 的文字永远从顶部排，高度比内容多出来的部分会全落在底部，
 // 光标就偏上（用户实拍）。让高度精确等于内容高度，光标自然与文字对齐。
-                            inputHeight = min(max(h, 30), 140)
+                            inputHeight = min(max(h, 34), 140)
                         }
                     )
                     .frame(height: inputHeight)
@@ -663,7 +668,9 @@ struct ChatView: View {
 
                 Button(action: submit) {
                     Image(systemName: sending ? "hourglass" : "arrow.up.circle.fill")
-                        .font(.system(size: 30))
+                        .font(.system(size: 26))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
                 }
                 .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
