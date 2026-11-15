@@ -2769,13 +2769,47 @@ function applyBridge(ctx, config) {
           .map((r) => String(r || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase())
           .filter(Boolean),
       );
+      // 没指定 cwd 时的默认：跟着**最近在用的那个项目**走。
+      //
+      // 之前直接交给 DSH 的默认工作区，结果是 cwd = ~/.dsh/profiles/desktop，
+      // 所有手机新建的会话都掉进一个叫 desktop 的分组里（用户实拍反馈）。
+      // 现在优先用最近一个会话的 cwd，退一步用注册过的第一个工作区。
+      async function pickDefaultCwd() {
+        const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+        try {
+          const rows = await listSessions();
+          const usable = rows
+            .filter((r) => r.cwd && known.has(norm(r.cwd)))
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          if (usable.length) return { cwd: usable[0].cwd, why: "recent-session" };
+        } catch {
+          /* 拿不到会话列表就退下一步 */
+        }
+        const first = detectWorkspaceRoots().find((p) => known.has(norm(p)));
+        if (first) return { cwd: first, why: "first-workspace" };
+        return { cwd: null, why: "dsh-default" };
+      }
+
       const wanted = body.cwd ? String(body.cwd).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() : "";
       const useCwd = wanted && known.has(wanted) ? String(body.cwd) : null;
 
-      const made = await ctrl.create(useCwd ? { cwd: useCwd } : {});
+      let finalCwd = useCwd;
+      let cwdWhy = useCwd ? "requested" : "";
+      if (!finalCwd) {
+        const picked = await pickDefaultCwd();
+        finalCwd = picked.cwd;
+        cwdWhy = picked.why;
+      }
+      const made = await ctrl.create(finalCwd ? { cwd: finalCwd } : {});
       const sessionId = String(made?.sessionId || "");
       if (!sessionId) throw new HttpError(500, "create-failed", "新建会话失败");
-      logLine({ step: "session/new", sessionId, cwd: useCwd || "(default workspace)", requested: body.cwd || null });
+      logLine({
+        step: "session/new",
+        sessionId,
+        cwd: finalCwd || "(dsh-default)",
+        why: cwdWhy,
+        requested: body.cwd || null,
+      });
       return sendJson(res, 200, { ok: true, sessionId, cwd: useCwd || null }, ctxEnc);
     }
 
