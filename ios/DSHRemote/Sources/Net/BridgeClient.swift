@@ -241,6 +241,12 @@ final class BridgeClient {
         return try await postJSON("/v1/task", json: json)
     }
 
+    /// 回答电脑端的提问（ask_user_question）。
+    /// answers: [{ "id": 问题 id, "selected": [选项 label], "custom": "可选" }]
+    func answerAsk(id: String, answers: [[String: Any]]) async throws -> [String: Any] {
+        try await postJSON("/v1/ask/answer", json: ["id": id, "answers": answers])
+    }
+
     func decide(approvalId: String, allow: Bool) async throws -> [String: Any] {
         try await postJSON("/v1/approval", json: [
             "id": approvalId,

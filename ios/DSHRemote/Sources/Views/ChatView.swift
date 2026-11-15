@@ -11,6 +11,8 @@ struct ChatView: View {
     @State private var draft = ""
     /// 全屏写长指令（输入框最高只有 140pt，长文本憋屈）
     @State private var showDraftEditor = false
+    /// 是否正在回答电脑端的提问
+    @State private var showAsk = false
     /// 长按产物「转发到其它会话」时带的路径（非 nil 就弹转发面板）
     @State private var forwardPath: String?
     /// 长按文本「转发到其它会话」时的内容
@@ -254,7 +256,36 @@ struct ChatView: View {
                         // 显示与否交给 JumpButtonLayer 自己（它已 @ObservedObject）。
                     }
 
-                    .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        VStack(spacing: 0) {
+                            // 电脑端在等回答时，输入框上方出现一条可点的横幅
+                            if let ask = model.pendingAsk {
+                                Button {
+                                    showAsk = true
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "questionmark.bubble.fill")
+                                        Text(L("电脑在等你回答 · 点这里", "The computer is waiting · tap to answer"))
+                                            .font(.footnote.weight(.medium))
+                                        Spacer()
+                                        Image(systemName: "chevron.right").font(.caption2)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 9)
+                                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 6)
+                            }
+                            composer
+                        }
+                    }
+                    .sheet(isPresented: $showAsk) {
+                        if let ask = model.pendingAsk {
+                            AskSheet(ask: ask).environmentObject(model)
+                        }
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)   // 撑满 GeometryReader，否则 VStack 塌缩
                                         // 附件选择（文件/相册）收进 modifier：这几个 .onChange/.photosPicker
                     // 直接挂在链上会让整条 chatContent 表达式类型推断超时

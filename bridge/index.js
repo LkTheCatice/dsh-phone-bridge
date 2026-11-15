@@ -668,7 +668,60 @@ function applyBridge(ctx, config) {
     console.warn("[phone-bridge] sessionController 注入失败:", error?.message || error);
   }
   try {
-    ctx.inject(["agents"], (scope) => {
+    // ── 手机端回答「提问」 ────────────────────────────────────────────────
+  //
+  // DSH 的 ask_user_question 是**阻塞式**的：它走一条 waterfall
+  //   ctx.waterfall("user-questions/request", request, noAnswerer)
+  // 桌面端的插件（dsh-client-ui-user-questions）在这条链上注册了一个应答者，
+  // 渲染面板、点完把 { answers } 返回去。手机端原来没人接 → 工具直接报
+  // NO_PROVIDER，手机上只看到一行 "> Asked"。
+  //
+  // 这里补一个应答者：
+  //   · 有手机连着 → 推到手机，等它 POST /v1/ask/answer
+  //   · 没有手机 / 超时 / 取消 → next()，交回桌面端（不改变原有行为）
+  const ASK_TIMEOUT_MS = 100_000;
+  const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
+  let askSerial = 0;
+
+  function waitForPhoneAnswer(request) {
+    return new Promise((resolve) => {
+      askSerial += 1;
+      const id = "ask_" + askSerial;
+      const sessionId = String(request?.agent?.session || "");
+      const timer = setTimeout(() => {
+        pendingAsks.delete(id);
+        // 撤回提示：手机上那张卡片要消失，否则用户答了也没人接
+        broadcast({ type: "ask.cancelled", id, reason: "timeout" });
+        resolve(null);
+      }, ASK_TIMEOUT_MS);
+      pendingAsks.set(id, { resolve, timer, sessionId });
+      broadcast({
+        type: "ask.asked",
+        id,
+        sessionId,
+        callId: String(request?.wait?.callId || ""),
+        questions: request?.questions || [],
+      });
+    });
+  }
+
+  try {
+    ctx.on("user-questions/request", async (request, next) => {
+      if (streamClients.size === 0) return next();
+      try {
+        const answer = await waitForPhoneAnswer(request);
+        if (answer) return answer;
+      } catch {
+        /* 出错就当没接，交回桌面 */
+      }
+      return next();
+    });
+    console.log("[phone-bridge] 提问应答者已注册（手机可代答 ask_user_question）");
+  } catch (error) {
+    console.warn("[phone-bridge] 提问应答者注册失败:", error?.message || error);
+  }
+
+  ctx.inject(["agents"], (scope) => {
       agentRegistry = scope.agents || scope.get?.("agents") || null;
     });
   } catch {
@@ -2434,6 +2487,38 @@ function applyBridge(ctx, config) {
       if (doc.daysLeft !== null && doc.daysLeft <= 2) {
         console.warn(`[phone-bridge] 手机 App 签名还剩 ${doc.daysLeft} 天，记得重新安装（见 docs/续签.md）`);
       }
+      return sendJson(res, 200, { ok: true }, ctxEnc);
+    }
+
+    if (method === "GET" && pathname === "/v1/ask/pending") {
+      const list = [];
+      for (const [id, item] of pendingAsks) list.push({ id, sessionId: item.sessionId });
+      return sendJson(res, 200, { ok: true, pending: list }, ctxEnc);
+    }
+
+    if (method === "POST" && pathname === "/v1/ask/answer") {
+      const body = await readJsonBody();
+      const id = String(body.id || "");
+      const answers = Array.isArray(body.answers) ? body.answers : [];
+      const item = pendingAsks.get(id);
+      if (!item) {
+        throw new HttpError(404, "not-found", "这条提问已经不在了（可能已超时或在电脑上答过）");
+      }
+      // 校验：每个问题都要有一项答案（否则 DSH 会以 BAD_ANSWER 拒绝）
+      const clean = answers
+        .filter((a) => a && typeof a.id === "string")
+        .map((a) => ({
+          id: a.id,
+          selected: Array.isArray(a.selected) ? a.selected.filter((s) => typeof s === "string") : [],
+          ...(typeof a.custom === "string" && a.custom.trim() ? { custom: a.custom.trim() } : {}),
+        }));
+      if (clean.length === 0) throw new HttpError(400, "bad-request", "答案为空");
+
+      clearTimeout(item.timer);
+      pendingAsks.delete(id);
+      item.resolve({ answers: clean });
+      broadcast({ type: "ask.answered", id });
+      logLine({ step: "ask.answered", id, n: clean.length });
       return sendJson(res, 200, { ok: true }, ctxEnc);
     }
 

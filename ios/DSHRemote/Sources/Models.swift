@@ -73,6 +73,30 @@ struct ApprovalRow: Identifiable, Hashable {
 }
 
 /// 聊天条目：把流式帧压成可渲染的行。
+/// 一条待用户回答的提问（对应桥的 `ask.asked` 帧）。
+///
+/// 和「权限确认」不同：确认操作必须在电脑上做（涉及安全决定），
+/// 而**提问**只是要一段信息，手机上答最方便 —— 所以这个做成了可交互卡片。
+struct AskQuestion: Identifiable, Hashable {
+    struct Option: Hashable {
+        let label: String
+        let description: String?
+    }
+
+    let id: String
+    let text: String
+    var header: String?
+    var detail: String?
+    var options: [Option] = []
+    var multiSelect: Bool = false
+}
+
+struct PendingAsk: Identifiable, Hashable {
+    let id: String          // 桥给的 ask id
+    let sessionId: String
+    var questions: [AskQuestion]
+}
+
 struct ChatEntry: Identifiable, Hashable {
     enum Kind: Hashable {
         case user

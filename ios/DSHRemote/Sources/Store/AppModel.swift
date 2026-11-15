@@ -239,6 +239,8 @@ final class AppModel: ObservableObject {
         syncCurrentEntries()
     }
     @Published private(set) var pendingApprovals: [ApprovalRow] = []
+    /// 电脑端在等手机回答的提问（没人在等时为 nil）
+    @Published private(set) var pendingAsk: PendingAsk?
     @Published private(set) var roots: [String] = []
     /// 已处理到的最大事件序号。
     ///
@@ -885,6 +887,45 @@ final class AppModel: ObservableObject {
                     warning: true
                 ))
             }
+
+        case "ask.asked":
+            // 桥把一个 ask_user_question 转给了手机
+            let askId = (frame["id"] as? String) ?? ""
+            guard !askId.isEmpty else { return }
+            let raw = (frame["questions"] as? [[String: Any]]) ?? []
+            let questions: [AskQuestion] = raw.compactMap { item in
+                guard let qid = item["id"] as? String, let text = item["question"] as? String else { return nil }
+                let options = ((item["options"] as? [[String: Any]]) ?? []).compactMap { opt -> AskQuestion.Option? in
+                    guard let label = opt["label"] as? String else { return nil }
+                    return AskQuestion.Option(label: label, description: opt["description"] as? String)
+                }
+                return AskQuestion(
+                    id: qid,
+                    text: text,
+                    header: item["header"] as? String,
+                    detail: item["detail"] as? String,
+                    options: options,
+                    multiSelect: (item["multiSelect"] as? Bool) ?? false
+                )
+            }
+            guard !questions.isEmpty else { return }
+            pendingAsk = PendingAsk(
+                id: askId,
+                sessionId: (frame["sessionId"] as? String) ?? (selectedSessionId ?? ""),
+                questions: questions
+            )
+            // 在聊天里留一条提示，滑走了也知道"刚才有人在问我"
+            append(sid, ChatEntry(
+                id: "\(sid)#ask\(askId)",
+                kind: .system,
+                text: L("❓ 电脑在等你回答一个问题", "❓ The computer is waiting for your answer"),
+                at: Self.frameDate(frame),
+                turn: turn,
+                warning: true
+            ))
+
+        case "ask.answered", "ask.cancelled":
+            pendingAsk = nil
 
         case "approval.decided":
             let id = (frame["id"] as? String) ?? ""
@@ -1772,6 +1813,18 @@ final class AppModel: ObservableObject {
         let remote = "\(root)/uploads/\(stamp)-\(safe)"
         try await upload(localData: data, remotePath: remote)
         return remote
+    }
+
+    /// 回答电脑端的提问：把结构化答案交回桥，由桥返回给 ask_user_question。
+    func answer(ask: PendingAsk, answers: [[String: Any]]) async {
+        guard let client else { return }
+        do {
+            try await client.answerAsk(id: ask.id, answers: answers)
+            pendingAsk = nil
+            toast = L("已提交回答", "Answer sent")
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     func decide(_ approval: ApprovalRow, allow: Bool) async {
