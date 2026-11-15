@@ -503,6 +503,10 @@ final class AppModel: ObservableObject {
             self.pairing = client.config
             serverInfo = client.serverName
             phase = .connected
+            // 立刻声明「我能回答提问」：
+            // 否则装完新版本、或刚重连时，前 15 秒内到达的提问会被当成
+            // 「手机没能力」，直接交给桌面端（实测踩过一次）。
+            Task { _ = try? await client.askReady() }
             // 把签名到期时间报给电脑：7 天免费签名到期后 App 直接打不开，
             // 电脑端面板据此提前提醒（手机自己知道，但用户不会天天看设置页）。
             Task {
@@ -625,6 +629,7 @@ final class AppModel: ObservableObject {
                 if let client = self.client {
                     try? await client.handshake()
                     self.phase = .connected
+                    _ = try? await client.askReady()
                     attempt = 0
                 }
             }
