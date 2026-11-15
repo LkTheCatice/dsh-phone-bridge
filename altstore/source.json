@@ -22,11 +22,11 @@
       "versions": [
         {
           "version": "0.3.0",
-          "buildVersion": "190",
+          "buildVersion": "191",
           "date": "2026-11-16",
           "localizedDescription": "首个可侧载版本：过程折叠 / 产物清单卡 / 文件与文本转发 / 会话内搜索 / 产物图片标注 / 断帧提示 / 签名到期可见。",
           "downloadURL": "https://github.com/LkTheCatice/dsh-phone-bridge/releases/download/v0.3.0/DSHRemote-i18n-beta.ipa",
-          "size": 3894884,
+          "size": 3931387,
           "minOSVersion": "16.0"
         }
       ],
