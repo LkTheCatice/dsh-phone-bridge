@@ -58,6 +58,28 @@ export const PATCH_TARGETS = () => {
   };
 };
 
+/**
+ * 打补丁（幂等）。给桥启动时的「自愈」直接调用，不走命令行。
+ * 返回 { ok, remotes, client, changed }
+ */
+export function applyPatch() {
+  const t = PATCH_TARGETS();
+  if (!t) return { ok: false, reason: "no-dsh-root" };
+  const before = patchStatus();
+  if (before && before.remotes && before.client) {
+    return { ok: true, remotes: "already", client: "already", changed: false };
+  }
+  const remotes = patchRemotes(t.remotes, "apply");
+  const client = patchClient(t.client, "apply");
+  const after = patchStatus();
+  return {
+    ok: Boolean(after && after.remotes && after.client),
+    remotes,
+    client,
+    changed: true,
+  };
+}
+
 /** 只读检查：返回 { remotes: bool, client: bool } */
 export function patchStatus() {
   const t = PATCH_TARGETS();

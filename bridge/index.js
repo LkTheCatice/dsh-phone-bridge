@@ -19,6 +19,7 @@ import { promisify } from "node:util";
 import { zstdDecompressSync } from "node:zlib";
 import { randomUUID, createHash } from "node:crypto";
 import { URL } from "node:url";
+import { applyPatch, patchStatus } from "./bin/patch-dsh.mjs";
 
 const execFileAsync = promisify(execFile);
 const fsp = fs.promises;
@@ -639,6 +640,30 @@ function applyBridge(ctx, config) {
         liveAsksDirty = true;
         logLine({ step: "ask.pending-cleared", id: callId.slice(-8) });
       }
+    }
+  }
+
+  /// 补丁自愈：DSH 升级会把那两处改动覆盖掉，而**失效是静默的**
+  /// （手机点了提交，桥照样 emit，只是没人监听）。
+  /// 启动时查一次，缺了就补上并写日志 —— 下次重启/下次界面加载就正常。
+  function selfHealPatch() {
+    try {
+      const before = patchStatus();
+      if (!before) return;
+      if (before.remotes && before.client) return;
+      const result = applyPatch();
+      logLine({
+        step: "patch.self-heal",
+        ok: result?.ok,
+        remotes: result?.remotes,
+        client: result?.client,
+        note: result?.ok ? "已自动补上，重启 DSH 后生效" : "自动补失败，请手动跑 bin/patch-dsh.mjs",
+      });
+      if (result?.ok) {
+        console.warn("[phone-bridge] DSH 补丁丢失已自动补上（重启 DSH 后生效）");
+      }
+    } catch (error) {
+      logLine({ step: "patch.self-heal.failed", msg: String(error?.message || error) });
     }
   }
 
@@ -3257,6 +3282,8 @@ function applyBridge(ctx, config) {
     const address = server.address();
     const actual = typeof address === "object" && address ? address.port : cfg.port;
     resolveReady({ port: actual, pair: { token: pair.token, fingerprint: pair.fingerprint } });
+    // 起来之后再自愈：不阻塞服务，失败了也只写日志
+    selfHealPatch();
     console.log(`[phone-bridge] 监听 127.0.0.1:${actual}`);
     console.log(`[phone-bridge] 配对串: dshnb://pair?host=127.0.0.1&port=${actual}&token=${pair.token}&fp=${pair.fingerprint}`);
     console.log(`[phone-bridge] 状态目录: ${stateDir()}`);

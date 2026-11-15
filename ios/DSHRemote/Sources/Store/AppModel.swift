@@ -2003,7 +2003,20 @@ final class AppModel: ObservableObject {
             // 再顶一条横幅反而会盖住顶部的连接状态条（实拍反馈）。
             pingDiagnostic("ask.submit.ok")
         } catch {
-            lastError = error.localizedDescription
+            // 桥在"电脑上没有监听者"时返回 not-ready —— 也就是 DSH 升级
+            // 把提问补丁覆盖掉了。这时候光报一句技术错误没用，
+            // 得告诉用户具体该做什么，否则表现就是"点了没反应"。
+            if let server = error as? BridgeServerError,
+               server.status == 503 || server.code == "not-ready" {
+                lastError = L(
+                    "电脑端的提问补丁不见了（可能是 DSH 刚升级过）。在电脑上运行 bridge\\bin\\doctor.mjs 看第 6 项，或直接运行 bridge\\bin\\patch-dsh.mjs 补上，然后重启 DSH。",
+                    "The desktop-side patch is missing (likely after a DSH update). Run bridge\\bin\\doctor.mjs on the computer (item 6) or bridge\\bin\\patch-dsh.mjs to restore it, then restart DSH."
+                )
+                pingDiagnostic("ask.submit.not-ready")
+            } else {
+                lastError = error.localizedDescription
+                pingDiagnostic("ask.submit.failed")
+            }
         }
     }
 
