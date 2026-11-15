@@ -1509,7 +1509,11 @@ final class AppModel: ObservableObject {
             let now = CFAbsoluteTimeGetCurrent()
             let overMs = Int((now - watchdogStats.last - 0.25) * 1000)
             watchdogStats.last = now
-            if overMs > 120 {
+            // 只统计**用户看得见**的卡顿：
+            //   · 启动后 6 秒内被遮罩盖着，那 2–3 秒的标记不代表体感
+            //   · 250ms 起步：120ms 不过是掉两帧
+            let sinceLaunch = CFAbsoluteTimeGetCurrent() - watchdogStats.startedAt
+            if overMs > 250, sinceLaunch > 6 {
                 watchdogStats.stalled += 1
                 watchdogStats.worstOver = max(watchdogStats.worstOver, overMs)
             }
@@ -2266,6 +2270,8 @@ final class AppModel: ObservableObject {
 /// 这些数字本来就只由主线程读写，装进一个非隔离的引用类型就够了。
 private final class WatchdogStats {
     var last: CFAbsoluteTime = 0
+    /// 进程启动时刻：前 6 秒被启动遮罩盖着，卡了用户也看不见，不计入
+    let startedAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
     var ticks = 0
     /// 超出正常 Timer 周期的时间（毫秒累加口径见 watchdog：gap - 0.25s）
     var stalled = 0
