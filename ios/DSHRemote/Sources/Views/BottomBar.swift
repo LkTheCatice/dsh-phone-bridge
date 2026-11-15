@@ -17,8 +17,8 @@ struct BottomBar: View {
             StatusStack()
             Spacer(minLength: 8)
             HStack(spacing: 2) {
-                tabButton(0, "对话", "bubble.left.and.bubble.right")
-                tabButton(1, "设置", "gearshape")
+                tabButton(0, L("对话", "Chat"), "bubble.left.and.bubble.right")
+                tabButton(1, L("设置", "Settings"), "gearshape")
             }
             .padding(3)
             .background(.thinMaterial, in: Capsule())
@@ -83,10 +83,10 @@ private struct StatusStack: View {
 
     private var connectionText: String {
         switch model.phase {
-        case .connected: return "已连接"
-        case .connecting: return "连接中"
-        case .failed: return "连接失败"
-        case .disconnected: return "未连接"
+        case .connected: return L("已连接", "Connected")
+        case .connecting: return L("连接中", "Connecting")
+        case .failed: return L("连接失败", "Failed")
+        case .disconnected: return L("未连接", "Offline")
         }
     }
 

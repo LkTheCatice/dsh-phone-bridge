@@ -3,22 +3,40 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var wallet: WalletStore
+    @ObservedObject private var lang = I18N.shared
     @State private var confirmingForget = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("连接") {
-                    LabeledContent("状态") {
+                // 语言：跟随系统 / 中文 / English。切换即时生效（不重启 App）
+                Section(L("语言", "Language")) {
+                    Picker(L("界面语言", "Interface language"), selection: Binding(
+                        get: { lang.selection },
+                        set: { lang.set($0) }
+                    )) {
+                        ForEach(AppLang.allCases) { item in
+                            Text(item.label).tag(item)
+                        }
+                    }
+                    if lang.selection == .system {
+                        Text(L("当前：", "Current: ") + (lang.isEnglish ? "English" : "简体中文"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section(L("连接", "Connection")) {
+                    LabeledContent(L("状态", "Status")) {
                         Text(statusText).foregroundStyle(statusColor)
                     }
                     if let pairing = model.pairing {
-                        LabeledContent("地址", value: pairing.displayName)
+                        LabeledContent(L("地址", "Address"), value: pairing.displayName)
                         LabeledContent("通道", value: pairing.useTLS ? "HTTPS（Tailscale）" : "HTTP + 端到端加密")
                         LabeledContent("服务器", value: model.serverInfo.isEmpty ? "未知" : model.serverInfo)
                     }
                     LabeledContent("事件序号", value: String(model.lastSeq))
-                    Button("重新连接") { Task { await model.connect() } }
+                    Button(L("重新连接", "Reconnect")) { Task { await model.connect() } }
                 }
 
                 // 主因（布局回调自激）已按真机日志修掉，这两个开关留着当逃生阀：
@@ -47,7 +65,7 @@ struct SettingsView: View {
                 }
 
                 if let pairing = model.pairing, !pairing.fingerprint.isEmpty {
-                    Section("电脑公钥指纹") {
+                    Section(L("电脑公钥指纹", "Computer fingerprint")) {
                         Text(pairing.fingerprint)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
