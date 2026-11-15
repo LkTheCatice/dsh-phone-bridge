@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 会话列表。
 ///
@@ -14,6 +15,9 @@ struct SessionListSheet: View {
     /// 只看收藏（顶部工具栏那颗星）
     @State private var favoritesOnly = false
     @State private var renaming: SessionRow?
+    /// 折叠起来的文件夹（存的是组标题）。跨启动记住：
+    /// 会话一多，用户会希望"常用项目展开、别的收起来"。
+    @State private var collapsedFolders: Set<String> = SessionListSheet.loadCollapsed()
     @State private var renameText = ""
 
     private var filtered: [SessionRow] {
@@ -56,6 +60,30 @@ struct SessionListSheet: View {
             }
     }
 
+    private static let collapsedKey = "dsh.collapsedFolders"
+
+    private static func loadCollapsed() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: collapsedKey) ?? [])
+    }
+
+    private func persistCollapsed() {
+        UserDefaults.standard.set(Array(collapsedFolders), forKey: Self.collapsedKey)
+    }
+
+    /// 当前是否折叠。搜索 / 只看收藏时强制展开 ——
+    /// 结果是拿来"看"的，收起来等于白筛。
+    private func isCollapsed(_ title: String) -> Bool {
+        if favoritesOnly || !search.trimmingCharacters(in: .whitespaces).isEmpty { return false }
+        return collapsedFolders.contains(title)
+    }
+
+    private func toggleFolder(_ title: String) {
+        if collapsedFolders.contains(title) { collapsedFolders.remove(title) }
+        else { collapsedFolders.insert(title) }
+        persistCollapsed()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -91,6 +119,7 @@ struct SessionListSheet: View {
 
                 ForEach(grouped, id: \.title) { group in
                     Section {
+                    if !isCollapsed(group.title) {
                     ForEach(group.rows) { session in
                         Button {
                             model.selectedSessionId = session.id
@@ -137,16 +166,30 @@ struct SessionListSheet: View {
                             .tint(.blue)
                         }
                     }
+                    }
                     } header: {
-                        HStack(spacing: 6) {
-                            Image(systemName: group.title == noFolderTitle ? "tray" : "folder")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(group.title)
-                            Spacer(minLength: 0)
-                            Text("\(group.rows.count)")
-                                .foregroundStyle(.tertiary)
+                        Button {
+                            toggleFolder(group.title)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isCollapsed(group.title) ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 10)
+                                Image(systemName: group.title == noFolderTitle ? "tray" : "folder")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(group.title)
+                                Spacer(minLength: 0)
+                                Text("\(group.rows.count)")
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isCollapsed(group.title)
+                                            ? L("展开 \(group.title)", "Expand \(group.title)")
+                                            : L("收起 \(group.title)", "Collapse \(group.title)"))
                     }
                 }
 
