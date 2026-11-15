@@ -1572,8 +1572,14 @@ final class AppModel: ObservableObject {
                 }
                 let t5 = CFAbsoluteTimeGetCurrent()
                 trace("s4-move=\(Int((t5 - t4) * 1000))ms")
-                // 发送后只需要主列表（新会话可能出现），归档表留到打开面板时再刷
-                await refreshSessions(includeArchived: false)
+                // 只有"新建了会话"才需要刷列表（要出现新行）。
+                //
+                // 在已有会话里发消息时，列表那行只是 updatedAt 变了，
+                // 而 /v1/sessions 在缓存失效后要重扫全部会话（本机实测 293ms）——
+                // 为了一个时间戳付 300ms 不值得。列表在下次进面板时自然是最新的。
+                if sid != newId || target == nil {
+                    await refreshSessions(includeArchived: false)
+                }
                 let t6 = CFAbsoluteTimeGetCurrent()
                 trace("s5-refresh=\(Int((t6 - t5) * 1000))ms")
             }
