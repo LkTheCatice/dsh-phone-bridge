@@ -469,6 +469,13 @@ function applyBridge(ctx, config) {
   // 最近一次见到手机的时刻（连上 / 上报 askReady 都算）。
   // 用途：手机在后台被挂起时 streamClients 会归零，但我们不该立刻放弃它 ——
   // 用户可能只是锁屏了，解锁后就要看到这张卡片。
+  // 提问的分发策略：
+  //   "auto"（默认）  手机在前台 → 只给手机，电脑不弹面板
+  //                   （电脑端面板无法被外部关闭，弹了就会一直挂着，很碍眼）
+  //   "dual"          两边同时弹，谁先答谁生效；电脑那份会留到它自己超时
+  const askMode = String(config?.ask?.mode || config?.askMode || "auto").toLowerCase() === "dual"
+    ? "dual"
+    : "auto";
   let lastPhoneSeen = 0;
   const PHONE_AROUND_MS = 15 * 60_000;
   let sessionController = null;
@@ -695,7 +702,7 @@ function applyBridge(ctx, config) {
   //   · 手机先答 → 直接把答案 return，桌面面板由它自己收尾
 
   /// 建一个"等手机回答"的挂起项，返回 { id, promise, cancel }
-  function createAskWaiter(request) {
+  function createAskWaiter(request, timeoutMs = ASK_TIMEOUT_MS) {
     askSerial += 1;
     const id = "ask_" + askSerial;
     const sessionId = String(request?.agent?.session || "");
@@ -730,7 +737,7 @@ function applyBridge(ctx, config) {
       // 超时：撤回手机上的卡片，交回给桌面端继续等
       broadcast({ type: "ask.cancelled", id, reason: "timeout" });
       finish(null);
-    }, ASK_TIMEOUT_MS);
+    }, timeoutMs);
 
     pendingAsks.set(id, {
       resolve: (value) => finish(value),
@@ -774,6 +781,24 @@ function applyBridge(ctx, config) {
         phoneReady,
       });
       if (!phoneReady) return next();
+
+      if (askMode === "auto") {
+        // 单端模式：手机在前台就只给手机，computer 端不参与 —— 不会留下关不掉的面板
+        // 单端模式没人兜底，等 45 秒就交回电脑（100 秒对"只有手机能答"太久）
+        const waiter = createAskWaiter(request, 45_000);
+        try {
+          const answer = await waiter.promise;
+          if (answer) {
+            logLine({ step: "ask.won", by: "phone-only" });
+            return answer;
+          }
+        } catch (error) {
+          logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
+        }
+        // 手机超时没答 → 交回电脑
+        logLine({ step: "ask.won", by: "desktop-after-timeout" });
+        return next();
+      }
 
       const waiter = createAskWaiter(request);
       // 桌面端同时拿到这次提问（它会把面板弹出来）
