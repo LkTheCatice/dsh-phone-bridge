@@ -900,7 +900,7 @@ function applyBridge(ctx, config) {
         return next();
       }
     });
-    logLine({ step: "ask.registered", off: typeof off === "function" });
+    logLine({ step: "ask.registered", off: typeof off === "function", mode: askMode });
   } catch (error) {
     // 注册失败一定要留痕：console 输出在 DSH 里看不到
     logLine({ step: "ask.register-failed", msg: String(error?.message || error) });
