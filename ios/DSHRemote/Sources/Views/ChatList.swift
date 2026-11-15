@@ -10,6 +10,19 @@ import UIKit
 ///   这是 QQ / 微信这类客户端的标准做法。
 ///
 /// 一条消息 = 一个 cell = 一个视图，节点数从 N 降到 1。
+/// 工具行/思考行的段落样式：悬挂缩进 + 末行省略号。
+/// 缩进量取 "> " 的宽度（等宽 12pt 两个字符 ≈ 15pt）。
+/// 放在文件级：MessageCell 与 MessageRender 都要用。
+enum ChatRowStyle {
+    static let hanging: NSParagraphStyle = {
+        let p = NSMutableParagraphStyle()
+        p.firstLineHeadIndent = 0
+        p.headIndent = 15
+        p.lineBreakMode = .byTruncatingTail
+        return p
+    }()
+}
+
 struct ChatList: UIViewRepresentable {
     let entries: [ChatEntry]
     let isStreaming: Bool
@@ -747,16 +760,6 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         }
     }
 
-    /// 工具行/思考行的段落样式：悬挂缩进 + 末行省略号。
-    /// 缩进量取 "> " 的宽度（等宽 12pt 两个字符 ≈ 15pt）。
-    static let hangingStyle: NSParagraphStyle = {
-        let p = NSMutableParagraphStyle()
-        p.firstLineHeadIndent = 0
-        p.headIndent = 15
-        p.lineBreakMode = .byTruncatingTail
-        return p
-    }()
-
     private var quotableText: String {
         guard let entry = currentEntry else { return "" }
         switch entry.kind {
@@ -1281,7 +1284,7 @@ enum MessageRender {
                     .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel,
                     // 悬挂缩进：英文句子换行后第二行对齐到正文，而不是顶到 "> " 左边
-                    .paragraphStyle: Self.hangingStyle,
+                    .paragraphStyle: ChatRowStyle.hanging,
                 ]
             )
         case .toolCall:
@@ -1295,7 +1298,7 @@ enum MessageRender {
                     .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel,
                     // 同上："> 运行命令 · 很长的英文描述" 折行时保持缩进
-                    .paragraphStyle: Self.hangingStyle,
+                    .paragraphStyle: ChatRowStyle.hanging,
                 ]
             )
         case .fileOutput:
