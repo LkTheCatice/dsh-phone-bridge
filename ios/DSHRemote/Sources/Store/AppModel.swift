@@ -1982,7 +1982,9 @@ final class AppModel: ObservableObject {
             // 请桌面端替用户按下「提交」（面板走同一条路径），两端一起收尾
             try await client.submitAsk(sessionId: ask.sessionId, answers: answers)
             pendingAsk = nil
-            toast = L("已提交回答，电脑继续执行", "Answer sent — the computer keeps going")
+            // 不弹 toast：卡片关掉 + 聊天里那条变成「✅ 已在手机上回答」已经够清楚了，
+            // 再顶一条横幅反而会盖住顶部的连接状态条（实拍反馈）。
+            pingDiagnostic("ask.submit.ok")
         } catch {
             lastError = error.localizedDescription
         }
