@@ -354,43 +354,65 @@ enum MarkdownNS {
                     //   · 同一块的后续列缩进两格对齐在下面，和"序号"一起读成一条记录
                     //   · 块与块之间留 14pt，比块内行距大，视觉上分组清楚
                     //   · 末尾给一条可点的「查看完整表格」，走 dsh://detail（详情页只渲染表格）
+                    // 版式（2026-11-15 修英文）：首列 + 第二列同一行，用 **tab 停靠**对齐 ——
+                    // 第二列换行时自动挂在同一列位置，不会退回行首；
+                    // 首列宽度按实际渲染宽度算（英文的长标识符也不会挤成一团）。
+                    let headFont = indexFont
+                    let colon = I18N.shared.isEnglish ? ": " : "："
+
                     for (r, row) in shown.enumerated() {
                         let head = row.first ?? ""
                         let second = row.count > 1 ? row[1] : ""
 
-                        // 每条记录用「▍」起头（和消息前缀 ▍AI / ▍我 同一套视觉语言），
-                        // 序号用次要灰、正文用 label —— 只靠留白和一条竖线分组，
-                        // 不用底色也不用主题蓝（蓝在这里暗示"可点"，会误导）。
+                        let headWidth = head.isEmpty
+                            ? 0
+                            : (head + "  ").size(withAttributes: [.font: headFont]).width
+                        let column = min(max(34, headWidth + 16), 132)
+
                         let title = NSMutableAttributedString()
                         title.append(NSAttributedString(string: "▍", attributes: [
                             .font: UIFont.systemFont(ofSize: 13, weight: .regular),
                             .foregroundColor: UIColor.tertiaryLabel,
                         ]))
                         if !head.isEmpty {
-                            title.append(NSAttributedString(string: head + "  ", attributes: [
-                                .font: indexFont,
+                            title.append(NSAttributedString(string: head, attributes: [
+                                .font: headFont,
                                 .foregroundColor: UIColor.secondaryLabel,
                             ]))
                         }
                         if !second.isEmpty {
+                            title.append(NSAttributedString(string: "\t", attributes: [.font: valueFont]))
                             title.append(Self.inline(second, base: valueFont))
+                        }
+
+                        let titleStyle = Self.style(
+                            spacingAfter: 2,
+                            spacingBefore: r == 0 ? 0 : 13,
+                            lineSpacing: 2,
+                            headIndent: second.isEmpty ? 14 : column,
+                            firstLineIndent: 0
+                        )
+                        if !second.isEmpty {
+                            // tab 停靠点 = 第二列起点；换行后由 headIndent 对齐到同一列
+                            titleStyle.tabStops = [
+                                NSTextTab(textAlignment: .left, location: column, options: [:])
+                            ]
                         }
                         title.addAttribute(
                             .paragraphStyle,
-                            value: Self.style(spacingAfter: 2, spacingBefore: r == 0 ? 0 : 13, lineSpacing: 2),
+                            value: titleStyle,
                             range: NSRange(location: 0, length: title.length)
                         )
                         out.append(title)
                         out.append(NSAttributedString(string: "\n"))
 
-                        // 第三列起：缩进挂在同一条记录下面
+                        // 第三列起：挂在同一条记录下面。不再用全角空格凑缩进
+                        // （英文下那个空隙会大得离谱），改成悬挂缩进 + 随语言换冒号。
                         for (c, cell) in row.enumerated() where c > 1 {
                             let name = c < headers.count ? headers[c] : ""
-                            let line = NSMutableAttributedString(string: "　", attributes: [
-                                .font: nameFont,
-                            ])
+                            let line = NSMutableAttributedString()
                             if !name.isEmpty {
-                                line.append(NSAttributedString(string: "\(name)：", attributes: [
+                                line.append(NSAttributedString(string: name + colon, attributes: [
                                     .font: nameFont,
                                     .foregroundColor: UIColor.secondaryLabel,
                                 ]))
@@ -401,8 +423,8 @@ enum MarkdownNS {
                                 value: Self.style(
                                     spacingAfter: 0,
                                     lineSpacing: 2,
-                                    headIndent: 22,
-                                    firstLineIndent: 22
+                                    headIndent: 20,
+                                    firstLineIndent: 16
                                 ),
                                 range: NSRange(location: 0, length: line.length)
                             )
