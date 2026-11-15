@@ -39,3 +39,5 @@ docs/deck/
 
 # 内部记录与素材（不在公开仓库里展示），本地留档
 _attic/
+__pycache__/
+*.pyc
