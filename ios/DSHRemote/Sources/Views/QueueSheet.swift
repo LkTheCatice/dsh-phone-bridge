@@ -36,7 +36,7 @@ struct QueueSheet: View {
                         Text(L("队列是空的", "Queue is empty"))
                             .font(.headline)
                             .foregroundStyle(.secondary)
-                        Text("当前没有排队的消息。\n发送新消息时会自动排到队尾。")
+                Text(L("当前没有排队的消息。\n发送新消息时会自动排到队尾。", "Nothing is queued.\nNew messages join the back of the queue."))
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .multilineTextAlignment(.center)
@@ -158,7 +158,7 @@ struct QueueSheet: View {
     private func editor(for item: QueueItem) -> some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text("编辑排队中的消息")
+                Text(L("编辑排队中的消息", "Edit a queued message"))
                     .font(.headline)
                 TextEditor(text: $draft)
                     .font(.body)

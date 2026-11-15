@@ -62,7 +62,7 @@ struct SettingsView: View {
                 } header: {
                     Text(L("诊断实验", "Diagnostics"))
                 } footer: {
-                    Text("① 文本选择：气泡里的文字选择由 UITextInteraction 实现，在 LazyVStack 里反复重排时有代价。② 自动跟随：每次内容变化都 scrollTo。\n默认都关闭（= 正常行为）。改完开关回聊天页生效。")
+                    Text(L("① 文本选择：气泡里的文字选择由 UITextInteraction 实现，在 LazyVStack 里反复重排时有代价。② 自动跟随：每次内容变化都 scrollTo。\n默认都关闭（= 正常行为）。改完开关回聊天页生效。", "① Text selection uses UITextInteraction inside bubbles, which costs on every re-layout. ② Auto-follow scrolls to bottom on every change.\nBoth default to off (= normal behaviour). Changes apply when you go back to the chat."))
                         .font(.caption2)
                 }
 

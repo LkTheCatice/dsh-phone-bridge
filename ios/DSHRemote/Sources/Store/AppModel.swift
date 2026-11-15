@@ -105,7 +105,7 @@ final class AppModel: ObservableObject {
     /// （每条消息结束都会刷、服务端偶尔还会抽风到 800ms+）都会让整棵 ChatView
     /// 重算 body —— 15 条气泡连带重新排版，实测一次 700ms 级的卡顿就是这么来的。
     /// 现在会话列表怎么变，聊天树都不关心，除非标题真的变了。
-    @Published private(set) var currentSessionTitle: String = "新会话"
+    @Published private(set) var currentSessionTitle: String = L("新会话", "New chat")
 
     private func refreshCurrentTitle() {
         let next: String
@@ -113,10 +113,10 @@ final class AppModel: ObservableObject {
             if let row = sessionList.rows.first(where: { $0.id == id }) {
                 next = row.displayTitle
             } else {
-                next = "会话 \(id.suffix(8))"
+                next = L("会话 \(id.suffix(8))", "Chat \(id.suffix(8))")
             }
         } else {
-            next = "新会话"
+            next = L("新会话", "New chat")
         }
         if next != currentSessionTitle { currentSessionTitle = next }
     }
@@ -354,7 +354,7 @@ final class AppModel: ObservableObject {
                     ChatEntry(
                         id: "\(sessionId)#file\(turn)_\(hint.path)",
                         kind: .fileOutput,
-                        text: "📄 输出文件 · \(Self.fileName(hint.path))",
+                        text: L("📄 输出文件 · \(Self.fileName(hint.path))", "📄 Output · \(Self.fileName(hint.path))"),
                         detail: hint.path,
                         at: hint.at,
                         turn: turn,
@@ -365,7 +365,7 @@ final class AppModel: ObservableObject {
             append(sessionId, ChatEntry(
                 id: "\(sessionId)#files\(turn)",
                 kind: .fileSummary,
-                text: "本轮产出 \(files.count) 个",
+                text: L("本轮产出 \(files.count) 个", "\(files.count) artifacts this turn"),
                 detail: nil,
                 at: max(latest, files.first?.at ?? latest),
                 turn: turn,
@@ -675,7 +675,8 @@ final class AppModel: ObservableObject {
                 append(target, ChatEntry(
                     id: "\(target)#gap\(UUID().uuidString)",
                     kind: .system,
-                    text: "离线期间有 \(lost) 条过程记录未送达（超出电脑端缓冲）。已从磁盘补齐历史，但中间步骤可能不完整。",
+                    text: L("离线期间有 \(lost) 条过程记录未送达（超出电脑端缓冲）。已从磁盘补齐历史，但中间步骤可能不完整。",
+                              "\(lost) trace events missed while offline (buffer exceeded). History was reloaded from disk; some steps may be missing."),
                     at: Self.frameDate(frame),
                     turn: currentTurn[target] ?? 0,
                     order: 500
@@ -747,7 +748,7 @@ final class AppModel: ObservableObject {
             currentTurn[sid] = turn
             // 新一轮从第 0 段开始；插队会把它往后推
             answerSegment[sid] = 0
-            append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: "开始第 \(turn) 轮", at: startedAt, running: true, turn: turn))
+            append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: L("开始第 \(turn) 轮", "Turn \(turn) started"), at: startedAt, running: true, turn: turn))
             // 本轮那条「我」挂上"处理中"（只在不看历史时做，回放不动状态）
             if !isHistory { setUserProcessing(sid, turn: turn, on: true) }
 
@@ -838,17 +839,19 @@ final class AppModel: ObservableObject {
                 // 同样用帧里的事件时间，历史轮次才算得出真实时长
                 let endedAt = Self.frameDate(frame)
                 let seconds = max(0, Int(endedAt.timeIntervalSince(started)))
-                elapsed = seconds >= 60 ? "用时 \(seconds / 60) 分 \(seconds % 60) 秒" : "用时 \(seconds) 秒"
+                elapsed = seconds >= 60
+                ? L("用时 \(seconds / 60) 分 \(seconds % 60) 秒", "\(seconds / 60)m \(seconds % 60)s")
+                : L("用时 \(seconds) 秒", "\(seconds)s")
                 turnStartedAt[sid] = nil
             } else {
                 elapsed = ""
             }
             let label: String
             switch kind {
-            case "completed", "": label = "本轮结束"
-            case "cancelled", "canceled", "aborted": label = "本轮已中止"
-            case "error": label = "本轮出错"
-            default: label = "本轮结束 · \(kind)"
+            case "completed", "": label = L("本轮结束", "Turn finished")
+            case "cancelled", "canceled", "aborted": label = L("本轮已中止", "Turn aborted")
+            case "error": label = L("本轮出错", "Turn failed")
+            default: label = L("本轮结束 · \(kind)", "Turn finished · \(kind)")
             }
             // 顺序很重要：先折叠过程拿到步数，再写「本轮结束」那一行，
             // 这样步数能直接并进同一条系统行里（用户要求「本轮步数位置改成
@@ -859,7 +862,7 @@ final class AppModel: ObservableObject {
             // 产物提示落在本轮末尾（结束行之前），别夹在工具行中间
             flushFileHints(sid, turn: turn)
             var endText = elapsed.isEmpty ? label : "\(label) · \(elapsed)"
-            if foldedSteps > 0 { endText += " · \(foldedSteps) 步" }
+            if foldedSteps > 0 { endText += L(" · \(foldedSteps) 步", " · \(foldedSteps) steps") }
             append(sid, ChatEntry(
                 id: "\(sid)#end\(turn)",
                 kind: .system,
@@ -1037,7 +1040,7 @@ final class AppModel: ObservableObject {
 
     func selectModel(_ option: ModelOption) async {
         guard let client, let sessionId = selectedSessionId else {
-            lastError = "先选一个会话再换模型"
+            lastError = L("先选一个会话再换模型", "Pick a chat first, then switch models")
             return
         }
         do {
@@ -1217,7 +1220,7 @@ final class AppModel: ObservableObject {
         let fold = ChatEntry(
             id: "\(sessionId)#fold\(turn)",
             kind: .collapsedSteps,
-            text: "本轮过程 · \(foldedEntries.count) 步",
+            text: L("本轮过程 · \(foldedEntries.count) 步", "Turn trace · \(foldedEntries.count) steps"),
             detail: nil,
             // 折叠块要留在「第一次出现的过程条目」那个时间点上，
             // 否则按 at 排序时会跑到本轮正文后面去。
@@ -1265,21 +1268,21 @@ final class AppModel: ObservableObject {
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
     static func toolLabel(_ name: String) -> String {
         switch name {
-        case "pwsh", "bash", "shell", "terminal", "terminal_bash": return "运行命令"
-        case "read", "read_image": return "读取"
-        case "write", "edit", "str_replace_editor", "str_replace": return "写入"
-        case "present": return "展示"
-        case "skill": return "技能"
-        case "todo_write": return "任务清单"
-        case "subagent", "subagent_fork", "send_message", "list_agents": return "子代理"
-        case "workflow": return "编排"
-        case "web_search", "web_fetch": return "联网"
-        case "ask_user_question": return "提问"
-        case "load_workspace_dependencies": return "环境准备"
+        case "pwsh", "bash", "shell", "terminal", "terminal_bash": return L("运行命令", "Ran a command")
+        case "read", "read_image": return L("读取", "Read")
+        case "write", "edit", "str_replace_editor", "str_replace": return L("写入", "Wrote")
+        case "present": return L("展示", "Presented")
+        case "skill": return L("技能", "Skill")
+        case "todo_write": return L("任务清单", "Todo list")
+        case "subagent", "subagent_fork", "send_message", "list_agents": return L("子代理", "Subagent")
+        case "workflow": return L("编排", "Workflow")
+        case "web_search", "web_fetch": return L("联网", "Web")
+        case "ask_user_question": return L("提问", "Asked")
+        case "load_workspace_dependencies": return L("环境准备", "Prepared env")
         default:
-            if name.hasPrefix("schedule") { return "定时任务" }
-            if name.hasPrefix("job") { return "后台任务" }
-            if name.hasPrefix("video") { return "视频分析" }
+            if name.hasPrefix("schedule") { return L("定时任务", "Scheduled job") }
+            if name.hasPrefix("job") { return L("后台任务", "Background job") }
+            if name.hasPrefix("video") { return L("视频分析", "Video analysis") }
             return name
         }
     }

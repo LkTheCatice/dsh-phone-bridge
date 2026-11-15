@@ -1346,13 +1346,16 @@ enum MessageRender {
         case .user:
             // 排队中：明确标出来。否则本地乐观插入的消息看起来和「已执行」一样，
             // 用户会以为它已经开始跑了（实测反馈）。
-            if entry.steering { return "▍我 · 已插队，等当前任务完成\n" }
-            if entry.queued { return "▍我 · 排队中\n" }
+            if entry.steering { return L("▍我 · 已插队，等当前任务完成\n", "▍Me · moved to front, waiting\n") }
+            if entry.queued { return L("▍我 · 排队中\n", "▍Me · queued\n") }
             // 正在被处理的那一条：在「我」后面标个处理中，
             // 一眼能看出 AI 现在跑的是哪一句（多轮/插队时尤其需要）。
-            if entry.running { return "▍我 · 处理中\n" }
-            return "▍我\n"
-        case .assistant: return entry.running ? "▍AI（正在生成）\n" : "▍AI\n"
+            if entry.running { return L("▍我 · 处理中\n", "▍Me · working\n") }
+            return L("▍我\n", "▍Me\n")
+        case .assistant:
+                return entry.running
+                    ? L("▍AI（正在生成）\n", "▍AI (generating)\n")
+                    : L("▍AI\n", "▍AI\n")
         // 和工具行**完全一致**：前缀只有 "> "，
         // "思考 · " 这个标签放进正文 run（工具行的"运行命令 · "就是这样来的）。
         // 之前把"思考 · "放在前缀 run 里 —— 那是 system semibold + tertiary，

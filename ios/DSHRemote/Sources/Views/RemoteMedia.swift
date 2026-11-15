@@ -77,7 +77,7 @@ struct RemoteVideo: View {
                                     .font(.system(size: 11))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
-                                Text("\(byteText(knownBytes)) · 点击下载")
+                Text(L("\(byteText(knownBytes)) · 点击下载", "\(byteText(knownBytes)) · tap to download"))
                                     .font(.system(size: 10))
                                     .foregroundStyle(.white.opacity(0.85))
                             }

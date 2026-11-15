@@ -292,7 +292,9 @@ struct ImageViewer: View {
                             .padding(.vertical, 7)
                             .background(.ultraThinMaterial, in: Capsule())
                     }
-                    Text(scale > 1.05 ? "双指缩放 · 拖动平移 · 双击还原" : "双指缩放 · 双击放大")
+            Text(scale > 1.05
+                 ? L("双指缩放 · 拖动平移 · 双击还原", "Pinch to zoom · drag to pan · double-tap to reset")
+                 : L("双指缩放 · 双击放大", "Pinch to zoom · double-tap to enlarge"))
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.55))
                     Text(remotePath)

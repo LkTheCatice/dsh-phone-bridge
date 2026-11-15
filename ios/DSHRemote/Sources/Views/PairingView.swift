@@ -117,9 +117,9 @@ struct PairingView: View {
                 }
 
                 Section(L("安全说明", "Security")) {
-                    Label("所有请求与响应都用 X25519 + AES-256-GCM 端到端加密，电脑上的明文 HTTP 也读不到内容。", systemImage: "lock.shield")
+                    Label(L("所有请求与响应都用 X25519 + AES-256-GCM 端到端加密，电脑上的明文 HTTP 也读不到内容。", "Every request and response is end-to-end encrypted with X25519 + AES-256-GCM — even plain HTTP on the computer reveals nothing."), systemImage: "lock.shield")
                         .font(.caption)
-                    Label("首次配对会把电脑公钥指纹钉在这台手机上，之后指纹不一致会直接拒连。", systemImage: "checkmark.seal")
+                    Label(L("首次配对会把电脑公钥指纹钉在这台手机上，之后指纹不一致会直接拒连。", "The first pairing pins the computer's key fingerprint on this phone; a mismatch is refused outright."), systemImage: "checkmark.seal")
                         .font(.caption)
                     Label(L("外网访问请走 Tailscale（WireGuard 加密），不要把桥接端口映射到公网。", "For remote access use Tailscale (WireGuard). Never expose the bridge port to the internet."), systemImage: "network")
                         .font(.caption)

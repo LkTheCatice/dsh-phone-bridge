@@ -28,12 +28,12 @@ struct ChatSearchSheet: View {
             List {
                 if query.isEmpty {
                     Section {
-                        Text("输入关键词，在当前会话里找（只搜已加载的消息）")
+            Text(L("输入关键词，在当前会话里找（只搜已加载的消息）", "Type a keyword to search this chat (only what’s loaded so far)"))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 } else if results.isEmpty {
-                    Section { Text("没找到").foregroundStyle(.secondary) }
+            Section { Text(L("没找到", "No matches")).foregroundStyle(.secondary) }
                 } else {
                     Section(L("\(results.count) 条结果", "\(results.count) results")) {
                         ForEach(results) { entry in

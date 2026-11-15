@@ -63,7 +63,9 @@ struct TurnLogSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: ChatEntry.self) { step in
                 ToolDetailContent(entry: step)
-                    .navigationTitle(step.kind == .thinking ? "思考详情" : "步骤详情")
+        .navigationTitle(step.kind == .thinking
+                         ? L("思考详情", "Thinking details")
+                         : L("步骤详情", "Step details"))
                     .navigationBarTitleDisplayMode(.inline)
             }
             .toolbar {
