@@ -746,6 +746,25 @@ function applyBridge(ctx, config) {
   }
   try {
 
+  /// 通知桌面端：这次提问已经结算了，把卡片收起来。
+  ///
+  /// 走的是 DSH 的 Remote 事件通道（`phone-bridge/ask-settled`）。
+  /// 需要在 DSH 里打一个小补丁才会生效 —— 见 tools/patch-dsh-ask.mjs：
+  ///   · dsh-api-remotes     把这个事件加进转发白名单
+  ///   · dsh-client-ui-*     收到事件后移除该会话的提问卡片
+  /// 补丁没打也不会报错，只是前端收不到（面板只能等它自己超时）。
+  function tellClientsAskSettled(sessionId) {
+    if (!sessionId) return;
+    try {
+      if (typeof ctx.emit === "function") {
+        ctx.emit("phone-bridge/ask-settled", { sessionId });
+        logLine({ step: "ask.settle-emit", sessionId: String(sessionId).slice(-8) });
+      }
+    } catch (error) {
+      logLine({ step: "ask.settle-emit", err: String(error?.message || error) });
+    }
+  }
+
   function createAskWaiter(request, timeoutMs = ASK_TIMEOUT_MS) {
     askSerial += 1;
     const id = "ask_" + askSerial;
@@ -2785,6 +2804,7 @@ function applyBridge(ctx, config) {
           if (!accepted) await new Promise((r) => setTimeout(r, 250));
         }
         if (accepted) {
+          tellClientsAskSettled(item.sessionId);
           clearTimeout(item.timer);
           if (Array.isArray(item.nudge)) item.nudge.forEach(clearTimeout);
           else clearTimeout(item.nudge);
@@ -2801,6 +2821,8 @@ function applyBridge(ctx, config) {
       else clearTimeout(item.nudge);
       pendingAsks.delete(id);
       item.resolve({ answers: clean });
+      // 让桌面端把卡片收起来（需要 DSH 补丁；没有也不影响答案）
+      tellClientsAskSettled(item.sessionId);
       // 错开一拍再叫停桌面面板：先保证答案已经交回去
       setTimeout(() => {
         // 防御：这个函数必须存在于当前作用域，否则宁可不动也不许抛（曾把宿主打崩）
