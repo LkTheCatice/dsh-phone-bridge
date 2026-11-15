@@ -48,14 +48,14 @@ struct ImageEditorSheet: View {
 
                 toolbar
             }
-            .navigationTitle("标注")
+            .navigationTitle(L("标注", "Annotate"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { onCancel() }
+                    Button(L("取消", "Cancel")) { onCancel() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
+                    Button(L("完成", "Done")) {
                         onCommit(flatten())
                     }
                     .disabled(drawing.strokes.isEmpty)

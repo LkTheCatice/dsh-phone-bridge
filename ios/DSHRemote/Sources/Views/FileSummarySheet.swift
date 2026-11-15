@@ -44,13 +44,13 @@ struct FileSummarySheet: View {
                         .buttonStyle(.plain)
                     }
                 } header: {
-                    Text("本轮产出 · \(files.count) 个")
+                    Text(L("本轮产出 · \(files.count) 个", "Artifacts from this turn · \\(files.count)"))
                 }
             }
-            .navigationTitle("全部产物")
+            .navigationTitle(L("全部产物", "All artifacts"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L("关闭", "Close")) { dismiss() } }
             }
         }
     }

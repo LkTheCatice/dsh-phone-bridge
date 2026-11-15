@@ -33,7 +33,7 @@ struct QueueSheet: View {
                         Image(systemName: "text.line.first.and.arrowtriangle.forward")
                             .font(.system(size: 34))
                             .foregroundStyle(.tertiary)
-                        Text("队列是空的")
+                        Text(L("队列是空的", "Queue is empty"))
                             .font(.headline)
                             .foregroundStyle(.secondary)
                         Text("当前没有排队的消息。\n发送新消息时会自动排到队尾。")
@@ -49,18 +49,18 @@ struct QueueSheet: View {
                                 row(index: index, item: item)
                             }
                         } header: {
-                            Text("排队中 · \(chat.queue.count) 条")
+                            Text(L("排队中 · \(chat.queue.count) 条", "Queued · \\(chat.queue.count)"))
                         } footer: {
-                            Text("电脑端排的队也会出现在这里。点「插队」可以让它立刻执行。")
+                            Text(L("电脑端排的队也会出现在这里。点「插队」可以让它立刻执行。", "Queues created on the computer show up here too. Tap Jump to run one right away."))
                         }
                     }
                 }
             }
-            .navigationTitle("排队")
+            .navigationTitle(L("排队", "Queued"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("关闭") { dismiss() }
+                    Button(L("关闭", "Close")) { dismiss() }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -102,18 +102,18 @@ struct QueueSheet: View {
             // itemId 用的是 item.id（agent/inbox/spliced 里的 inserted[i].id）。
             HStack(spacing: 18) {
                 Button { beginEdit(item) } label: {
-                    Label("编辑", systemImage: "pencil").font(.caption)
+                    Label(L("编辑", "Edit"), systemImage: "pencil").font(.caption)
                 }
                 .buttonStyle(.borderless)
 
                 Button { remove(item) } label: {
-                    Label("删除", systemImage: "trash").font(.caption)
+                    Label(L("删除", "Delete"), systemImage: "trash").font(.caption)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.red.opacity(0.85))
 
                 Button { steer(item) } label: {
-                    Label("插队", systemImage: "arrow.up.to.line").font(.caption)
+                    Label(L("插队", "Jump the queue"), systemImage: "arrow.up.to.line").font(.caption)
                 }
                 .buttonStyle(.borderless)
             }
@@ -173,14 +173,14 @@ struct QueueSheet: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("编辑")
+            .navigationTitle(L("编辑", "Edit"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { editing = nil }
+                    Button(L("取消", "Cancel")) { editing = nil }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { commitEdit(item) }
+                    Button(L("保存", "Save")) { commitEdit(item) }
                         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }

@@ -35,7 +35,7 @@ struct ChatSearchSheet: View {
                 } else if results.isEmpty {
                     Section { Text("没找到").foregroundStyle(.secondary) }
                 } else {
-                    Section("\(results.count) 条结果") {
+                    Section(L("\(results.count) 条结果", "\\(results.count) results")) {
                         ForEach(results) { entry in
                             Button {
                                 onPick(entry)
@@ -58,10 +58,10 @@ struct ChatSearchSheet: View {
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索本会话")
-            .navigationTitle("搜索")
+            .navigationTitle(L("搜索", "Search"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button(L("关闭", "Close")) { dismiss() } }
             }
             .onAppear { focused = true }
         }

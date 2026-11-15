@@ -16,7 +16,7 @@ struct ModelPickerSheet: View {
             List {
                 if model.selectedSessionId == nil {
                     Section {
-                        Text("先选一个会话，再切换模型")
+                        Text(L("先选一个会话，再切换模型", "Pick a chat first, then switch the model"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -26,7 +26,7 @@ struct ModelPickerSheet: View {
                     Section {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.mini)
-                            Text("读取模型列表…").font(.caption)
+                            Text(L("读取模型列表…", "Loading models…")).font(.caption)
                         }
                     }
                 }
@@ -45,7 +45,7 @@ struct ModelPickerSheet: View {
                     }
                 }
             }
-            .navigationTitle("选择模型")
+            .navigationTitle(L("选择模型", "Choose model"))
             .navigationBarTitleDisplayMode(.inline)
             .task { await model.loadModels() }
             .sheet(item: $effortTarget) { target in
@@ -55,7 +55,7 @@ struct ModelPickerSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button(L("取消", "Cancel")) { dismiss() }
                 }
             }
         }
@@ -157,17 +157,17 @@ struct EffortPickerSheet: View {
                         .buttonStyle(.plain)
                     }
                 } header: {
-                    Text("\(target.name) · 推理强度")
+                    Text(L("\(target.name) · 推理强度", "\\(target.name) · reasoning effort"))
                 } footer: {
-                    Text("档位越高思考越深、耗时越长。确定后会自动切换到这个模型。")
+                    Text(L("档位越高思考越深、耗时越长。确定后会自动切换到这个模型。", "Higher effort means deeper thinking and longer runs. Confirming switches to this model."))
                         .font(.caption2)
                 }
             }
-            .navigationTitle("推理强度")
+            .navigationTitle(L("推理强度", "Reasoning effort"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button(L("取消", "Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -180,7 +180,7 @@ struct EffortPickerSheet: View {
                             dismiss()
                         }
                     } label: {
-                        if applying { ProgressView().controlSize(.mini) } else { Text("确定") }
+                        if applying { ProgressView().controlSize(.mini) } else { Text(L("确定", "OK")) }
                     }
                     .disabled(applying)
                 }

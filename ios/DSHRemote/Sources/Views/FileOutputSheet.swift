@@ -41,7 +41,7 @@ struct FileOutputSheet: View {
                     case .text:
                         textPreview
                     default:
-                        Text("这类文件不能在手机上直接看，点右上「下载」取回，或在电脑上打开。")
+                        Text(L("这类文件不能在手机上直接看，点右上「下载」取回，或在电脑上打开。", "This file can't be previewed on the phone. Tap Download, or open it on the computer."))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
@@ -57,13 +57,13 @@ struct FileOutputSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") { dismiss() }
+                    Button(L("关闭", "Close")) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await download() }
                     } label: {
-                        if loading { ProgressView().controlSize(.mini) } else { Text("下载") }
+                        if loading { ProgressView().controlSize(.mini) } else { Text(L("下载", "Download")) }
                     }
                     .disabled(loading)
                 }
@@ -135,7 +135,7 @@ struct FileOutputSheet: View {
         } else if loading {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text("读取中…").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(L("读取中…", "Loading…")).font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
     }

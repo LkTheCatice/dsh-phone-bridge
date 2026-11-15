@@ -18,24 +18,24 @@ struct DraftEditorSheet: View {
                 .focused($focused)
                 .scrollContentBackground(.hidden)
                 .background(Color(.systemBackground))
-                .navigationTitle("写指令")
+                .navigationTitle(L("写指令", "Compose"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("清空") { text = "" }
+                        Button(L("清空", "Clear")) { text = "" }
                             .disabled(text.isEmpty)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("完成") { dismiss() }.bold()
+                        Button(L("完成", "Done")) { dismiss() }.bold()
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
                     HStack(spacing: 6) {
-                        Text("\(text.count) 字")
+                        Text(L("\(text.count) 字", "\\(text.count) chars"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
-                        Text("换行用键盘回车；完成后回到输入框直接发送")
+                        Text(L("换行用键盘回车；完成后回到输入框直接发送", "Press return for a new line; go back to the composer to send"))
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }

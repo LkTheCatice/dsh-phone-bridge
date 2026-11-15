@@ -15,11 +15,11 @@ struct ToolDetailSheet: View {
     var body: some View {
         NavigationStack {
             ToolDetailContent(entry: entry)
-                .navigationTitle("工具详情")
+                .navigationTitle(L("工具详情", "Tool details"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("关闭") { dismiss() }
+                        Button(L("关闭", "Close")) { dismiss() }
                     }
                 }
         }
@@ -54,7 +54,7 @@ struct ToolDetailContent: View {
                         .foregroundStyle(.secondary)
                 }
                 if entry.detail == nil || entry.detail?.isEmpty == true {
-                    Text("这一步没有可查看的输出")
+                    Text(L("这一步没有可查看的输出", "No output to show for this step"))
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                 } else {

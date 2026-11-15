@@ -165,12 +165,12 @@ struct RemoteImage: View {
             } else if loading {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("加载图片…").font(.caption).foregroundStyle(.secondary)
+                    Text(L("加载图片…", "Loading image…")).font(.caption).foregroundStyle(.secondary)
                 }
             } else {
                 HStack(spacing: 6) {
                     Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
-                    Text("读不到这张图（路径可能不在电脑允许的目录里）")
+                    Text(L("读不到这张图（路径可能不在电脑允许的目录里）", "Can't load this image (path may be outside the allowed folders)"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

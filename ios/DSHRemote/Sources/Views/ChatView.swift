@@ -330,25 +330,25 @@ struct ChatView: View {
                             Button {
                                 showSearch = true
                             } label: {
-                                Label("搜索消息", systemImage: "magnifyingglass")
+                                Label(L("搜索消息", "Search messages"), systemImage: "magnifyingglass")
                             }
                             Divider()
                             Button {
                                 showingModels = true
                             } label: {
-                                Label(model.currentModel.map { "模型 · \($0.name)" } ?? "选择模型",
+                                Label(model.currentModel.map { "模型 · \($0.name)" } ?? L("选择模型", "Choose model"),
                                       systemImage: "cpu")
                             }
                             Divider()
                             Button(role: .destructive) {
                                 clearing = true
                             } label: {
-                                Label("清除本机记录", systemImage: "trash")
+                                Label(L("清除本机记录", "Clear local history"), systemImage: "trash")
                             }
                             Button(role: .destructive) {
                                 Task { await model.cancelCurrentTurn() }
                             } label: {
-                                Label("停止本轮", systemImage: "stop.circle")
+                                Label(L("停止本轮", "Stop this turn"), systemImage: "stop.circle")
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
@@ -358,14 +358,14 @@ struct ChatView: View {
                     // 标题因此能完整显示。状态挪到输入区下方那条细状态栏
                     // （用户要求：下栏的空白放一些显示信息）。
                     }
-                    .alert("重命名对话", isPresented: $renaming) {
-                    TextField("标题", text: $renameText)
-                    Button("保存") {
+                    .alert(L("重命名对话", "Rename chat"), isPresented: $renaming) {
+                    TextField(L("标题", "Title"), text: $renameText)
+                    Button(L("保存", "Save")) {
                         if let id = model.selectedSessionId {
                             Task { await model.rename(id, to: renameText) }
                         }
                     }
-                    Button("取消", role: .cancel) {}
+                    Button(L("取消", "Cancel"), role: .cancel) {}
                     }
                     .sheet(isPresented: $showingModels) {
                     ModelPickerSheet()
@@ -381,16 +381,16 @@ struct ChatView: View {
                         .environmentObject(model.sessionList)
                         .presentationDetents([.medium, .large])
                     }
-                    .confirmationDialog("清除本机聊天记录", isPresented: $clearing, titleVisibility: .visible) {
-                    Button("保留最近 5 轮") {
+                    .confirmationDialog(L("清除本机聊天记录", "Clear local chat history"), isPresented: $clearing, titleVisibility: .visible) {
+                    Button(L("保留最近 5 轮", "Keep last 5 turns")) {
                         if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: 5) }
                     }
-                    Button("全部清除", role: .destructive) {
+                    Button(L("全部清除", "Clear all"), role: .destructive) {
                         if let id = model.selectedSessionId { model.clearEntries(id, keepTurns: nil) }
                     }
-                    Button("取消", role: .cancel) {}
+                    Button(L("取消", "Cancel"), role: .cancel) {}
                     } message: {
-                    Text("只影响手机上显示的内容，电脑端的会话记录不受影响。")
+                    Text(L("只影响手机上显示的内容，电脑端的会话记录不受影响。", "Only clears what the phone shows; the session on the computer is untouched."))
                     }
                     }   // 关闭 GeometryReader
     }
@@ -504,7 +504,7 @@ struct ChatView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "text.line.first.and.arrowtriangle.forward")
                             .font(.system(size: 11))
-                        Text("队列 \(chat.queue.count) 条")
+                        Text(L("队列 \(chat.queue.count) 条", "\\(chat.queue.count) queued"))
                             .font(.caption.weight(.medium))
                         Text(chat.queue.first?.text ?? "")
                             .font(.caption2)
@@ -531,7 +531,7 @@ struct ChatView: View {
             HStack(spacing: 5) {
                 Image(systemName: "clock.badge.checkmark")
                     .font(.system(size: 11))
-                Text("已排队 · 等当前轮跑完再执行")
+                Text(L("已排队 · 等当前轮跑完再执行", "Queued · runs after this turn"))
                     .font(.caption)
             }
             .foregroundStyle(.orange)
@@ -598,16 +598,16 @@ struct ChatView: View {
                     // PhotosPicker 直接塞进 Menu 里不会触发选择器，必须用
                     // photosPicker(isPresented:) 修饰符，这里只放开关按钮
                     Button { showPhotos = true } label: {
-                        Label("图片", systemImage: "photo")
+                        Label(L("图片", "Photo"), systemImage: "photo")
                     }
                     Button { showVideos = true } label: {
-                        Label("视频", systemImage: "video")
+                        Label(L("视频", "Video"), systemImage: "video")
                     }
                     Button { importingAudio = true } label: {
-                        Label("音乐", systemImage: "music.note")
+                        Label(L("音乐", "Audio"), systemImage: "music.note")
                     }
                     Button { showFiles = true } label: {
-                        Label("文件", systemImage: "folder")
+                        Label(L("文件", "File"), systemImage: "folder")
                     }
                     // 剪贴板里真有图片时才显示这一项 —— 从别的 App 复制截图过来直接贴
                     if UIPasteboard.general.hasImages {
@@ -615,7 +615,7 @@ struct ChatView: View {
                         Button {
                             pasteImageFromClipboard()
                         } label: {
-                            Label("粘贴图片", systemImage: "doc.on.clipboard")
+                            Label(L("粘贴图片", "Paste image"), systemImage: "doc.on.clipboard")
                         }
                     }
                 } label: {
@@ -640,13 +640,13 @@ struct ChatView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("全屏编辑")
+                .accessibilityLabel(L("全屏编辑", "Full-screen editor"))
 
                 // 用自己的 UITextView 包一层：SwiftUI 的 TextField 在键盘弹出
                 // 引起布局变化时会重建底层控件，把第一个按键（拼音首字母）丢掉。
                 ZStack(alignment: .topLeading) {
                     if draft.isEmpty {
-                        Text("让它跑点什么…")
+                        Text(L("让它跑点什么…", "Tell it what to run…"))
                             .foregroundStyle(.tertiary)
                             // 与 textContainerInset 对齐：左右 12 + 4（lineFragmentPadding 归零后的视觉留白）
                             .padding(.horizontal, 16)
@@ -1079,7 +1079,7 @@ struct ComfyBadge: View {
             if !comfy.status.url.isEmpty {
                 Text(comfy.status.url)
             }
-            Button("刷新状态") { model.startComfyPolling() }
+            Button(L("刷新状态", "Refresh status")) { model.startComfyPolling() }
         } label: {
             HStack(spacing: 4) {
                 Circle()

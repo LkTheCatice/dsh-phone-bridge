@@ -39,7 +39,7 @@ struct RemoteVideo: View {
                 card {
                     HStack(spacing: 6) {
                         Image(systemName: "video.slash").foregroundStyle(.secondary)
-                        Text("视频加载失败").font(.caption).foregroundStyle(.secondary)
+                        Text(L("视频加载失败", "Video failed to load")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             } else if waitingForTap {
@@ -99,7 +99,7 @@ struct RemoteVideo: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.mini)
-                            Text("加载视频…").font(.caption).foregroundStyle(.secondary)
+                            Text(L("加载视频…", "Loading video…")).font(.caption).foregroundStyle(.secondary)
                         }
                         if totalBytes > 0 {
                             ProgressView(value: Double(loadedBytes), total: Double(totalBytes))
@@ -203,7 +203,7 @@ struct RemoteAudio: View {
                     .font(.system(size: 12))
                     .lineLimit(1)
                 if failed {
-                    Text("加载失败").font(.system(size: 10)).foregroundStyle(.red)
+                    Text(L("加载失败", "Load failed")).font(.system(size: 10)).foregroundStyle(.red)
                 } else {
                     ProgressView(value: duration > 0 ? min(progress / duration, 1) : 0)
                         .progressViewStyle(.linear)

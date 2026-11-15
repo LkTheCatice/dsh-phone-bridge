@@ -36,8 +36,10 @@ struct BottomBar: View {
                     .font(.system(size: 15, weight: .medium))
                 Text(title)
                     .font(.system(size: 10))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
-            .frame(width: 58, height: 36)
+            .frame(width: 62, height: 36)
             .foregroundStyle(selection == index ? Color.accentColor : Color.secondary)
             .background(
                 selection == index ? Color.accentColor.opacity(0.12) : Color.clear,

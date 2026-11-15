@@ -37,7 +37,7 @@ struct SessionListSheet: View {
                         }
                     } label: {
                         HStack(spacing: 8) {
-                            Label("新建对话", systemImage: "square.and.pencil")
+                            Label(L("新建对话", "New chat"), systemImage: "square.and.pencil")
                             Spacer(minLength: 0)
                             if model.isCreatingSession {
                                 ProgressView().controlSize(.mini)
@@ -51,7 +51,7 @@ struct SessionListSheet: View {
                 }
                 Section {
                 } footer: {
-                    Text("左滑会话可重命名或归档；右上角可搜索标题。")
+                    Text(L("左滑会话可重命名或归档；右上角可搜索标题。", "Swipe a chat to rename or archive; search titles at the top right."))
                         .font(.caption2)
                 }
 
@@ -74,24 +74,24 @@ struct SessionListSheet: View {
                             Button(role: .destructive) {
                                 Task { await model.archive(session.id, archived: true) }
                             } label: {
-                                Label("归档", systemImage: "archivebox")
+                                Label(L("归档", "Archive"), systemImage: "archivebox")
                             }
                             Button {
                                 renameText = session.displayTitle
                                 renaming = session
                             } label: {
-                                Label("重命名", systemImage: "pencil")
+                                Label(L("重命名", "Rename"), systemImage: "pencil")
                             }
                             .tint(.blue)
                         }
                     }
                 } header: {
-                    Text("会话 \(filtered.count)")
+                    Text(L("会话 \(filtered.count)", "Chats (\\(filtered.count))"))
                 }
 
                 if filtered.isEmpty && !search.isEmpty {
                     Section {
-                        Text("没有匹配的会话").font(.caption).foregroundStyle(.secondary)
+                        Text(L("没有匹配的会话", "No matching chats")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
@@ -109,7 +109,7 @@ struct SessionListSheet: View {
                                         Text(session.displayTitle)
                                             .lineLimit(1)
                                             .foregroundStyle(.secondary)
-                                        Text("已归档 · \(session.timeLabel)")
+                                        Text(L("已归档 · \(session.timeLabel)", "Archived · \\(session.timeLabel)"))
                                             .font(.system(size: 11))
                                             .foregroundStyle(.tertiary)
                                     }
@@ -121,22 +121,22 @@ struct SessionListSheet: View {
                                 Button {
                                     Task { await model.unarchive(session.id) }
                                 } label: {
-                                    Label("恢复", systemImage: "arrow.uturn.backward")
+                                    Label(L("恢复", "Restore"), systemImage: "arrow.uturn.backward")
                                 }
                                 .tint(.accentColor)
                             }
                         }
                     } header: {
-                        Text("已归档 \(sessionList.archived.count)")
+                        Text(L("已归档 \(sessionList.archived.count)", "Archived (\\(sessionList.archived.count))"))
                     }
                 }
             }
             .searchable(text: $search, prompt: "搜索会话标题")
-            .navigationTitle("会话")
+            .navigationTitle(L("会话", "Chats"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button(L("完成", "Done")) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -146,18 +146,18 @@ struct SessionListSheet: View {
                     }
                 }
             }
-            .alert("重命名会话", isPresented: Binding(
+            .alert(L("重命名会话", "Rename chat"), isPresented: Binding(
                 get: { renaming != nil },
                 set: { if !$0 { renaming = nil } }
             )) {
-                TextField("标题", text: $renameText)
-                Button("保存") {
+                TextField(L("标题", "Title"), text: $renameText)
+                Button(L("保存", "Save")) {
                     if let target = renaming {
                         Task { await model.rename(target.id, to: renameText) }
                     }
                     renaming = nil
                 }
-                Button("取消", role: .cancel) { renaming = nil }
+                Button(L("取消", "Cancel"), role: .cancel) { renaming = nil }
             }
         }
     }

@@ -1,0 +1,2 @@
+OK Views/BottomBar.swift :: tab-scale
+OK Views/SettingsView.swift :: navbar

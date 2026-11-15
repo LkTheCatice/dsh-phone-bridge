@@ -54,7 +54,7 @@ struct JumpButtonLayer: View {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 11, weight: .bold))
-                    Text("新消息")
+                    Text(L("新消息", "New messages"))
                         .font(.system(size: 12, weight: .medium))
                 }
                 .padding(.horizontal, 12)

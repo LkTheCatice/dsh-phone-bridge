@@ -43,18 +43,18 @@ struct AttachmentSheet: View {
                         }
                     }
                     if refs.isEmpty {
-                        Text("这条消息没有可显示的附件")
+                        Text(L("这条消息没有可显示的附件", "No attachments to show here"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(14)
             }
-            .navigationTitle("附件")
+            .navigationTitle(L("附件", "Attachments"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button(L("关闭", "Close")) { dismiss() }
                 }
             }
         }

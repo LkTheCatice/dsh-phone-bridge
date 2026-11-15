@@ -47,22 +47,22 @@ struct ForwardSessionSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text(path.isEmpty ? "要转发的文本" : "要转发的文件")
+                    Text(path.isEmpty ? L("要转发的文本", "Text to forward") : L("要转发的文件", "File to forward"))
                 }
 
                 Section {
-                    TextField("说明（可空）", text: $note, axis: .vertical)
+                    TextField(L("说明（可空）", "Note (optional)"), text: $note, axis: .vertical)
                         .lineLimit(1...4)
-                    Toggle("附一句执行指令", isOn: $attachCommand)
+                    Toggle(L("附一句执行指令", "Attach an instruction"), isOn: $attachCommand)
                 } header: {
-                    Text("附加内容")
+                    Text(L("附加内容", "Attached"))
                 } footer: {
-                    Text(attachCommand ? "会附上：「请把上面这个文件作为输入继续处理。」" : "只发路径与说明。")
+                    Text(attachCommand ? L("会附上：「请把上面这个文件作为输入继续处理。」", "Adds: “Use the file above as input and continue.”") : L("只发路径与说明。", "Sends only the path and note."))
                 }
 
                 Section {
                     if rows.isEmpty {
-                        Text("没有其它会话可转发").foregroundStyle(.secondary)
+                        Text(L("没有其它会话可转发", "No other chats to forward to")).foregroundStyle(.secondary)
                     } else {
                         ForEach(rows) { row in
                             Button {
@@ -75,7 +75,7 @@ struct ForwardSessionSheet: View {
                         }
                     }
                 } header: {
-                    Text("发送到")
+                    Text(L("发送到", "Send to"))
                 }
 
                 if let error {
@@ -83,10 +83,10 @@ struct ForwardSessionSheet: View {
                 }
             }
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话")
-            .navigationTitle("转发到会话")
+            .navigationTitle(L("转发到会话", "Forward to chat"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button(L("取消", "Cancel")) { dismiss() } }
             }
         }
     }

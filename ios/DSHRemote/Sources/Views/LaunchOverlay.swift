@@ -56,7 +56,7 @@ struct LaunchOverlay: View {
                 VStack(spacing: 4) {
                     Text("DSH Helm")
                         .font(.system(size: 17, weight: .semibold))
-                    Text("连接你的 DeepSeek Harness")
+                    Text(L("连接你的 DeepSeek Harness", "Connect your DeepSeek Harness"))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }

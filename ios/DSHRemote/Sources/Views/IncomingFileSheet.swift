@@ -23,20 +23,20 @@ struct IncomingFileSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("要发送的文件") {
-                    LabeledContent("名称", value: file.name)
-                    LabeledContent("大小", value: file.formattedSize)
+                Section(L("要发送的文件", "File to send")) {
+                    LabeledContent(L("名称", "Name"), value: file.name)
+                    LabeledContent(L("大小", "Size"), value: file.formattedSize)
                     if file.isImage {
-                        LabeledContent("类型", value: "图片")
+                        LabeledContent(L("类型", "Type"), value: "图片")
                     }
                 }
 
-                Section("发送到") {
+                Section(L("发送到", "Send to")) {
                     Button {
                         target = newSessionTag
                     } label: {
                         HStack {
-                            Label("新对话", systemImage: "square.and.pencil")
+                            Label(L("新对话", "New chat"), systemImage: "square.and.pencil")
                             Spacer()
                             if target == newSessionTag { checkmark }
                         }
@@ -58,8 +58,8 @@ struct IncomingFileSheet: View {
                     }
                 }
 
-                Section("附言（可选）") {
-                    TextField("想让 DSH 对它做点什么…", text: $note, axis: .vertical)
+                Section(L("附言（可选）", "Note (optional)")) {
+                    TextField(L("想让 DSH 对它做点什么…", "What should DSH do with it…"), text: $note, axis: .vertical)
                         .lineLimit(2...5)
                 }
 
@@ -69,11 +69,11 @@ struct IncomingFileSheet: View {
                     }
                 }
             }
-            .navigationTitle("转发到电脑")
+            .navigationTitle(L("转发到电脑", "Send to computer"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
+                    Button(L("取消", "Cancel")) {
                         model.pendingIncoming = nil
                         dismiss()
                     }
@@ -85,10 +85,10 @@ struct IncomingFileSheet: View {
                         if sending {
                             HStack(spacing: 4) {
                                 ProgressView().controlSize(.mini)
-                                Text("发送中")
+                                Text(L("发送中", "Sending"))
                             }
                         } else {
-                            Text("发送")
+                            Text(L("发送", "Send"))
                         }
                     }
                     .disabled(sending)

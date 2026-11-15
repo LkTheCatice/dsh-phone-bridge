@@ -44,16 +44,16 @@ struct EntryDetailSheet: View {
                     if isMarkdownKind {
                         HStack(spacing: 10) {
                             if hasTable, !showRaw {
-                                Button(tablesOnly ? "全文" : "表格") { tablesOnly.toggle() }
+                                Button(tablesOnly ? L("全文", "Full text") : L("表格", "Table")) { tablesOnly.toggle() }
                                     .font(.footnote)
                             }
-                            Button(showRaw ? "渲染" : "原文") { showRaw.toggle() }
+                            Button(showRaw ? L("渲染", "Rendered") : L("原文", "Raw")) { showRaw.toggle() }
                                 .font(.footnote)
                         }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button(L("关闭", "Close")) { dismiss() }
                 }
             }
         }
@@ -121,11 +121,11 @@ struct EntryDetailSheet: View {
             Text(entry.text)
                 .font(.system(size: 15, weight: .semibold))
             if let ok = entry.ok {
-                Text(ok ? "成功" : "失败")
+                Text(ok ? L("成功", "OK") : L("失败", "Failed"))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(ok ? Color.green : Color.red)
             } else if entry.running {
-                Text("进行中")
+                Text(L("进行中", "In progress"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -138,7 +138,7 @@ struct EntryDetailSheet: View {
             labeled("详情", detail, monospaced: true)
         }
         if entry.detail == nil, entry.summary == nil {
-            Text("这一步没有更多信息")
+            Text(L("这一步没有更多信息", "No more details for this step"))
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
         }
@@ -149,18 +149,18 @@ struct EntryDetailSheet: View {
     @ViewBuilder
     private var collapsedContent: some View {
         if entry.folded.isEmpty {
-            Text("这一轮没有可展开的步骤")
+            Text(L("这一轮没有可展开的步骤", "No expandable steps in this turn"))
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
         } else {
             ForEach(entry.folded) { step in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
-                        Text(step.kind == .thinking ? "思考" : step.text)
+                        Text(step.kind == .thinking ? L("思考", "Thinking") : step.text)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.secondary)
                         if let ok = step.ok {
-                            Text(ok ? "成功" : "失败")
+                            Text(ok ? L("成功", "OK") : L("失败", "Failed"))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(ok ? Color.green : Color.red)
                         }

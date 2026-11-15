@@ -60,39 +60,39 @@ struct PairingView: View {
                     }
                     .padding(.vertical, 4)
                 } header: {
-                    Text("三步开始使用")
+                    Text(L("三步开始使用", "Three steps to start"))
                 } footer: {
-                    Text("全程端到端加密，配对串只在你和这台电脑之间使用。")
+                    Text(L("全程端到端加密，配对串只在你和这台电脑之间使用。", "Everything is end-to-end encrypted; the pairing code only works between you and this computer."))
                         .font(.caption2)
                 }
 
                 if !manual {
-                    Section("配对串") {
+                    Section(L("配对串", "Pairing code")) {
                         TextEditor(text: $text)
                             .frame(minHeight: 110)
                             .font(.system(.footnote, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                        Button("从剪贴板粘贴") {
+                        Button(L("从剪贴板粘贴", "Paste from clipboard")) {
                             if let s = UIPasteboard.general.string { text = s }
                         }
                     }
                 } else {
-                    Section("手动填写") {
-                        TextField("主机（IP 或 xxx.ts.net）", text: $host)
+                    Section(L("手动填写", "Enter manually")) {
+                        TextField(L("主机（IP 或 xxx.ts.net）", "Host (IP or xxx.ts.net)"), text: $host)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                        TextField("端口", text: $port)
+                        TextField(L("端口", "Port"), text: $port)
                             .keyboardType(.numberPad)
                         TextField("token", text: $token)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                        Toggle("使用 HTTPS（Tailscale 证书）", isOn: $useTLS)
+                        Toggle(L("使用 HTTPS（Tailscale 证书）", "Use HTTPS (Tailscale certificate)"), isOn: $useTLS)
                     }
                 }
 
                 Section {
-                    Toggle("手动填写", isOn: $manual)
+                    Toggle(L("手动填写", "Enter manually"), isOn: $manual)
                 }
 
                 Section {
@@ -101,31 +101,31 @@ struct PairingView: View {
                     } label: {
                         HStack {
                             if working { ProgressView().padding(.trailing, 6) }
-                            Text(working ? "连接中…" : "配对并连接")
+                            Text(working ? L("连接中…", "Connecting…") : L("配对并连接", "Pair and connect"))
                         }
                     }
                     .disabled(working || (manual ? (host.isEmpty || token.isEmpty) : text.isEmpty))
                 }
 
                 if case let .failed(reason) = model.phase {
-                    Section("上次尝试失败") {
+                    Section(L("上次尝试失败", "Last attempt failed")) {
                         Text(reason).font(.footnote).foregroundStyle(.red)
-                        Text("常见原因：电脑没重启过 DeepSeek Harness（插件未生效）、tailscale 没起来、token 已轮换。")
+                        Text(L("常见原因：电脑没重启过 DeepSeek Harness（插件未生效）、tailscale 没起来、token 已轮换。", "Common causes: DSH wasn't restarted (plugin not loaded), Tailscale is down, or the token was rotated."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
 
-                Section("安全说明") {
+                Section(L("安全说明", "Security")) {
                     Label("所有请求与响应都用 X25519 + AES-256-GCM 端到端加密，电脑上的明文 HTTP 也读不到内容。", systemImage: "lock.shield")
                         .font(.caption)
                     Label("首次配对会把电脑公钥指纹钉在这台手机上，之后指纹不一致会直接拒连。", systemImage: "checkmark.seal")
                         .font(.caption)
-                    Label("外网访问请走 Tailscale（WireGuard 加密），不要把桥接端口映射到公网。", systemImage: "network")
+                    Label(L("外网访问请走 Tailscale（WireGuard 加密），不要把桥接端口映射到公网。", "For remote access use Tailscale (WireGuard). Never expose the bridge port to the internet."), systemImage: "network")
                         .font(.caption)
                 }
             }
-            .navigationTitle("连接电脑")
+            .navigationTitle(L("连接电脑", "Connect"))
         }
     }
 

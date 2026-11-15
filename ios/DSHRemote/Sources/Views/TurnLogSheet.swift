@@ -25,17 +25,17 @@ struct TurnLogSheet: View {
             List {
                 Section {
                     HStack(spacing: 10) {
-                        Label("第 \(entry.turn) 轮", systemImage: "number")
+                        Label(L("第 \(entry.turn) 轮", "Turn \\(entry.turn)"), systemImage: "number")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                         if thinkCount > 0 {
-                            Text("思考 \(thinkCount)")
+                            Text(L("思考 \(thinkCount)", "Thinking \\(thinkCount)"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
                         if toolCount > 0 {
-                            Text("工具 \(toolCount)")
+                            Text(L("工具 \(toolCount)", "Tools \\(toolCount)"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
@@ -44,7 +44,7 @@ struct TurnLogSheet: View {
 
                 Section {
                     if steps.isEmpty {
-                        Text("这一轮没有记录到过程条目")
+                        Text(L("这一轮没有记录到过程条目", "No steps recorded for this turn"))
                             .font(.system(size: 12))
                             .foregroundStyle(.tertiary)
                     } else {
@@ -55,11 +55,11 @@ struct TurnLogSheet: View {
                         }
                     }
                 } header: {
-                    Text("过程 · \(steps.count) 步")
+                    Text(L("过程 · \(steps.count) 步", "Trace · \\(steps.count) steps"))
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("本轮过程")
+            .navigationTitle(L("本轮过程", "Turn trace"))
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: ChatEntry.self) { step in
                 ToolDetailContent(entry: step)
@@ -68,7 +68,7 @@ struct TurnLogSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button(L("关闭", "Close")) { dismiss() }
                 }
             }
         }
@@ -87,7 +87,7 @@ struct TurnLogSheet: View {
                 .frame(width: 14)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(step.kind == .thinking ? "思考" : step.text)
+                Text(step.kind == .thinking ? L("思考", "Thinking") : step.text)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                 if let summary = step.summary, !summary.isEmpty {
