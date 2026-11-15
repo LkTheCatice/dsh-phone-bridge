@@ -527,6 +527,12 @@ function applyBridge(ctx, config) {
   const askMode = String(config?.ask?.mode || config?.askMode || "auto").toLowerCase() === "dual"
     ? "dual"
     : "auto";
+  // 提问的等待窗口（毫秒）。按"用户此刻有多可能回来看手机"分三档：
+  //   · 手机在线且声明过能力   → 久等（默认 10 分钟）——人就在手机旁边
+  //   · 手机不在线但配了推送   → 短等（默认 2 分钟）——推送会把人叫回来，等他开 App
+  //   · 手机不在线也没推送     → 不等，立刻交给电脑（否则两端都看不到）
+  const ASK_HOLD_ONLINE_MS = Number(config?.ask?.holdOnlineMs) || 600_000;
+  const ASK_HOLD_PUSH_MS = Number(config?.ask?.holdPushMs) || 120_000;
   let lastPhoneSeen = 0;
   const PHONE_AROUND_MS = 15 * 60_000;
   let sessionController = null;
@@ -756,25 +762,31 @@ function applyBridge(ctx, config) {
         const item = pendingAsks.get(id);
         if (item) {
           clearTimeout(item.timer);
-          clearTimeout(item.nudge);
+          if (Array.isArray(item.nudge)) item.nudge.forEach(clearTimeout);
+          else clearTimeout(item.nudge);
         }
         pendingAsks.delete(id);
         resolve(value);
       };
     });
 
-    // 8 秒还没人答 → 发一条推送（手机在后台也能弹通知）
-    const nudge = notifier.enabled
-      ? setTimeout(() => {
-          const first = (request?.questions || [])[0];
+    // 推送提醒：8 秒一次、之后每 60 秒再补一次（最多 3 次）。
+    // 手机不长开时，靠这个把人叫回来；第一次没看到还有第二次。
+    const nudge = notifier.enabled ? [] : undefined;
+    if (nudge) {
+      const first = (request?.questions || [])[0];
+      [8_000, 60_000, 120_000].forEach((after, index) => {
+        nudge.push(setTimeout(() => {
+          if (!pendingAsks.has(id)) return;
           notifier.push({
-            title: "电脑在等你回答",
+            title: index === 0 ? "电脑在等你回答" : "还在等你的回答",
             body: String(first?.question || "有一个提问等你处理"),
             group: "DSH",
           }).catch(() => {});
-          logLine({ step: "ask.push", id });
-        }, 8_000)
-      : undefined;
+          logLine({ step: "ask.push", id, round: index + 1 });
+        }, after));
+      });
+    }
 
     // 超时的处理分两种，取决于这次提问有没有带 timeout：
     //  · 带了  → 到点后 DSH 会把它转成「continued」（迟到还能答），
@@ -842,18 +854,23 @@ function applyBridge(ctx, config) {
       // 桥却把提问握在手里 —— 手机上收不到（没连接），电脑上也不弹（被我们拦了），
       // 就出现"两端全都没有"的空窗。宁可交给电脑，也不能两边都看不到。
       const phoneReady = online && Date.now() < askReadyUntil;
+      // 手机不在线但配了推送：也给一段"短等"，等推送把人叫回来开 App
+      const pushCanWake = !online && notifier.enabled;
+      const shouldHold = phoneReady || pushCanWake;
+      const holdMs = phoneReady ? ASK_HOLD_ONLINE_MS : (pushCanWake ? ASK_HOLD_PUSH_MS : 0);
+      logLine({ step: "ask.gate", online, phoneReady, pushCanWake, holdMs });
       logLine({
         step: "ask.hook",
         sessions: streamClients.size,
         qs: Array.isArray(request?.questions) ? request.questions.length : -1,
         phoneReady,
       });
-      if (!phoneReady) return next();
+      if (!shouldHold) return next();
 
       if (askMode === "auto") {
         // 单端模式：手机在前台就只给手机，computer 端不参与 —— 不会留下关不掉的面板
-        // 单端模式没人兜底，等 45 秒就交回电脑（100 秒对"只有手机能答"太久）
-        const waiter = createAskWaiter(request, 30_000);
+        // 单端模式：手机在线就久等，靠推送唤醒就短等，都没有则上面已经放行
+        const waiter = createAskWaiter(request, holdMs);
         try {
           const answer = await waiter.promise;
           if (answer) {
@@ -2769,7 +2786,8 @@ function applyBridge(ctx, config) {
         }
         if (accepted) {
           clearTimeout(item.timer);
-          clearTimeout(item.nudge);
+          if (Array.isArray(item.nudge)) item.nudge.forEach(clearTimeout);
+          else clearTimeout(item.nudge);
           pendingAsks.delete(id);
           broadcast({ type: "ask.answered", id, via: "rpc" });
           logLine({ step: "ask.answered", id, n: clean.length, via: "rpc" });
@@ -2779,7 +2797,8 @@ function applyBridge(ctx, config) {
 
       // ② 还没到 continued，就走我们还握着的 waterfall
       clearTimeout(item.timer);
-      clearTimeout(item.nudge);
+      if (Array.isArray(item.nudge)) item.nudge.forEach(clearTimeout);
+      else clearTimeout(item.nudge);
       pendingAsks.delete(id);
       item.resolve({ answers: clean });
       // 错开一拍再叫停桌面面板：先保证答案已经交回去
