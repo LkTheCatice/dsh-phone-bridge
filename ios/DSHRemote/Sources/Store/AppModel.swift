@@ -952,9 +952,19 @@ final class AppModel: ObservableObject {
                     pendingAsk = ask
                     pingDiagnostic("ask.mirror id=\(callId.prefix(8)) n=\(ask.questions.count)")
                 } else {
-                    // 名字对上了但参数解析不出来：把原始类型报回去，便于定位
-                    let shape = String(describing: type(of: frame["args"]))
-                    pingDiagnostic("ask.mirror.skip shape=\(shape) keys=\(Self.jsonObject(frame["args"])?.keys.joined(separator: ",") ?? "-")")
+                    // 名字对上了但参数解析不出来：把原始形状报回去，便于定位。
+                    // 注意：不能用 `type(of:)` —— 这个作用域里 `type` 是帧类型的
+                    // 局部字符串变量（`let type = frame["type"]`），会被它遮蔽。
+                    let shape: String
+                    if frame["args"] is String {
+                        shape = "string"
+                    } else if frame["args"] is [String: Any] {
+                        shape = "object"
+                    } else {
+                        shape = "other"
+                    }
+                    let keys = Self.jsonObject(frame["args"])?.keys.joined(separator: ",") ?? "-"
+                    pingDiagnostic("ask.mirror.skip shape=\(shape) keys=\(keys)")
                 }
             }
 
