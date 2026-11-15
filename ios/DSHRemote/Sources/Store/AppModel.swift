@@ -425,6 +425,22 @@ final class AppModel: ObservableObject {
     private var currentTurn: [String: Int] = [:]
 
     /// 当前轮的回答段落号（0 是本轮第一段）
+    /// 思考分段：**每次工具调用之后，下一段思考另起一条**。
+    ///
+    /// 电脑端的「本轮过程」是一行一段：思考 → 运行命令 → 写入 → 思考 → …
+    /// 而手机上之前把一轮里所有思考都 upsert 进同一条，看起来"只说了一次"。
+    /// 这里用 (sid, turn) 做键，工具调用时 +1，思考就被工具行自然切开。
+    private var thinkingSegment: [String: Int] = [:]
+
+    private func thinkingSegmentNow(_ sessionId: String, turn: Int) -> Int {
+        thinkingSegment["\(sessionId)#\(turn)"] ?? 0
+    }
+
+    private func advanceThinkingSegment(_ sessionId: String, turn: Int) {
+        let key = "\(sessionId)#\(turn)"
+        thinkingSegment[key] = (thinkingSegment[key] ?? 0) + 1
+    }
+
     private func segmentNow(_ sessionId: String) -> Int {
         answerSegment[sessionId] ?? 0
     }
@@ -778,13 +794,14 @@ final class AppModel: ObservableObject {
             currentTurn[sid] = turn
             // 新一轮从第 0 段开始；插队会把它往后推
             answerSegment[sid] = 0
+            thinkingSegment["\(sid)#\(turn)"] = 0
             append(sid, ChatEntry(id: "\(sid)#turn\(turn)", kind: .system, text: L("开始第 \(turn) 轮", "Turn \(turn) started"), at: startedAt, running: true, turn: turn))
             // 本轮那条「我」挂上"处理中"（只在不看历史时做，回放不动状态）
             if !isHistory { setUserProcessing(sid, turn: turn, on: true) }
 
         case "assistant.thinking":
             let text = (frame["text"] as? String) ?? ""
-            upsertStreaming(sid, id: BubbleIds.thinking(sid, turn: turn, segment: segmentNow(sid)), kind: .thinking, delta: text, header: "", turn: turn, at: Self.frameDate(frame))
+            upsertStreaming(sid, id: BubbleIds.thinking(sid, turn: turn, segment: thinkingSegmentNow(sid, turn: turn)), kind: .thinking, delta: text, header: "", turn: turn, at: Self.frameDate(frame))
 
         case "assistant.delta":
             let text = (frame["text"] as? String) ?? ""
@@ -792,6 +809,8 @@ final class AppModel: ObservableObject {
             upsertStreaming(sid, id: BubbleIds.answer(sid, turn: turn, segment: segmentNow(sid)), kind: .assistant, delta: text, header: "", turn: turn, at: Self.frameDate(frame))
 
         case "tool.call":
+            // 工具调用把思考切开：下一个 thinking 帧属于新的一段
+            advanceThinkingSegment(sid, turn: turn)
             let callId = (frame["callId"] as? String) ?? UUID().uuidString
             let name = (frame["name"] as? String) ?? "tool"
             let detail = Self.jsonText(frame["args"])
