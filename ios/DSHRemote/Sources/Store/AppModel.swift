@@ -667,6 +667,60 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 处理桥推来的提问帧（ask.asked / ask.answered / ask.cancelled）。
+    ///
+    /// 这段**故意不放在** apply 的大 switch 里：那个 switch 前面有一道
+    /// 「帧的 sessionId 不是当前会话就丢弃」的过滤，而提问是跨会话的 ——
+    /// 电脑在等回答时，用户可能正看着别的会话，卡片仍然要弹。
+    private func handleAskFrame(type: String, frame: [String: Any]) {
+        switch type {
+        case "ask.asked":
+            let askId = (frame["id"] as? String) ?? ""
+            guard !askId.isEmpty else { return }
+            let raw = (frame["questions"] as? [[String: Any]]) ?? []
+            let questions: [AskQuestion] = raw.compactMap { item in
+                guard let qid = item["id"] as? String, let text = item["question"] as? String else { return nil }
+                let options = ((item["options"] as? [[String: Any]]) ?? []).compactMap { opt -> AskQuestion.Option? in
+                    guard let label = opt["label"] as? String else { return nil }
+                    return AskQuestion.Option(label: label, description: opt["description"] as? String)
+                }
+                return AskQuestion(
+                    id: qid,
+                    text: text,
+                    header: item["header"] as? String,
+                    detail: item["detail"] as? String,
+                    options: options,
+                    multiSelect: (item["multiSelect"] as? Bool) ?? false
+                )
+            }
+            guard !questions.isEmpty else { return }
+            pendingAsk = PendingAsk(
+                id: askId,
+                sessionId: (frame["sessionId"] as? String) ?? (selectedSessionId ?? ""),
+                questions: questions
+            )
+            pingDiagnostic("ask.recv id=\(askId) n=\(questions.count)")
+            let sid = selectedSessionId ?? ""
+            if !sid.isEmpty {
+                append(sid, ChatEntry(
+                    id: "\(sid)#ask\(askId)",
+                    kind: .system,
+                    text: L("❓ 电脑在等你回答一个问题", "❓ The computer is waiting for your answer"),
+                    at: Self.frameDate(frame),
+                    turn: currentTurn[sid] ?? 0,
+                    warning: true
+                ))
+            }
+
+        case "ask.answered", "ask.cancelled":
+            pingDiagnostic("ask.clear type=\(type)")
+            pendingAsk = nil
+
+        default:
+            break
+        }
+    }
+
     private func apply(seq: Int, frame: [String: Any], isHistory: Bool = false) {
         if seq > lastSeq {
             lastSeq = seq
@@ -679,6 +733,13 @@ final class AppModel: ObservableObject {
         guard let type = frame["type"] as? String else { return }
         // 卡死取证：主线程最后进入的是哪一帧
         stallWatcher.setMark("apply:\(type)")
+
+        // 提问是**跨会话**的：电脑在等回答时，无论用户当前在看哪个会话，
+        // 都要把卡片弹出来。所以必须在下面「非当前会话就丢弃」的过滤之前处理。
+        if type == "ask.asked" || type == "ask.answered" || type == "ask.cancelled" {
+            handleAskFrame(type: type, frame: frame)
+            return
+        }
         let sid = (frame["sessionId"] as? String) ?? selectedSessionId ?? ""
         // user/message 帧里 DSH 经常不带 turn（插队回显就是这种：22:57:57 那条
         // `USER『报这个 …』` 的 data 里没有 turn）。原来一律落到 0，而 0 在
@@ -889,43 +950,8 @@ final class AppModel: ObservableObject {
             }
 
         case "ask.asked":
-            // 桥把一个 ask_user_question 转给了手机
-            let askId = (frame["id"] as? String) ?? ""
-            guard !askId.isEmpty else { return }
-            let raw = (frame["questions"] as? [[String: Any]]) ?? []
-            let questions: [AskQuestion] = raw.compactMap { item in
-                guard let qid = item["id"] as? String, let text = item["question"] as? String else { return nil }
-                let options = ((item["options"] as? [[String: Any]]) ?? []).compactMap { opt -> AskQuestion.Option? in
-                    guard let label = opt["label"] as? String else { return nil }
-                    return AskQuestion.Option(label: label, description: opt["description"] as? String)
-                }
-                return AskQuestion(
-                    id: qid,
-                    text: text,
-                    header: item["header"] as? String,
-                    detail: item["detail"] as? String,
-                    options: options,
-                    multiSelect: (item["multiSelect"] as? Bool) ?? false
-                )
-            }
-            guard !questions.isEmpty else { return }
-            pendingAsk = PendingAsk(
-                id: askId,
-                sessionId: (frame["sessionId"] as? String) ?? (selectedSessionId ?? ""),
-                questions: questions
-            )
-            // 在聊天里留一条提示，滑走了也知道"刚才有人在问我"
-            append(sid, ChatEntry(
-                id: "\(sid)#ask\(askId)",
-                kind: .system,
-                text: L("❓ 电脑在等你回答一个问题", "❓ The computer is waiting for your answer"),
-                at: Self.frameDate(frame),
-                turn: turn,
-                warning: true
-            ))
-
-        case "ask.answered", "ask.cancelled":
-            pendingAsk = nil
+            // 实际处理在 handleAskFrame（在会话过滤之前就分发了）
+            handleAskFrame(type: type, frame: frame)
 
         case "approval.decided":
             let id = (frame["id"] as? String) ?? ""
