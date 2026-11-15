@@ -1,4 +1,2 @@
-OK Models.swift :: ask-models
-OK Store/AppModel.swift :: ask-state
-OK Store/AppModel.swift :: ask-frames
-OK Store/AppModel.swift :: ask-submit
+OK Net/BridgeClient.swift :: client-ask-ready
+MISS Store/AppModel.swift :: appmodel-ask-ready

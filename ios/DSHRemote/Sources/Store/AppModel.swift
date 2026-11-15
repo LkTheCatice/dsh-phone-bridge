@@ -1608,6 +1608,14 @@ final class AppModel: ObservableObject {
 
             // · 每 60 秒：打一条带计数的诊断（0.25s × 240）。
             //   原来 10 秒一条，一天一万七千行，纯噪音；看趋势 60 秒足够。
+            // ── 每 15 秒：向桥声明「我能回答提问」（0.25s × 60）
+            //   桥那边窗口 30 秒；不发这个，桥永不拦截提问（桌面端行为不变） ──
+            if watchdogStats.ticks % 60 == 0 {
+                Task { @MainActor in
+                    _ = try? await self?.client?.askReady()
+                }
+            }
+
             guard watchdogStats.ticks % 240 == 0 else { return }
             let b = watchdogStats.bodies
             let f = watchdogStats.follows

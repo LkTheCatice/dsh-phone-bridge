@@ -241,6 +241,13 @@ final class BridgeClient {
         return try await postJSON("/v1/task", json: json)
     }
 
+    /// 告诉桥：这个 App 具备回答提问的界面。
+    /// 桥那边有个 30 秒的窗口，所以 App 需要每 15 秒续一次。
+    /// 不发这个 → 桥永远不拦截提问（桌面端行为完全不变）。
+    func askReady() async throws -> [String: Any] {
+        try await postJSON("/v1/ask/ready", json: [:])
+    }
+
     /// 回答电脑端的提问（ask_user_question）。
     /// answers: [{ "id": 问题 id, "selected": [选项 label], "custom": "可选" }]
     func answerAsk(id: String, answers: [[String: Any]]) async throws -> [String: Any] {

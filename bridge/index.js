@@ -680,6 +680,13 @@ function applyBridge(ctx, config) {
   //   · 有手机连着 → 推到手机，等它 POST /v1/ask/answer
   //   · 没有手机 / 超时 / 取消 → next()，交回桌面端（不改变原有行为）
   const ASK_TIMEOUT_MS = 100_000;
+  // 手机是否"能回答提问"需要它自己声明：
+  //   App 每 15 秒 POST /v1/ask/ready，这里记录一个 30 秒有效的时间窗。
+  // 为什么必须这样：钩子一旦接住提问，桌面端的 UI 就收不到了（waterfall 只走一个）。
+  // 老版本 App 没有回答界面 —— 直接接住会让**两边都没人答**，工具挂死。
+  // 所以默认 0：不声明就一律 next()，桌面端行为完全不变。
+  let askReadyUntil = 0;
+  const ASK_READY_TTL_MS = 30_000;
   const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
   let askSerial = 0;
 
@@ -715,7 +722,9 @@ function applyBridge(ctx, config) {
         qs: Array.isArray(request?.questions) ? request.questions.length : -1,
         hasNext: typeof next === "function",
       });
-      if (streamClients.size === 0) return next();
+      const phoneReady = streamClients.size > 0 && Date.now() < askReadyUntil;
+      logLine({ step: "ask.hook.ready", phoneReady, sessions: streamClients.size });
+      if (!phoneReady) return next();
       try {
         const answer = await waitForPhoneAnswer(request);
         if (answer) return answer;
@@ -2528,6 +2537,11 @@ function applyBridge(ctx, config) {
         broadcast({ type: "ask.asked", id, sessionId: "", callId: "", questions: payload });
       });
       return sendJson(res, 200, { ok: Boolean(answer), answer }, ctxEnc);
+    }
+
+    if (method === "POST" && pathname === "/v1/ask/ready") {
+      askReadyUntil = Date.now() + ASK_READY_TTL_MS;
+      return sendJson(res, 200, { ok: true, ttlMs: ASK_READY_TTL_MS, clients: streamClients.size }, ctxEnc);
     }
 
     if (method === "GET" && pathname === "/v1/ask/pending") {
