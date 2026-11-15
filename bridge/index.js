@@ -458,6 +458,13 @@ function applyBridge(ctx, config) {
   const seenEvents = new WeakSet();
 
   let seq = 0;
+  // 手机回答提问用的共享状态：**必须声明在 applyBridge 作用域**，
+  // 否则 HTTP 路由里引用不到（之前写成块级 const，实测 ReferenceError）。
+  let askReadyUntil = 0;
+  const ASK_READY_TTL_MS = 30_000;
+  const ASK_TIMEOUT_MS = 100_000;
+  const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
+  let askSerial = 0;
   let sessionController = null;
   let agentRegistry = null;
   let workspaceRegistry = null;
@@ -679,16 +686,11 @@ function applyBridge(ctx, config) {
   // 这里补一个应答者：
   //   · 有手机连着 → 推到手机，等它 POST /v1/ask/answer
   //   · 没有手机 / 超时 / 取消 → next()，交回桌面端（不改变原有行为）
-  const ASK_TIMEOUT_MS = 100_000;
   // 手机是否"能回答提问"需要它自己声明：
   //   App 每 15 秒 POST /v1/ask/ready，这里记录一个 30 秒有效的时间窗。
   // 为什么必须这样：钩子一旦接住提问，桌面端的 UI 就收不到了（waterfall 只走一个）。
   // 老版本 App 没有回答界面 —— 直接接住会让**两边都没人答**，工具挂死。
   // 所以默认 0：不声明就一律 next()，桌面端行为完全不变。
-  let askReadyUntil = 0;
-  const ASK_READY_TTL_MS = 30_000;
-  const pendingAsks = new Map(); // id -> { resolve, timer, sessionId }
-  let askSerial = 0;
 
   function waitForPhoneAnswer(request) {
     return new Promise((resolve) => {
