@@ -1946,7 +1946,8 @@ final class AppModel: ObservableObject {
     func answer(ask: PendingAsk, answers: [[String: Any]]) async {
         guard let client else { return }
         do {
-            try await client.answerAsk(id: ask.id, answers: answers)
+            // 请桌面端替用户按下「提交」（面板走同一条路径），两端一起收尾
+            try await client.submitAsk(sessionId: ask.sessionId, answers: answers)
             pendingAsk = nil
             toast = L("已提交回答，电脑继续执行", "Answer sent — the computer keeps going")
         } catch {
