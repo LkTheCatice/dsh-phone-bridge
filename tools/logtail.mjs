@@ -55,7 +55,9 @@ function describe(obj) {
 }
 
 const out = [];
-for (const line of lines.slice(-Math.max(limit * 4, 200))) {
+// 带关键词时要扫得更远：关键事件可能发生在几百行之前（比如几小时前的一次 ask.submit）
+const window = filters.length ? Math.max(limit * 40, 6000) : Math.max(limit * 4, 200);
+for (const line of lines.slice(-window)) {
   let obj;
   try {
     obj = JSON.parse(line);
