@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * 隐私审计：检查桥对外返回的字段、日志内容、以及本机落盘的东西。
@@ -9,11 +10,40 @@ import path from "node:path";
 const BASE = "http://127.0.0.1:8765";
 // 状态目录：优先 DSH_PHONE_BRIDGE_DIR，否则 ~/.dsh/phone-bridge（和桥端 store.js 一致）
 const HOME = process.env.USERPROFILE || process.env.HOME || ".";
-const BRIDGE_DIR = process.env.DSH_PHONE_BRIDGE_DIR || path.join(HOME, ".dsh", "phone-bridge");
+const BRIDGE_DIR = resolveBridgeDir();
 const PAIR = path.join(BRIDGE_DIR, "pair.json");
 
 const token = JSON.parse(fs.readFileSync(PAIR, "utf8")).token;
 const STATE = path.join(process.env.TEMP, "pentest-key.pem");
+// 状态目录解析顺序：
+//   1. DSH_PHONE_BRIDGE_DIR 环境变量（显式指定）
+//   2. 插件实际运行目录（本机是 D:\Documents\deepseek-harness\dsh-phone-bridge）——
+//      桥把 pair.json / bridge.log 写在"插件目录"里，不是 ~/.dsh 下
+//   3. ~/.dsh/phone-bridge（旧约定，兜底）
+function resolveBridgeDir() {
+  const explicit = process.env.DSH_PHONE_BRIDGE_DIR;
+  if (explicit) return explicit;
+
+  // 从本文件所在目录逐级向上找"兄弟目录 dsh-phone-bridge/pair.json"。
+  // 桥把状态写在**插件安装目录**里（本机是 <repo>/../../dsh-phone-bridge），
+  // 不是 ~/.dsh 下 —— 所以不能写死路径，得找。
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  let dir = here;
+  for (let i = 0; i < 5; i += 1) {
+    const guess = path.join(path.dirname(dir), "dsh-phone-bridge");
+    try {
+      if (fs.existsSync(path.join(guess, "pair.json"))) return guess;
+    } catch {
+      /* 继续向上 */
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return path.join(HOME, ".dsh", "phone-bridge");
+}
+
 const INFO = "dsh-phone-bridge/v1";
 
 const rawPub = (k) => { const d = k.export({ format: "der", type: "spki" }); return d.subarray(d.length - 32); };
