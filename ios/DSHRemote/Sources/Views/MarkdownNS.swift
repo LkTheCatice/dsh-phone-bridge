@@ -254,7 +254,7 @@ enum MarkdownNS {
                     attributes: [.font: UIFont.systemFont(ofSize: 4)]
                 ))
                 out.append(NSAttributedString(
-                    string: "▦ 代码已截断 · 点按看完整行 ›",
+                    string: L("▦ 代码已截断 · 点按看完整行 ›", "▦ Code truncated · tap for the full line ›"),
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 12, weight: .medium),
                         .foregroundColor: UIColor.tintColor,
@@ -687,10 +687,10 @@ enum MarkdownNS {
             // 4 列 8 行的表里 13.3… / 1.24… 被截断，却没有入口点开）。
             if !isFull, rows.count > rowLimit || hiddenColumns > 0 || didTruncateCells {
                 // 说明 + 入口合成一行，别再分两行占高度（用户实拍觉得像乱码那一版）。
-                var label = "▦ 表格已折叠"
+                var label = L("▦ 表格已折叠", "▦ Table collapsed")
                 if hiddenColumns > 0 { label += "（还有 \(hiddenColumns) 列）" }
                 if rows.count > rowLimit { label += "（还有 \(rows.count - rowLimit) 行）" }
-                label += " · 点按看完整版 ›"
+                label += L(" · 点按看完整版 ›", " · tap for the full table ›")
                 if let url = URL(string: "dsh://detail") {
                     out.append(NSAttributedString(
                         string: "\n" + label,

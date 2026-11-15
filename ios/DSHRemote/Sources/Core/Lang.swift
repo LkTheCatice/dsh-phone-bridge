@@ -58,6 +58,16 @@ final class I18N: ObservableObject {
         UserDefaults.standard.set(next.rawValue, forKey: Self.storeKey)
         token &+= 1
         NotificationCenter.default.post(name: Self.changed, object: nil)
+
+        // 切语言后重启进程。
+        //
+        // 为什么不在进程内热切换就够了：SwiftUI 那层能靠 `.id(token)` 重建，
+        // 但 UIKit 那部分（消息列表的高度缓存、复用池里的 cell、
+        // 自己拼的 attributed string）没法保证全都跟着换语言 ——
+        // 实测会留下几行旧语言的残留。直接重启最干净，用户只等一次启动动画。
+        //
+        // 这两个档位（效率/均衡/质量）也影响"看起来多快"，所以重启时长是一样的。
+        Relaunch.schedule()
     }
 
     /// 取当前语言的文案
@@ -76,4 +86,21 @@ func L(_ zh: String, _ en: String) -> String { I18N.shared.t(zh, en) }
 func L(_ zh: String, _ en: String, _ args: CVarArg...) -> String {
     let format = I18N.shared.t(zh, en)
     return args.isEmpty ? format : String(format: format, arguments: args)
+}
+
+
+/// 进程级重启：iOS 没有官方的"重启自己"，只能自己退出，让用户再点一次图标。
+/// 侧载场景可接受（不是 App Store 审核的规则）。
+enum Relaunch {
+    private static var pending = false
+
+    static func schedule(after delay: Double = 0.25) {
+        guard !pending else { return }
+        pending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            // 先把状态落盘：UserDefaults 已经在 set() 里同步写过
+            UserDefaults.standard.synchronize()
+            exit(0)
+        }
+    }
 }

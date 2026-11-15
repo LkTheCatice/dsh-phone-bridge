@@ -64,7 +64,7 @@ final class FileListCardView: UIView {
             let more = MoreControl()
             more.addTarget(self, action: #selector(handleMore), for: .touchUpInside)
             let label = UILabel()
-            label.text = "还有 \(moreCount) 个 · 查看全部 ›"
+            label.text = L("还有 \(moreCount) 个 · 查看全部 ›", "\(moreCount) more · see all ›")
             label.font = .systemFont(ofSize: 12)
             label.textColor = .tintColor
             label.translatesAutoresizingMaskIntoConstraints = false

@@ -56,5 +56,5 @@ enum FileKind: String {
     }
 
     /// 卡片右侧的标签文案
-    var tag: String { canPreview ? "可预览" : "下载" }
+    var tag: String { canPreview ? L("可预览", "Preview") : L("下载", "Download") }
 }
