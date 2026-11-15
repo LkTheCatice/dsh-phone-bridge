@@ -703,6 +703,32 @@ function applyBridge(ctx, config) {
   //   · 手机先答 → 直接把答案 return，桌面面板由它自己收尾
 
   /// 建一个"等手机回答"的挂起项，返回 { id, promise, cancel }
+  /// 尽力让桌面端把面板收起来。
+  ///
+  /// 桌面卡片只有在 `hasWaterfall()` 变成 false 后才会被 reconcile 移除。
+  /// 带 timeout 的提问在宿主侧有一份 wait（`userQuestions.waits`），
+  /// 把它 close 掉会 abort 掉前端那条 claim 流 —— 前端于是 detach waterfall，面板收起。
+  ///
+  /// 这是**内部字段**，DSH 换版本可能变；所以整段 try/catch + 留痕，
+  /// 失败也不影响答案已经正确返回这件事。
+  function closeDesktopPanel(agent, callId) {
+    if (!agent || !callId) return;
+    try {
+      const uq = ctx.get?.("userQuestions") || ctx.userQuestions;
+      const waits = uq?.waits;
+      const calls = waits?.get?.(agent);
+      const wait = calls?.get?.(callId);
+      if (wait?.close) {
+        wait.close(new Error("answered-on-phone"));
+        logLine({ step: "ask.desktop-close", ok: true });
+      } else {
+        logLine({ step: "ask.desktop-close", ok: false, why: "no-wait" });
+      }
+    } catch (error) {
+      logLine({ step: "ask.desktop-close", ok: false, why: String(error?.message || error) });
+    }
+  }
+
   function createAskWaiter(request, timeoutMs = ASK_TIMEOUT_MS) {
     askSerial += 1;
     const id = "ask_" + askSerial;
@@ -2741,6 +2767,8 @@ function applyBridge(ctx, config) {
       clearTimeout(item.nudge);
       pendingAsks.delete(id);
       item.resolve({ answers: clean });
+      // 错开一拍再叫停桌面面板：先保证答案已经交回去
+      setTimeout(() => closeDesktopPanel(item.agent, item.callId), 0);
       broadcast({ type: "ask.answered", id, via: "waterfall" });
       logLine({ step: "ask.answered", id, n: clean.length, via: "waterfall" });
       return sendJson(res, 200, { ok: true, via: "waterfall" }, ctxEnc);
