@@ -470,12 +470,13 @@ function applyBridge(ctx, config) {
   // 用途：手机在后台被挂起时 streamClients 会归零，但我们不该立刻放弃它 ——
   // 用户可能只是锁屏了，解锁后就要看到这张卡片。
   // 提问的分发策略：
-  //   "auto"（默认）  手机在前台 → 只给手机，电脑不弹面板
-  //                   （电脑端面板无法被外部关闭，弹了就会一直挂着，很碍眼）
-  //   "dual"          两边同时弹，谁先答谁生效；电脑那份会留到它自己超时
-  const askMode = String(config?.ask?.mode || config?.askMode || "auto").toLowerCase() === "dual"
-    ? "dual"
-    : "auto";
+  //   "dual"（默认）  手机与电脑同时看到，谁先答谁生效。
+  //                   电脑端面板的生命周期绑在它自己的倒计时上 ——
+  //                   只要提问带 timeout（我们一律带），最迟到点必被收起。
+  //   "auto"          手机在前台时只给手机，电脑完全不参与。
+  const askMode = String(config?.ask?.mode || config?.askMode || "dual").toLowerCase() === "auto"
+    ? "auto"
+    : "dual";
   let lastPhoneSeen = 0;
   const PHONE_AROUND_MS = 15 * 60_000;
   let sessionController = null;
@@ -706,6 +707,8 @@ function applyBridge(ctx, config) {
     askSerial += 1;
     const id = "ask_" + askSerial;
     const sessionId = String(request?.agent?.session || "");
+    const agent = request?.agent;
+    const callId = String(request?.wait?.callId || "");
     let done = false;
     let finish = () => {};
 
@@ -714,27 +717,49 @@ function applyBridge(ctx, config) {
         if (done) return;
         done = true;
         const item = pendingAsks.get(id);
-        if (item) clearTimeout(item.timer);
-        clearTimeout(nudge);
+        if (item) {
+          clearTimeout(item.timer);
+          clearTimeout(item.nudge);
+        }
         pendingAsks.delete(id);
         resolve(value);
       };
     });
 
     // 8 秒还没人答 → 发一条推送（手机在后台也能弹通知）
-    const nudge = setTimeout(() => {
-      if (!notifier.enabled) return;
-      const first = (request?.questions || [])[0];
-      notifier.push({
-        title: "电脑在等你回答",
-        body: String(first?.question || "有一个提问等你处理"),
-        group: "DSH",
-      }).catch(() => {});
-      logLine({ step: "ask.push", id });
-    }, 8_000);
+    const nudge = notifier.enabled
+      ? setTimeout(() => {
+          const first = (request?.questions || [])[0];
+          notifier.push({
+            title: "电脑在等你回答",
+            body: String(first?.question || "有一个提问等你处理"),
+            group: "DSH",
+          }).catch(() => {});
+          logLine({ step: "ask.push", id });
+        }, 8_000)
+      : undefined;
 
+    // 超时的处理分两种，取决于这次提问有没有带 timeout：
+    //  · 带了  → 到点后 DSH 会把它转成「continued」（迟到还能答），
+    //            我们把这张卡片**留着**，改走 RPC 通道回答（会作为一条
+    //            user-question-reply 消息进会话，桌面端卡片随之关闭）
+    //  · 没带  → 只能由 waterfall 回答，到点就撤回提示、交回电脑
     const timer = setTimeout(() => {
-      // 超时：撤回手机上的卡片，交回给桌面端继续等
+      const item = pendingAsks.get(id);
+      if (!item) return;
+      if (callId) {
+        item.mode = "rpc";
+        broadcast({
+          type: "ask.asked",   // 重推一次，让手机知道"还可以答，只是改成迟答"
+          id,
+          sessionId,
+          callId,
+          questions: item.questions,
+          late: true,
+        });
+        logLine({ step: "ask.late-window", id });
+        return;
+      }
       broadcast({ type: "ask.cancelled", id, reason: "timeout" });
       finish(null);
     }, timeoutMs);
@@ -742,21 +767,25 @@ function applyBridge(ctx, config) {
     pendingAsks.set(id, {
       resolve: (value) => finish(value),
       timer,
+      nudge,
       sessionId,
       questions: request?.questions || [],
+      agent,
+      callId,
+      mode: "waterfall",
     });
+
     broadcast({
       type: "ask.asked",
       id,
       sessionId,
-      callId: String(request?.wait?.callId || ""),
+      callId,
       questions: request?.questions || [],
     });
 
     return {
       id,
       promise,
-      /// 另一侧先答了：清掉手机上的卡片
       cancel(reason) {
         if (done) return;
         broadcast({ type: "ask.cancelled", id, reason: String(reason || "cancelled") });
@@ -2662,7 +2691,6 @@ function applyBridge(ctx, config) {
       if (!item) {
         throw new HttpError(404, "not-found", "这条提问已经不在了（可能已超时或在电脑上答过）");
       }
-      // 校验：每个问题都要有一项答案（否则 DSH 会以 BAD_ANSWER 拒绝）
       const clean = answers
         .filter((a) => a && typeof a.id === "string")
         .map((a) => ({
@@ -2672,12 +2700,50 @@ function applyBridge(ctx, config) {
         }));
       if (clean.length === 0) throw new HttpError(400, "bad-request", "答案为空");
 
+      // 两条通道，**先试干净的那条**：
+      //
+      //   ① RPC（ctx.userQuestions.answer）—— 只对「continued」状态的提问有效。
+      //      提问带了 timeout、且倒计时已过，DSH 就会把它转成 continued。
+      //      走这条时答案会作为一条 user-question-reply 消息进会话，
+      //      会话投影随之结算 → **桌面端卡片自动关闭**，不留残影。
+      //
+      //   ② waterfall（我们自己的 promise）—— 提问还活着的窗口内使用。
+      //      快（毫秒级返回），但桌面端会保留它自己的面板，直到它自己的倒计时结束。
+      //
+      // 顺序很重要：能走 ① 就走 ①。这样"手机答完电脑还挂着"只在
+      // 极短的窗口内可能出现，而且最迟在提问超时时必被收起。
+      const uq = ctx.get?.("userQuestions") || ctx.userQuestions;
+      if (uq?.answer && item.agent && item.callId) {
+        let accepted = false;
+        for (let i = 0; i < 4 && !accepted; i += 1) {
+          try {
+            accepted = (await uq.answer(item.agent, item.callId, { answers: clean })) === true;
+          } catch (error) {
+            const code = error?.code || "";
+            if (code === "REPLY_QUEUED") { accepted = true; break; }
+            logLine({ step: "ask.rpc.error", msg: String(error?.message || error) });
+            break;
+          }
+          if (!accepted) await new Promise((r) => setTimeout(r, 250));
+        }
+        if (accepted) {
+          clearTimeout(item.timer);
+          clearTimeout(item.nudge);
+          pendingAsks.delete(id);
+          broadcast({ type: "ask.answered", id, via: "rpc" });
+          logLine({ step: "ask.answered", id, n: clean.length, via: "rpc" });
+          return sendJson(res, 200, { ok: true, via: "rpc" }, ctxEnc);
+        }
+      }
+
+      // ② 还没到 continued，就走我们还握着的 waterfall
       clearTimeout(item.timer);
+      clearTimeout(item.nudge);
       pendingAsks.delete(id);
       item.resolve({ answers: clean });
-      broadcast({ type: "ask.answered", id });
-      logLine({ step: "ask.answered", id, n: clean.length });
-      return sendJson(res, 200, { ok: true }, ctxEnc);
+      broadcast({ type: "ask.answered", id, via: "waterfall" });
+      logLine({ step: "ask.answered", id, n: clean.length, via: "waterfall" });
+      return sendJson(res, 200, { ok: true, via: "waterfall" }, ctxEnc);
     }
 
     if (method === "POST" && pathname === "/v1/session/forward") {
