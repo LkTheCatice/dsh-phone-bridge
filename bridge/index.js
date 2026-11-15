@@ -457,6 +457,35 @@ function applyBridge(ctx, config) {
   const recentForwards = new Map();
   const seenEvents = new WeakSet();
 
+  // ── 会话收藏 ────────────────────────────────────────────────
+  // 存 stateDir/favorites.json：{ "<sessionId>": <毫秒时间戳> }
+  // 只存"收藏了哪些"，不存别的 —— 会话本身归 DSH 管，桥不复制它的数据。
+  let favoriteCache = null;
+  function favoritesPath() {
+    return path.join(stateDir(), "favorites.json");
+  }
+  function loadFavorites() {
+    if (favoriteCache) return favoriteCache;
+    favoriteCache = {};
+    try {
+      const raw = fs.readFileSync(favoritesPath(), "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") favoriteCache = parsed;
+    } catch {
+      /* 没有就先空着 */
+    }
+    return favoriteCache;
+  }
+  function saveFavorites(map) {
+    favoriteCache = map;
+    try {
+      fs.mkdirSync(stateDir(), { recursive: true });
+      fs.writeFileSync(favoritesPath(), JSON.stringify(map, null, 2), "utf8");
+    } catch (error) {
+      logLine({ step: "favorite.save-failed", msg: String(error?.message || error) });
+    }
+  }
+
   let seq = 0;
   // 手机回答提问用的共享状态。
   // 注意：这里声明在 applyBridge 作用域，因为 HTTP 路由里也要用；
@@ -2036,10 +2065,18 @@ function applyBridge(ctx, config) {
         /* 拿不到就当没有归档 */
       }
       const archivedSet = new Set(archivedIds.map(String));
+      const wantFavorite = url.searchParams.get("favorite") === "1";
+      const favs = loadFavorites();
       const all = await listSessions();
       const rows = all
-        .map((row) => ({ ...row, archived: archivedSet.has(row.id) }))
-        .filter((row) => (wantArchived ? row.archived : !row.archived));
+        .map((row) => ({
+          ...row,
+          archived: archivedSet.has(row.id),
+          favorite: Object.prototype.hasOwnProperty.call(favs, String(row.id)),
+          favoriteAt: favs[String(row.id)] || null,
+        }))
+        .filter((row) => (wantArchived ? row.archived : !row.archived))
+        .filter((row) => (wantFavorite ? row.favorite : true));
       return sendJson(res, 200, {
         ok: true,
         sessions: rows,
@@ -2637,6 +2674,19 @@ function applyBridge(ctx, config) {
         logLine({ step: "session/rename", sessionId, error: String(error?.message || error).slice(0, 300) });
         throw error;
       }
+    }
+
+    if (method === "POST" && pathname === "/v1/session/favorite") {
+      const body = await readJsonBody();
+      const sessionId = String(body.sessionId || "");
+      if (!sessionId) throw new HttpError(400, "bad-request", "需要 sessionId");
+      const favorite = body.favorite !== false;
+      const favs = { ...loadFavorites() };
+      if (favorite) favs[sessionId] = Date.now();
+      else delete favs[sessionId];
+      saveFavorites(favs);
+      logLine({ step: "favorite.set", sessionId: sessionId.slice(-8), favorite });
+      return sendJson(res, 200, { ok: true, favorite }, ctxEnc);
     }
 
     if (method === "POST" && pathname === "/v1/session/archive") {

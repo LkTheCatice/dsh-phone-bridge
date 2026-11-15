@@ -7,6 +7,10 @@ struct SessionRow: Identifiable, Hashable {
     var running: Bool
     /// 服务端给的最后活动时间（毫秒时间戳）
     var updatedAt: Double?
+    /// 是否已收藏（桥存在 stateDir/favorites.json）
+    var favorite: Bool = false
+    /// 收藏时间（毫秒），用于"收藏"筛选里按收藏先后排
+    var favoriteAt: Double? = nil
 
     /// cwd 的最后一段目录名。
     /// 预计算并随 SessionRow 一起构造 —— UI 里每行都调
@@ -59,6 +63,8 @@ struct SessionRow: Identifiable, Hashable {
             // 预计算：UI 每行都要用，别在 body 里解析 URL
             cwdName: cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
         )
+        row.favorite = (dict["favorite"] as? Bool) ?? false
+        row.favoriteAt = (dict["favoriteAt"] as? NSNumber)?.doubleValue
         row.timeLabel = SessionRow.makeTimeLabel(from: row.updatedAt)
         return row
     }

@@ -1936,6 +1936,23 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 切换收藏：先本地翻转（列表立即响应），失败再翻回来。
+    func toggleFavorite(_ sessionId: String) async {
+        guard let client, let idx = sessionList.rows.firstIndex(where: { $0.id == sessionId }) else { return }
+        let next = !sessionList.rows[idx].favorite
+        sessionList.rows[idx].favorite = next
+        sessionList.rows[idx].favoriteAt = next ? Date().timeIntervalSince1970 * 1000 : nil
+        do {
+            _ = try await client.favoriteSession(sessionId: sessionId, favorite: next)
+            pingDiagnostic("favorite.set \(next ? "+" : "-")")
+        } catch {
+            if let back = sessionList.rows.firstIndex(where: { $0.id == sessionId }) {
+                sessionList.rows[back].favorite = !next
+            }
+            lastError = error.localizedDescription
+        }
+    }
+
     func rename(_ sessionId: String, to title: String) async {
         guard let client else { return }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)

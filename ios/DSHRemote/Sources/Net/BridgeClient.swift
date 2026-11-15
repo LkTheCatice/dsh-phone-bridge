@@ -318,6 +318,11 @@ final class BridgeClient {
         try await postJSON("/v1/session/archive", json: ["sessionId": sessionId, "archived": archived])
     }
 
+    /// 收藏 / 取消收藏会话（桥存在 stateDir/favorites.json）
+    func favoriteSession(sessionId: String, favorite: Bool) async throws -> [String: Any] {
+        try await postJSON("/v1/session/favorite", json: ["sessionId": sessionId, "favorite": favorite])
+    }
+
     func comfyStatus() async throws -> [String: Any] {
         try await getJSON("/v1/comfy")
     }
