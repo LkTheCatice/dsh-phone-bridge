@@ -1,1 +1,3 @@
-OK Models.swift :: parse-cwdname
+OK Store/AppModel.swift :: draw_image-label
+MISS Store/AppModel.swift :: prefix-fallback
+OK Views/ChatList.swift :: tool-tap

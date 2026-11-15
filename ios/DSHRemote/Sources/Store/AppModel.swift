@@ -1554,11 +1554,13 @@ final class AppModel: ObservableObject {
         case "workflow": return L("编排", "Flow")
         case "web_search", "web_fetch": return L("联网", "Web")
         case "ask_user_question": return L("提问", "Asked")
+        case "draw_image", "image_generation", "generate_image": return L("画图", "Draw")
         case "load_workspace_dependencies": return L("环境准备", "Env")
         default:
             if name.hasPrefix("schedule") { return L("定时任务", "Scheduled") }
             if name.hasPrefix("job") { return L("后台任务", "Background") }
             if name.hasPrefix("video") { return L("视频分析", "Video") }
+            if name.hasPrefix("draw") || name.hasPrefix("image") { return L("画图", "Draw") }
             return name
         }
     }

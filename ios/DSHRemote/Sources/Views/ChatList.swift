@@ -839,6 +839,11 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
             // 思考行也能点：展开到「本轮过程」看全文（原来点它完全没反应）
             tapFeedback()
             onTapEntry?(entry.id)
+        case .toolCall:
+            // 工具行同样的毛病：点上去毫无反应，
+            // 于是"画图跑起来了、想看看它的参数和输出路径"根本打不开（实拍反馈）
+            tapFeedback()
+            onTapEntry?(entry.id)
         default:
             break
         }
