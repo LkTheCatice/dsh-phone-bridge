@@ -18,6 +18,7 @@ struct SessionListSheet: View {
     /// 折叠起来的文件夹（存的是组标题）。跨启动记住：
     /// 会话一多，用户会希望"常用项目展开、别的收起来"。
     @State private var collapsedFolders: Set<String> = SessionListSheet.loadCollapsed()
+    @State private var reportedCollapse = false
     @State private var renameText = ""
 
     private var filtered: [SessionRow] {
@@ -64,7 +65,7 @@ struct SessionListSheet: View {
             }
     }
 
-    private static let collapsedKey = "dsh.collapsedFolders"
+    private static let collapsedKey = "dsh.collapsedFolders.v2"
 
     private static func loadCollapsed() -> Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: collapsedKey) ?? [])
@@ -86,6 +87,14 @@ struct SessionListSheet: View {
         else { collapsedFolders.insert(title) }
         persistCollapsed()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// 只用于排查：把折叠状态上报一次，桥日志里能看到
+    private func reportCollapseOnce() {
+        guard !reportedCollapse else { return }
+        reportedCollapse = true
+        let names = collapsedFolders.sorted().joined(separator: ",")
+        model.pingDiagnostic("collapse.state n=\(collapsedFolders.count) [\(names)]")
     }
 
     var body: some View {
@@ -260,6 +269,7 @@ struct SessionListSheet: View {
                     }
                 }
             }
+            .task { reportCollapseOnce() }
             .searchable(text: $search, prompt: L("搜索会话标题", "Search chat titles"))
             .navigationTitle(L("会话", "Chats"))
             .navigationBarTitleDisplayMode(.inline)

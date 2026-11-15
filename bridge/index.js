@@ -2062,9 +2062,16 @@ function applyBridge(ctx, config) {
       const wantArchived = url.searchParams.get("archived") === "1";
       let archivedIds = [];
       try {
-        const registry = ctx.get?.("workspaceRegistry");
+        // 两种取法都试：DSH 的服务直接挂在 ctx 上，ctx.get() 未必能解析到
+        const registry = ctx.workspaceRegistry || ctx.get?.("workspaceRegistry");
         if (registry && Array.isArray(registry.archivedSessionIds)) {
           archivedIds = registry.archivedSessionIds;
+        } else {
+          logLine({
+            step: "sessions.archived-miss",
+            hasRegistry: Boolean(registry),
+            hasField: Boolean(registry && registry.archivedSessionIds !== undefined),
+          });
         }
       } catch {
         /* 拿不到就当没有归档 */
@@ -2082,6 +2089,9 @@ function applyBridge(ctx, config) {
         }))
         .filter((row) => (wantArchived ? row.archived : !row.archived))
         .filter((row) => (wantFavorite ? row.favorite : true));
+      if (wantArchived) {
+        logLine({ step: "sessions.archived", ids: archivedSet.size, rows: rows.length });
+      }
       return sendJson(res, 200, {
         ok: true,
         sessions: rows,
