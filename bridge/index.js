@@ -594,10 +594,63 @@ function applyBridge(ctx, config) {
 
   // ── 事件订阅 ────────────────────────────────────────────────────────────────
 
+  /// 正在等回答的提问（从帧流里跟踪，不需要拦截）。
+  ///
+  /// 为什么需要：改成"镜像 + 遥控"之后桥不再接管提问，`pendingAsks` 一直是空的，
+  /// 于是 `/v1/ask/pending` 永远返回空 —— App 冷启动（锁屏被系统回收）后
+  /// 就没法补出那张"还没回答"的卡片。这里纯观察帧流，把状态记一份。
+  ///
+  /// 只记 id / sessionId / questions，不碰回答通道：桌面端仍是唯一持有者。
+  const liveAsks = new Map();
+  const ASK_TOOL_NAMES = new Set(["ask_user_question", "request_user_input"]);
+  let liveAsksDirty = false;
+
+  function trackAskFromFrame(full) {
+    const type = String(full.type || "");
+    if (type === "tool.call") {
+      const callId = String(full.callId || full.id || "");
+      if (!callId) return;
+      // 帧形状（和 App 端一致）：{ type:"tool.call", callId, name, args }
+      // args 可能是对象，也可能是 JSON 字符串（桥的 clip() 不一定解）
+      const name = String(full.name || "");
+      if (!ASK_TOOL_NAMES.has(name)) return;
+      let args = full.args;
+      if (typeof args === "string") {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          return;
+        }
+      }
+      const questions = Array.isArray(args?.questions) ? args.questions : [];
+      if (!questions.length) return;
+      liveAsks.set(callId, {
+        id: callId,
+        sessionId: String(full.sessionId || ""),
+        questions,
+        at: Date.now(),
+      });
+      liveAsksDirty = true;
+      logLine({ step: "ask.pending-tracked", id: callId.slice(-8), n: questions.length });
+    } else if (type === "tool.result") {
+      const callId = String(full.callId || full.id || "");
+      if (!callId) return;
+      if (liveAsks.delete(callId)) {
+        liveAsksDirty = true;
+        logLine({ step: "ask.pending-cleared", id: callId.slice(-8) });
+      }
+    }
+  }
+
   function broadcast(frame) {
     seq += 1;
     const full = { v: 1, seq, at: Date.now(), ...frame };
     frames.push(full);
+    try {
+      trackAskFromFrame(full);
+    } catch {
+      /* 跟踪失败不影响转发 */
+    }
     // 帧类型分布（/v1/diag）：判断「少推了哪些帧」用
     const t = String(full.type || "?");
     diagStats.frames[t] = (diagStats.frames[t] || 0) + 1;
@@ -2851,8 +2904,17 @@ function applyBridge(ctx, config) {
 
     if (method === "GET" && pathname === "/v1/ask/pending") {
       const list = [];
+      const seen = new Set();
+      // ① 旧拦截路径留下的（现在基本没有，留着向后兼容）
       for (const [id, item] of pendingAsks) {
         list.push({ id, sessionId: item.sessionId, questions: item.questions || [] });
+        seen.add(id);
+      }
+      // ② 从帧流跟踪到的"还没回答的提问" —— 冷启动补卡片靠这个
+      const tracked = [...liveAsks.values()].sort((a, b) => b.at - a.at);
+      for (const item of tracked) {
+        if (seen.has(item.id)) continue;
+        list.push({ id: item.id, sessionId: item.sessionId, questions: item.questions });
       }
       return sendJson(res, 200, { ok: true, pending: list }, ctxEnc);
     }
