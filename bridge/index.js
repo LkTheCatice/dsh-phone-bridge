@@ -1634,6 +1634,21 @@ function applyBridge(ctx, config) {
       throw new HttpError(403, "admin-header-required", "缺少 x-dsh-admin 头（防跨站请求）");
     }
 
+    // 自测：造一条审批请求，走真实 askPhone 的广播路径。
+    // 放在 /admin 下：免 E2EE（本机脚本方便调用），仍受 loopback + x-dsh-admin 保护。
+    if (method === "POST" && pathname === "/admin/dev/approval-sim") {
+      if (!streamClients.size) throw new HttpError(409, "no-client", "手机还没连上");
+      const raw = await readJsonBody().catch(() => ({}));
+      const decision = await askPhone({
+        callId: "sim-" + Date.now(),
+        sessionId: String(raw.sessionId || ""),
+        toolName: String(raw.tool || "write"),
+        displayReason: String(raw.reason || "自测：模拟一次越界写操作"),
+      });
+      logLine({ step: "approval.sim", decision });
+      return sendJson(res, 200, { ok: true, decision });
+    }
+
     if (method === "GET" && pathname === "/admin/debug/env") {
       const home = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
       const sessionsRoot = path.join(home, "sessions");
@@ -2686,21 +2701,6 @@ function applyBridge(ctx, config) {
 
     // 手机提交提问的答案 → 转发给桌面端，由它替用户按下"提交"。
     // 这是"镜像 + 遥控"模型的唯一入口：DSH 的提问通道完全不动。
-    // 自测：造一条审批请求，走和真实审批完全相同的广播路径。
-    // 用途：本会话有 approval bypass，造不出真实审批时用它验手机端渲染。
-    // 只对 loopback + admin header 开放（isAdmin 校验在路由入口统一处理）。
-    if (method === "POST" && pathname === "/v1/dev/approval-sim") {
-      if (!streamClients.size) throw new HttpError(409, "no-client", "手机还没连上");
-      const body = await readJsonBody().catch(() => ({}));
-      const decision = await askPhone({
-        callId: "sim-" + Date.now(),
-        sessionId: String(body.sessionId || ""),
-        toolName: String(body.tool || "write"),
-        displayReason: String(body.reason || "自测：模拟一次越界写操作"),
-      });
-      return sendJson(res, 200, { ok: true, decision }, ctxEnc);
-    }
-
     if (method === "POST" && pathname === "/v1/ask/submit") {
       const body = await readJsonBody();
       const sessionId = String(body.sessionId || "");
