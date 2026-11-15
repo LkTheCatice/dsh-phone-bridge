@@ -1711,6 +1711,19 @@ function applyBridge(ctx, config) {
     }
 
     if (method === "GET" && pathname === "/admin/debug/env") {
+      // 归档来源是否可用：手机端归档列表为空时，先看这里
+      let registryReport = { hasRegistry: false, archived: null };
+      try {
+        const reg = ctx.workspaceRegistry || ctx.get?.("workspaceRegistry");
+        registryReport = {
+          hasRegistry: Boolean(reg),
+          viaGet: Boolean(ctx.get?.("workspaceRegistry")),
+          viaCtx: Boolean(ctx.workspaceRegistry),
+          archived: Array.isArray(reg?.archivedSessionIds) ? reg.archivedSessionIds.length : null,
+        };
+      } catch (error) {
+        registryReport.error = String(error?.message || error);
+      }
       const home = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
       const sessionsRoot = path.join(home, "sessions");
       const probe = url.searchParams.get("sessionId") || "";
@@ -1724,6 +1737,7 @@ function applyBridge(ctx, config) {
         sessionsRootExists: fs.existsSync(sessionsRoot),
         logIndexSize: index.size,
         zstdAvailable: typeof zstdDecompressSync,
+        workspaceRegistry: registryReport,
       };
       if (probe) {
         const file = index.get(probe);

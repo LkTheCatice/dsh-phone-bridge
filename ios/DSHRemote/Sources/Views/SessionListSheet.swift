@@ -269,7 +269,13 @@ struct SessionListSheet: View {
                     }
                 }
             }
-            .task { reportCollapseOnce() }
+            .task {
+                reportCollapseOnce()
+                // 打开列表就拉一次（含归档）：
+                // 归档是 refreshSessions 里的**第二个请求**，不刷新就一直是内存里的旧数据
+                await model.refreshSessions(force: true)
+            }
+            .refreshable { await model.refreshSessions(force: true) }
             .searchable(text: $search, prompt: L("搜索会话标题", "Search chat titles"))
             .navigationTitle(L("会话", "Chats"))
             .navigationBarTitleDisplayMode(.inline)
