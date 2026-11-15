@@ -135,7 +135,7 @@ struct SettingsView: View {
                                     Text(L("这台 DSH 的余额接口暂时取不到数字", "Balance endpoint returned no number"))
                                         .font(.caption2).foregroundStyle(.secondary)
                                     if let url = wallet.usageUrl, let dest = URL(string: url) {
-                                        Link("打开 DeepSeek 用量页", destination: dest).font(.caption)
+                                        Link(L("打开 DeepSeek 用量页", "Open DeepSeek usage page"), destination: dest).font(.caption)
                                     }
                                 }
                             } else if wallet.status == "failed" {

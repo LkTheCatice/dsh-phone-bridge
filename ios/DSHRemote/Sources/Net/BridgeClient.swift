@@ -55,7 +55,7 @@ final class BridgeClient {
               let clientId = obj["clientId"] as? String,
               let serverPubB64 = obj["serverPub"] as? String,
               let serverPub = Data(base64Encoded: serverPubB64) else {
-            throw BridgeServerError(status: status, code: "handshake", message: "响应字段不全")
+            throw BridgeServerError(status: status, code: "handshake", message: L("响应字段不全", "Response is missing fields"))
         }
 
         // TOFU：首次记录服务器公钥指纹，之后必须一致
@@ -65,7 +65,7 @@ final class BridgeClient {
                 throw BridgeServerError(
                     status: 495,
                     code: "fingerprint-mismatch",
-                    message: "电脑公钥指纹不一致，可能连到了别的服务；指纹 \(actual)"
+                    message: L("电脑公钥指纹不一致，可能连到了别的服务；指纹 \(actual)", "Computer fingerprint mismatch — you may be talking to something else (got \\(actual))")
                 )
             }
         }
@@ -94,7 +94,7 @@ final class BridgeClient {
         body: Data?
     ) throws -> (URLRequest, String) {
         guard let keys, let clientId else {
-            throw BridgeServerError(status: 401, code: "handshake-required", message: "还没有握手")
+            throw BridgeServerError(status: 401, code: "handshake-required", message: L("还没有握手", "Not handshaken yet"))
         }
         let aad = JS.aad(method: method, path: path, query: query)
         let q = JS.queryString(query)
@@ -117,7 +117,7 @@ final class BridgeClient {
 
     private func decodeResponse(_ data: Data, aad: String, response: URLResponse) throws -> Data {
         guard let keys else {
-            throw BridgeServerError(status: 401, code: "handshake-required", message: "还没有握手")
+            throw BridgeServerError(status: 401, code: "handshake-required", message: L("还没有握手", "Not handshaken yet"))
         }
         let http = response as? HTTPURLResponse
         let sealed = http?.value(forHTTPHeaderField: "x-sealed") == "1"

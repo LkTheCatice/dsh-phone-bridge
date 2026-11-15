@@ -139,7 +139,7 @@ struct QueueSheet: View {
             if let err = await model.removeQueued(itemId: item.id) {
                 notice = err
             } else {
-                notice = "已删除"
+                notice = L("已删除", "Deleted")
             }
         }
     }
@@ -149,7 +149,7 @@ struct QueueSheet: View {
             if let err = await model.steerQueued(itemId: item.id) {
                 notice = err
             } else {
-                notice = "已插队"
+                notice = L("已插队", "Moved to front")
             }
         }
     }
@@ -192,7 +192,7 @@ struct QueueSheet: View {
         // 这时绝不能「按下标改」，否则会改到别人的那条上。
         let stillThere = chat.queue.contains { $0.id == item.id }
         guard stillThere else {
-            notice = "这条已经不在队列里了（可能已经开始执行），改动没有保存"
+            notice = L("这条已经不在队列里了（可能已经开始执行），改动没有保存", "This item is already running — your edit wasn't saved")
             editing = nil
             return
         }
@@ -200,7 +200,7 @@ struct QueueSheet: View {
             if let err = await model.editQueued(itemId: item.id, newText: draft.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 notice = err
             } else {
-                notice = "已保存"
+                notice = L("已保存", "Saved")
             }
             editing = nil
         }

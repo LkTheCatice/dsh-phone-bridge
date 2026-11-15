@@ -83,11 +83,11 @@ struct EntryDetailSheet: View {
 
     private var title: String {
         switch entry.kind {
-        case .toolCall, .toolResult: return "运行详情"
-        case .collapsedSteps: return "本轮过程"
+        case .toolCall, .toolResult: return L("运行详情", "Run details")
+        case .collapsedSteps: return L("本轮过程", "Turn trace")
         default:
-            if showRaw { return "原文" }
-            return (hasTable && tablesOnly) ? "表格" : "完整内容"
+            if showRaw { return L("原文", "Raw") }
+            return (hasTable && tablesOnly) ? L("表格", "Table") : L("完整内容", "Full content")
         }
     }
 
@@ -132,10 +132,10 @@ struct EntryDetailSheet: View {
         }
 
         if let summary = entry.summary, !summary.isEmpty {
-            labeled("摘要", summary)
+            labeled(L("摘要", "Summary"), summary)
         }
         if let detail = entry.detail, !detail.isEmpty {
-            labeled("详情", detail, monospaced: true)
+            labeled(L("详情", "Details"), detail, monospaced: true)
         }
         if entry.detail == nil, entry.summary == nil {
             Text(L("这一步没有更多信息", "No more details for this step"))

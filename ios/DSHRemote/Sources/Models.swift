@@ -155,11 +155,11 @@ struct ComfyStatus: Equatable {
     var url: String = ""
 
     var label: String {
-        if !online { return "ComfyUI 离线" }
+        if !online { return L("ComfyUI 离线", "ComfyUI offline") }
         if generating {
-            return pending > 0 ? "生图中 · 队列 \(pending)" : "生图中"
+            return pending > 0 ? L("生图中 · 队列 \(pending)", "Image busy · \\(pending) queued") : L("生图中", "Image busy")
         }
-        return pending > 0 ? "空闲 · 队列 \(pending)" : "空闲"
+        return pending > 0 ? L("空闲 · 队列 \(pending)", "Idle · \\(pending) queued") : L("空闲", "Idle")
     }
 }
 
@@ -196,15 +196,15 @@ enum SendMode: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .queue: return "排队"
-        case .steer: return "插队"
+        case .queue: return L("排队", "Queued")
+        case .steer: return L("插队", "Jump")
         }
     }
 
     var hint: String {
         switch self {
-        case .queue: return "等当前这轮跑完再处理"
-        case .steer: return "立刻打断当前这轮"
+        case .queue: return L("等当前这轮跑完再处理", "Runs after the current turn")
+        case .steer: return L("立刻打断当前这轮", "Interrupts the current turn")
         }
     }
 }

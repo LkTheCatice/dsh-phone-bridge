@@ -327,7 +327,7 @@ struct ImageViewer: View {
 
     private func saveToPhotos() {
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        withAnimation { savedToast = "已保存到相册" }
+        withAnimation { savedToast = L("已保存到相册", "Saved to Photos") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             withAnimation { savedToast = nil }
         }

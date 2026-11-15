@@ -66,8 +66,8 @@ enum PairingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .badURI: return "配对串格式不对，应以 dshnb://pair? 开头"
-        case .missingField(let f): return "配对串缺少字段：\(f)"
+        case .badURI: return L("配对串格式不对，应以 dshnb://pair? 开头", "Invalid pairing code — it should start with dshnb://pair?")
+        case .missingField(let f): return L("配对串缺少字段：\(f)", "Pairing code is missing: \\(f)")
         }
     }
 }

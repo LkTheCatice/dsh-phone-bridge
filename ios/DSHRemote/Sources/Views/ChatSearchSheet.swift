@@ -69,12 +69,12 @@ struct ChatSearchSheet: View {
 
     private func roleLabel(_ entry: ChatEntry) -> String {
         switch entry.kind {
-        case .user: return "我"
+        case .user: return L("我", "Me")
         case .assistant: return "AI"
-        case .thinking: return "思考"
-        case .toolCall: return "工具"
-        case .fileOutput, .fileSummary: return "产物"
-        default: return "系统"
+        case .thinking: return L("思考", "Thinking")
+        case .toolCall: return L("工具", "Tools")
+        case .fileOutput, .fileSummary: return L("产物", "Artifacts")
+        default: return L("系统", "System")
         }
     }
 

@@ -9,7 +9,7 @@ import Foundation
 /// 断线由调用方带 `since` 重连，服务端环形缓冲补齐缺口。
 enum EventStream {
     struct Unavailable: LocalizedError {
-        var errorDescription: String? { "无法构造事件流地址" }
+        var errorDescription: String? { L("无法构造事件流地址", "Couldn't build the event stream URL") }
     }
 
     static func run(
@@ -26,7 +26,7 @@ enum EventStream {
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw BridgeServerError(status: code, code: "stream", message: "事件流被拒绝")
+            throw BridgeServerError(status: code, code: "stream", message: L("事件流被拒绝", "Event stream was rejected"))
         }
 
         let decrypt = client.openDecryptor()

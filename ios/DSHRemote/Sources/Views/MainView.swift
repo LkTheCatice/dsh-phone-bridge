@@ -168,17 +168,17 @@ struct DisconnectBanner: View {
 
     private var title: String {
         switch model.phase {
-        case .connecting: return "正在连接电脑…"
-        case .failed: return "连接失败"
-        default: return "与电脑断开"
+        case .connecting: return L("正在连接电脑…", "Connecting to your computer…")
+        case .failed: return L("连接失败", "Failed")
+        default: return L("与电脑断开", "Disconnected")
         }
     }
 
     private var detail: String {
         switch model.phase {
-        case .connecting: return "同时尝试 Tailscale 和局域网"
+        case .connecting: return L("同时尝试 Tailscale 和局域网", "Trying Tailscale and the LAN")
         case .failed(let reason): return reason
-        default: return "点「重连」立刻重试；也可以检查电脑上的 DSH 是否在跑"
+        default: return L("点「重连」立刻重试；也可以检查电脑上的 DSH 是否在跑", "Tap Reconnect to retry, or check that DSH is running on the computer")
         }
     }
 }

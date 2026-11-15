@@ -98,7 +98,7 @@ struct ModelPickerSheet: View {
         if let selected, let match = option.efforts.first(where: { $0.id == selected }) {
             return match.name
         }
-        return "推理 \(option.efforts.count) 档"
+        return L("推理 \(option.efforts.count) 档", "\\(option.efforts.count) levels")
     }
 
     /// 有档位的先选档位，没有再直接切

@@ -158,9 +158,9 @@ struct FileOutputSheet: View {
                 let clipped = data.prefix(200 * 1024)
                 textBody = String(data: clipped, encoding: .utf8)
                     ?? String(data: clipped, encoding: .isoLatin1)
-                    ?? "（无法按文本解析）"
+                    ?? L("（无法按文本解析）", "(can't parse as text)")
             } else {
-                error = "读不到文件内容（可能不在电脑允许的目录里）"
+                error = L("读不到文件内容（可能不在电脑允许的目录里）", "Can't read the file (maybe outside the allowed folders)")
             }
         }
     }
@@ -174,19 +174,19 @@ struct FileOutputSheet: View {
         do {
             let data = try await model.download(path: path, preview: true, maxWidth: 2048)
             guard let image = UIImage(data: data) else {
-                error = "这张图读不出来"
+                error = L("这张图读不出来", "Can't load this image")
                 return
             }
             annotateImage = image
         } catch {
-            self.error = "取原图失败：\(error.localizedDescription)"
+            self.error = L("取原图失败：\(error.localizedDescription)", "Failed to fetch the original: \\(error.localizedDescription)")
         }
     }
 
     /// 标注完成：存相册（产物在电脑上，手机上最自然的去处就是相册）
     private func saveAnnotated(_ image: UIImage) {
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        model.showToast("已存到相册")
+        model.showToast(L("已存到相册", "Saved to Photos"))
     }
 
     private func download() async {
@@ -194,14 +194,14 @@ struct FileOutputSheet: View {
         defer { loading = false }
         do {
             let data = try await model.download(path: path)
-            guard !data.isEmpty else { error = "文件为空"; return }
+            guard !data.isEmpty else { error = L("文件为空", "File is empty"); return }
             let dir = FileManager.default.temporaryDirectory
             let url = dir.appendingPathComponent(name.isEmpty ? "download.bin" : name)
             try data.write(to: url)
             shareURL = url
             showShare = true
         } catch {
-            self.error = "下载失败：\(error.localizedDescription)"
+            self.error = L("下载失败：\(error.localizedDescription)", "Download failed: \\(error.localizedDescription)")
         }
     }
 }

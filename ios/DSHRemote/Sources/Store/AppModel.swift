@@ -1083,7 +1083,7 @@ final class AppModel: ObservableObject {
                 currentModel = option
             }
         } catch {
-            lastError = "读取模型列表失败：\(error.localizedDescription)"
+            lastError = L("读取模型列表失败：\(error.localizedDescription)", "Failed to load models: \\(error.localizedDescription)")
         }
     }
 
@@ -1101,7 +1101,7 @@ final class AppModel: ObservableObject {
             )
             currentModel = option
         } catch {
-            lastError = "切换模型失败：\(error.localizedDescription)"
+            lastError = L("切换模型失败：\(error.localizedDescription)", "Model switch failed: \\(error.localizedDescription)")
         }
     }
 
@@ -1206,7 +1206,7 @@ final class AppModel: ObservableObject {
     ///
     /// 只动 `.user`：
     ///   · 这一轮的点亮，其它轮的统一熄掉（同一时刻只该有一条在跑）
-    ///   · 排队/插队的那种本来就不是"正在处理"，交给 queued / steering 那两套标记
+    ///   · 排队/插队的那种本来就不是L("正在处理", "Working")，交给 queued / steering 那两套标记
     private func setUserProcessing(_ sessionId: String, turn: Int, on: Bool) {
         guard var list = entries[sessionId], !list.isEmpty else { return }
         var changed = false
@@ -1609,7 +1609,7 @@ final class AppModel: ObservableObject {
             lastError = nil
         } catch {
             lastError = error.localizedDescription
-            append(selectedSessionId ?? "pending", ChatEntry(id: UUID().uuidString, kind: .system, text: "发送失败：\(error.localizedDescription)", at: Date()))
+            append(selectedSessionId ?? "pending", ChatEntry(id: UUID().uuidString, kind: .system, text: L("发送失败：\(error.localizedDescription)", "Send failed: \\(error.localizedDescription)"), at: Date()))
         }
         let tEnd = CFAbsoluteTimeGetCurrent()
         trace("s9-total=\(Int((tEnd - t0) * 1000))ms")
@@ -1640,7 +1640,7 @@ final class AppModel: ObservableObject {
         attachCommand: Bool = true
     ) async throws {
         guard let client else {
-            throw BridgeServerError(status: 0, code: "offline", message: "未连接")
+            throw BridgeServerError(status: 0, code: "offline", message: L("未连接", "Offline"))
         }
         _ = client
         let title = sessionList.rows.first(where: { $0.id == selectedSessionId })?.displayTitle ?? ""
@@ -1657,7 +1657,7 @@ final class AppModel: ObservableObject {
     /// 在电脑上真的新建一个会话（不是只清空本地选择）
     func createNewSession() async {
         guard let client else {
-            lastError = "未连接电脑，无法新建会话"
+            lastError = L("未连接电脑，无法新建会话", "Not connected to the computer; can't start a session")
             return
         }
         guard !isCreatingSession else { return }
@@ -1669,7 +1669,7 @@ final class AppModel: ObservableObject {
             // 传了白名单根会另建一个工作区，桌面端列表里看不到这个会话。
             let result = try await client.newSession()
             guard let sid = result["sessionId"] as? String, !sid.isEmpty else {
-                lastError = "服务端没有返回新会话 id"
+                lastError = L("服务端没有返回新会话 id", "The server didn't return a new session id")
                 return
             }
 
@@ -1697,7 +1697,7 @@ final class AppModel: ObservableObject {
             // ③ 再从服务端校准一次（force 绕过 2 秒节流）
             await refreshSessions(force: true)
         } catch {
-            lastError = "新建会话失败：\(error.localizedDescription)"
+            lastError = L("新建会话失败：\(error.localizedDescription)", "Couldn't start a session: \\(error.localizedDescription)")
         }
     }
 
@@ -1729,7 +1729,7 @@ final class AppModel: ObservableObject {
     /// 上传附件到工作区的 uploads/ 下，返回远端绝对路径（发送时塞进消息里）
     func uploadAttachment(_ data: Data, filename: String) async throws -> String {
         guard let client else {
-            throw BridgeServerError(status: 0, code: "offline", message: "未连接")
+            throw BridgeServerError(status: 0, code: "offline", message: L("未连接", "Offline"))
         }
         _ = client
         let root = (roots.first ?? "").replacingOccurrences(of: "\\", with: "/")
@@ -1778,7 +1778,7 @@ final class AppModel: ObservableObject {
         }
 
         guard let payload = data else {
-            lastError = "读取不了这个文件：\(url.lastPathComponent)"
+            lastError = L("读取不了这个文件：\(url.lastPathComponent)", "Can't read this file: \\(url.lastPathComponent)")
             return
         }
         pendingIncoming = IncomingFile(name: url.lastPathComponent, data: payload)
@@ -2033,7 +2033,7 @@ final class AppModel: ObservableObject {
         } catch {
             suppressTrim = false
             endBatch()
-            lastError = "读取历史失败：\(error.localizedDescription)"
+            lastError = L("读取历史失败：\(error.localizedDescription)", "Failed to load history: \\(error.localizedDescription)")
         }
     }
 
@@ -2108,9 +2108,9 @@ final class AppModel: ObservableObject {
     // itemId 用队列项的 id（agent/inbox/spliced 事件里 inserted[i].id）。
 
     func editQueued(itemId: String, newText: String) async -> String? {
-        guard let client, let sid = selectedSessionId else { return "未连接" }
+        guard let client, let sid = selectedSessionId else { return L("未连接", "Offline") }
         guard chat.queue.contains(where: { $0.id == itemId }) else {
-            return "这条已经不在队列里了"
+            return L("这条已经不在队列里了", "This item is no longer queued")
         }
         do {
             _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "edit", text: newText)
@@ -2121,9 +2121,9 @@ final class AppModel: ObservableObject {
     }
 
     func removeQueued(itemId: String) async -> String? {
-        guard let client, let sid = selectedSessionId else { return "未连接" }
+        guard let client, let sid = selectedSessionId else { return L("未连接", "Offline") }
         guard chat.queue.contains(where: { $0.id == itemId }) else {
-            return "这条已经不在队列里了"
+            return L("这条已经不在队列里了", "This item is no longer queued")
         }
         do {
             _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "remove")
@@ -2134,9 +2134,9 @@ final class AppModel: ObservableObject {
     }
 
     func steerQueued(itemId: String) async -> String? {
-        guard let client, let sid = selectedSessionId else { return "未连接" }
+        guard let client, let sid = selectedSessionId else { return L("未连接", "Offline") }
         guard let item = chat.queue.first(where: { $0.id == itemId }) else {
-            return "这条已经不在队列里了"
+            return L("这条已经不在队列里了", "This item is no longer queued")
         }
         do {
             _ = try await client.updateQueue(sessionId: sid, itemId: itemId, kind: "steer")
@@ -2214,7 +2214,7 @@ final class AppModel: ObservableObject {
         maxWidth: Int? = nil,
         onProgress: ((Int64, Int64) -> Void)? = nil
     ) async throws -> Data {
-        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
+        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: L("未连接", "Offline")) }
         if preview {
             // 预览图由电脑侧一次性生成，不必分块
             return try await client.readFile(
@@ -2245,7 +2245,7 @@ final class AppModel: ObservableObject {
     }
 
     func upload(localData: Data, remotePath: String, chunkSize: Int = 1024 * 1024) async throws {
-        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: "未连接") }
+        guard let client else { throw BridgeServerError(status: 0, code: "offline", message: L("未连接", "Offline")) }
         var offset = 0
         if localData.isEmpty {
             _ = try await client.writeFile(path: remotePath, offset: 0, truncate: true, data: Data())

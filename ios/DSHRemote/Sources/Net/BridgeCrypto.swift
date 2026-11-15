@@ -20,9 +20,9 @@ enum BridgeCryptoError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .badServerKey: return "服务器公钥格式不对（需要 32 字节 X25519 raw）"
-        case .notCombined: return "AES-GCM 封包缺少 combined 表示"
-        case .decryptFailed: return "解密失败：密钥或 AAD 不一致，或数据被篡改"
+        case .badServerKey: return L("服务器公钥格式不对（需要 32 字节 X25519 raw）", "Server public key has the wrong format (expected 32-byte raw X25519)")
+        case .notCombined: return L("AES-GCM 封包缺少 combined 表示", "AES-GCM packet is missing its combined form")
+        case .decryptFailed: return L("解密失败：密钥或 AAD 不一致，或数据被篡改", "Decryption failed: key/AAD mismatch or tampered data")
         }
     }
 }

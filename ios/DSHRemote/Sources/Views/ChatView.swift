@@ -336,7 +336,7 @@ struct ChatView: View {
                             Button {
                                 showingModels = true
                             } label: {
-                                Label(model.currentModel.map { "模型 · \($0.name)" } ?? L("选择模型", "Choose model"),
+                                Label(model.currentModel.map { L("模型 · \($0.name)", "Model · \\($0.name)") } ?? L("选择模型", "Choose model"),
                                       systemImage: "cpu")
                             }
                             Divider()
@@ -431,10 +431,10 @@ struct ChatView: View {
     /// 连接状态文案，和 ComfyUI 分开放
     private var connectionShort: String {
         switch model.phase {
-        case .connected: return "已连接"
-        case .connecting: return "连接中"
-        case .failed: return "连接失败"
-        case .disconnected: return "未连接"
+        case .connected: return L("已连接", "Connected")
+        case .connecting: return L("连接中", "Connecting")
+        case .failed: return L("连接失败", "Failed")
+        case .disconnected: return L("未连接", "Offline")
         }
     }
 
@@ -465,9 +465,9 @@ struct ChatView: View {
     /// 上传进度文案：单张只说「正在上传」，多张带上 2/5
     private var uploadText: String {
         guard let progress = uploadProgress, progress.total > 1 else {
-            return "正在上传附件…"
+            return L("正在上传附件…", "Uploading attachment…")
         }
-        return "正在上传 \(min(progress.done + 1, progress.total))/\(progress.total)"
+        return L("正在上传 \(min(progress.done + 1, progress.total))/\(progress.total)", "Uploading \\(min(progress.done + 1, progress.total))/\\(progress.total)")
     }
 
     private var statusColor: Color {
@@ -801,12 +801,12 @@ struct ChatView: View {
     /// 两步变四步。这里直接读 `UIPasteboard.general.image`。
     private func pasteImageFromClipboard() {
         guard let image = UIPasteboard.general.image else {
-            model.showToast("剪贴板里没有图片")
+            model.showToast(L("剪贴板里没有图片", "No image in the clipboard"))
             return
         }
         // 统一压成 JPEG 再上传：截图常常是 PNG，体积能差 5–10 倍
         guard let data = image.jpegData(compressionQuality: 0.9) else {
-            model.showToast("这张图读不出来")
+            model.showToast(L("这张图读不出来", "Can't load this image"))
             return
         }
         uploading = true
@@ -816,7 +816,7 @@ struct ChatView: View {
                 let remote = try await model.uploadAttachment(data, filename: name)
                 attachments.append(remote)
             } catch {
-                model.showToast("粘贴失败：\(error.localizedDescription)")
+                model.showToast(L("粘贴失败：\(error.localizedDescription)", "Paste failed: \\(error.localizedDescription)"))
             }
             uploading = false
         }
@@ -919,7 +919,7 @@ struct ChatView: View {
                 attachments.append(remote)
                 uploadProgress = (index + 1, items.count)
             } catch {
-                model.showToast("第 \(index + 1) 张上传失败：\(error.localizedDescription)")
+                model.showToast(L("第 \(index + 1) 张上传失败：\(error.localizedDescription)", "Image \\(index + 1) failed: \\(error.localizedDescription)"))
                 uploadProgress = (index + 1, items.count)
             }
         }
@@ -946,7 +946,7 @@ struct ChatView: View {
                 attachments.append(remote)
                 uploadProgress = (index + 1, items.count)
             } catch {
-                model.showToast("第 \(index + 1) 个视频上传失败：\(error.localizedDescription)")
+                model.showToast(L("第 \(index + 1) 个视频上传失败：\(error.localizedDescription)", "Video \\(index + 1) failed: \\(error.localizedDescription)"))
                 uploadProgress = (index + 1, items.count)
             }
         }
@@ -964,7 +964,7 @@ struct ChatView: View {
             editingAttachmentIndex = index
             editorImage = image
         } catch {
-            model.showToast("打开编辑失败：\(error.localizedDescription)")
+            model.showToast(L("打开编辑失败：\(error.localizedDescription)", "Couldn't open the editor: \\(error.localizedDescription)"))
         }
     }
 
@@ -983,7 +983,7 @@ struct ChatView: View {
                 attachments[index] = remote
             }
         } catch {
-            model.showToast("替换失败：\(error.localizedDescription)")
+            model.showToast(L("替换失败：\(error.localizedDescription)", "Replace failed: \\(error.localizedDescription)"))
         }
     }
 
@@ -998,13 +998,13 @@ struct ChatView: View {
     private func handleFile(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            model.lastError = "选择文件失败：\(error.localizedDescription)"
+            model.lastError = L("选择文件失败：\(error.localizedDescription)", "File picker failed: \\(error.localizedDescription)")
         case .success(let urls):
             guard let url = urls.first else { return }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else {
-                model.lastError = "读取本地文件失败"
+                model.lastError = L("读取本地文件失败", "Couldn't read the local file")
                 return
             }
             uploading = true
@@ -1013,7 +1013,7 @@ struct ChatView: View {
                     let remote = try await model.uploadAttachment(data, filename: url.lastPathComponent)
                     attachments.append(remote)
                 } catch {
-                    model.showToast("上传失败：\(error.localizedDescription)")
+                    model.showToast(L("上传失败：\(error.localizedDescription)", "Upload failed: \\(error.localizedDescription)"))
                 }
                 uploading = false
             }
@@ -1100,11 +1100,11 @@ struct ComfyBadge: View {
     /// 必须带「画图」前缀：光写「离线」会和旁边的连接状态混在一起，
     /// 让人以为整个 App 掉线（其实只是画图服务没开）。
     private var short: String {
-        if !comfy.status.online { return "画图离线" }
+        if !comfy.status.online { return L("画图离线", "Image offline") }
         if comfy.status.generating {
-            return comfy.status.pending > 0 ? "画图中 \(comfy.status.pending)" : "画图中"
+            return comfy.status.pending > 0 ? L("画图中 \(comfy.status.pending)", "Image busy (\\(comfy.status.pending))") : L("画图中", "Image busy")
         }
-        return "画图空闲"
+        return L("画图空闲", "Image idle")
     }
 }
 

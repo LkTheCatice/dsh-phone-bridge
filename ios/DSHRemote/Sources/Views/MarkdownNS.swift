@@ -59,7 +59,7 @@ enum MarkdownNS {
         } else {
             visible = blocks
         }
-        if visible.isEmpty { return NSAttributedString(string: "（这条消息里没有表格）") }
+        if visible.isEmpty { return NSAttributedString(string: L("（这条消息里没有表格）", "(no table in this message)")) }
         var tableIndex = 0
         for (index, block) in visible.enumerated() {
             // 段与段之间：用段落样式给「段后距」，而不是靠空行撑 ——
@@ -74,7 +74,7 @@ enum MarkdownNS {
                 tableIndex += 1
                 if tableIndex > 1 {
                     out.append(NSAttributedString(
-                        string: "\n▦ 第 \(tableIndex) 张表\n",
+                        string: L("\n▦ 第 \(tableIndex) 张表\n", "\\n▦ Table \\(tableIndex)\\n"),
                         attributes: [
                             .font: UIFont.systemFont(ofSize: 11, weight: .medium),
                             .foregroundColor: UIColor.secondaryLabel,
@@ -416,7 +416,7 @@ enum MarkdownNS {
                     let truncated = rows.count > shown.count || widestCell > 24
                     if truncated && mode == .compact, let url = URL(string: "dsh://detail") {
                         // 灰色 + 下划线表示可点：不再占用主题蓝（那是"主要操作"的颜色）
-                        let hint = NSMutableAttributedString(string: "查看完整表格（\(rows.count) 行） ›", attributes: [
+                        let hint = NSMutableAttributedString(string: L("查看完整表格（\(rows.count) 行） ›", "See the full table (\\(rows.count) rows) ›"), attributes: [
                             .font: UIFont.systemFont(ofSize: 12, weight: .regular),
                             .foregroundColor: UIColor.secondaryLabel,
                             .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -622,7 +622,7 @@ enum MarkdownNS {
                 }
                 if rows.count > rowLimit, let url = URL(string: "dsh://detail") {
                     card.append(NSAttributedString(
-                        string: "\n▦ 还有 \(rows.count - rowLimit) 行 · 点按看完整版 ›",
+                        string: L("\n▦ 还有 \(rows.count - rowLimit) 行 · 点按看完整版 ›", "\\n▦ \\(rows.count - rowLimit) more rows · tap for the full table ›"),
                         attributes: [
                             .font: UIFont.systemFont(ofSize: 12, weight: .medium),
                             .foregroundColor: UIColor.tintColor,
@@ -688,8 +688,8 @@ enum MarkdownNS {
             if !isFull, rows.count > rowLimit || hiddenColumns > 0 || didTruncateCells {
                 // 说明 + 入口合成一行，别再分两行占高度（用户实拍觉得像乱码那一版）。
                 var label = L("▦ 表格已折叠", "▦ Table collapsed")
-                if hiddenColumns > 0 { label += "（还有 \(hiddenColumns) 列）" }
-                if rows.count > rowLimit { label += "（还有 \(rows.count - rowLimit) 行）" }
+                if hiddenColumns > 0 { label += L("（还有 \(hiddenColumns) 列）", "(\\(hiddenColumns) more columns)") }
+                if rows.count > rowLimit { label += L("（还有 \(rows.count - rowLimit) 行）", "(\\(rows.count - rowLimit) more rows)") }
                 label += L(" · 点按看完整版 ›", " · tap for the full table ›")
                 if let url = URL(string: "dsh://detail") {
                     out.append(NSAttributedString(
@@ -822,7 +822,7 @@ enum MarkdownNS {
 
     private static func clampCode(_ code: String) -> String {
         code.count > 4_000
-            ? String(code.prefix(4_000)) + "\n…（其余 \(code.count - 4_000) 字已省略）"
+            ? String(code.prefix(4_000)) + L("\n…（其余 \(code.count - 4_000) 字已省略）", "\\n… (\\(code.count - 4_000) more characters omitted)")
             : code
     }
 }

@@ -27,7 +27,7 @@ struct IncomingFileSheet: View {
                     LabeledContent(L("名称", "Name"), value: file.name)
                     LabeledContent(L("大小", "Size"), value: file.formattedSize)
                     if file.isImage {
-                        LabeledContent(L("类型", "Type"), value: "图片")
+                        LabeledContent(L("类型", "Type"), value: L("图片", "Photo"))
                     }
                 }
 
@@ -112,7 +112,7 @@ struct IncomingFileSheet: View {
             model.pendingIncoming = nil
             dismiss()
         } catch {
-            localError = "发送失败：\(error.localizedDescription)"
+            localError = L("发送失败：\(error.localizedDescription)", "Send failed: \\(error.localizedDescription)")
         }
     }
 }

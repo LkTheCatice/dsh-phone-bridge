@@ -44,18 +44,18 @@ struct PairingView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         OnboardingStep(
                             index: 1,
-                            title: "电脑上生成配对串",
-                            detail: "在电脑打开终端，运行 node bridge/bin/pairing.mjs"
+                            title: L("电脑上生成配对串", "Generate a pairing code on the computer"),
+                            detail: L("在电脑打开终端，运行 node bridge/bin/pairing.mjs", "Open a terminal on the computer and run node bridge/bin/pairing.mjs")
                         )
                         OnboardingStep(
                             index: 2,
-                            title: "粘到下面",
-                            detail: "复制打印出的 dshnb://pair?... 整串，点「从剪贴板粘贴」"
+                            title: L("粘到下面", "Paste it below"),
+                            detail: L("复制打印出的 dshnb://pair?... 整串，点「从剪贴板粘贴」", "Copy the whole dshnb://pair?... string, then tap Paste from clipboard")
                         )
                         OnboardingStep(
                             index: 3,
-                            title: "电脑上批准这台手机",
-                            detail: "首次连接会出现在 DSH 的「设置 → 手机设备」，点允许即可"
+                            title: L("电脑上批准这台手机", "Approve this phone on the computer"),
+                            detail: L("首次连接会出现在 DSH 的「设置 → 手机设备」，点允许即可", "The first connection shows up in DSH → Settings → Phone devices; tap Allow")
                         )
                     }
                     .padding(.vertical, 4)

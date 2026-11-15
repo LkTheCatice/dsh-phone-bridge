@@ -193,9 +193,9 @@ struct SessionListSheet: View {
     private func subtitle(_ session: SessionRow) -> String {
         var parts: [String] = []
         if session.running || sessionList.running.contains(session.id) {
-            parts.append("正在处理")
+            parts.append(L("正在处理", "Working"))
         } else if model.unreadSessions.contains(session.id) {
-            parts.append("已完成")
+            parts.append(L("已完成", "Done"))
         }
         if !session.timeLabel.isEmpty { parts.append(session.timeLabel) }
         if parts.isEmpty { parts.append(session.cwdName ?? session.cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "") }
