@@ -47,19 +47,20 @@ struct RootView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(.regularMaterial, in: Capsule())
+                    // 效率档不用模糊材质（省 GPU），换成不透明的次级背景
+                    .background(Motion.material(.regularMaterial, fallback: Color(.secondarySystemBackground)), in: Capsule())
                     .overlay(Capsule().strokeBorder(.quaternary))
                     .padding(.horizontal, 24)
                     .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
                     .onTapGesture {
                         model.toast = nil
                         model.lastError = nil
                     }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.toast)
-        .animation(.easeInOut(duration: 0.2), value: model.lastError)
+        .animation(Motion.anim(.easeInOut(duration: 0.2)), value: model.toast)
+        .animation(Motion.anim(.easeInOut(duration: 0.2)), value: model.lastError)
         .onChange(of: model.lastError) { error in
             // lastError 也走 3 秒自动消失
             guard let error, !error.isEmpty else { return }

@@ -67,10 +67,10 @@ struct LaunchOverlay: View {
         }
         .task {
             // 入场
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
+            withAnimation(Motion.spring(0.42)) {
                 markScale = 1
             }
-            withAnimation(.easeOut(duration: 0.22).delay(0.06)) {
+            withAnimation(Motion.anim(.easeOut(duration: 0.22).delay(0.06))) {
                 titleOpacity = 1
             }
 
@@ -92,7 +92,7 @@ struct LaunchOverlay: View {
             }
 
             let dwellMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
-            withAnimation(.easeInOut(duration: 0.50)) {
+            withAnimation(Motion.anim(.easeInOut(duration: 0.50))) {
                 leaving = true
             }
             try? await Task.sleep(nanoseconds: 520_000_000)

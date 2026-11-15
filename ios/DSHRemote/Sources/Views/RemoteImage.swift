@@ -209,7 +209,10 @@ struct ImageViewer: View {
                 .scaledToFit()
                 .scaleEffect(scale)
                 .offset(offset)
-                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.82), value: scale)
+                .animation(Motion.enabled
+                       ? .interactiveSpring(response: 0.28, dampingFraction: 0.82)
+                       : nil,
+                       value: scale)
                 .gesture(
                     MagnificationGesture()
                         .onChanged { value in

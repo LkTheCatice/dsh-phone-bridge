@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var wallet: WalletStore
     @ObservedObject private var lang = I18N.shared
     @ObservedObject private var theme = UITheme.shared
+    @ObservedObject private var motion = UIMotion.shared
     @State private var confirmingForget = false
 
     var body: some View {
@@ -21,6 +22,27 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+
+                // 动效：效率 / 均衡 / 质量。影响所有过渡、材质与入场动作
+                Section {
+                    Picker(L("动效", "Motion"), selection: Binding(
+                        get: { motion.level },
+                        set: { motion.set($0) }
+                    )) {
+                        ForEach(MotionLevel.allCases) { item in
+                            Text(item.label).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(motion.reduceMotion
+                         ? L("系统已开启「减弱动态效果」，这里按效率执行。",
+                             "Reduce Motion is on in iOS, so Efficiency applies regardless.")
+                         : motion.level.summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(L("动效", "Motion"))
                 }
 
                 // 语言：跟随系统 / 中文 / English。切换即时生效（不重启 App）

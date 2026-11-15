@@ -124,7 +124,7 @@ struct DisconnectBanner: View {
 
             // 划掉：临时让开视线，5 秒后如果还没连上会自己回来
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(Motion.anim(.easeInOut(duration: 0.18))) {
                     model.dismissDisconnectBanner()
                 }
             } label: {
@@ -260,7 +260,7 @@ struct BannerHost: View {
             // 不要直接判 phase —— 重连时它会在 failed/connected 之间反复跳。
             if model.showDisconnectBanner {
                 DisconnectBanner()
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
             }
             if let approval = model.pendingApprovals.first {
                 ApprovalBanner(approval: approval)
@@ -269,8 +269,8 @@ struct BannerHost: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)
-        .animation(.easeInOut(duration: 0.2), value: model.pendingApprovals.count)
-        .animation(.easeInOut(duration: 0.22), value: model.showDisconnectBanner)
-        .animation(.easeInOut(duration: 0.2), value: model.suppressDisconnect)
+        .animation(Motion.anim(.easeInOut(duration: 0.2)), value: model.pendingApprovals.count)
+        .animation(Motion.anim(.easeInOut(duration: 0.22)), value: model.showDisconnectBanner)
+        .animation(Motion.anim(.easeInOut(duration: 0.2)), value: model.suppressDisconnect)
     }
 }
