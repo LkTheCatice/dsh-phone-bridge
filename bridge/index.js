@@ -1631,7 +1631,12 @@ function applyBridge(ctx, config) {
   function corsHeaders(res) {
     res.setHeader("access-control-allow-origin", "*");
     res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-    res.setHeader("access-control-allow-headers", "content-type");
+    // 必须把设置面板真正会发的头都列出来，否则浏览器的预检直接失败，
+    // fetch 只报一句 "Failed to fetch"（实拍：DSH 设置里的「手机设备」读不到列表）。
+    //   x-dsh-admin —— /admin/* 的 CSRF 闸门要求的头
+    //   x-dsh-token —— 手机侧接口用
+    //   authorization —— 另一种携带方式
+    res.setHeader("access-control-allow-headers", "content-type, x-dsh-admin, x-dsh-token, authorization");
     res.setHeader("access-control-max-age", "600");
   }
 
