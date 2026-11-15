@@ -553,12 +553,12 @@ extension MessageCell: UIContextMenuInteractionDelegate {
             guard let self else { return nil }
             var actions: [UIMenuElement] = []
 
-            actions.append(UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { _ in
+            actions.append(UIAction(title: L("复制", "Copy"), image: UIImage(systemName: "doc.on.doc")) { _ in
                 UIPasteboard.general.string = text
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             })
 
-            actions.append(UIAction(title: "引用到输入框", image: UIImage(systemName: "text.quote")) { _ in
+            actions.append(UIAction(title: L("引用到输入框", "Quote in composer"), image: UIImage(systemName: "text.quote")) { _ in
                 let quoted = text
                     .split(separator: "\n", omittingEmptySubsequences: false)
                     .prefix(6)
@@ -572,7 +572,7 @@ extension MessageCell: UIContextMenuInteractionDelegate {
             // 所有能取到文本的条目都能转发：
             //   · 产物行 → 转发文件路径（手机打不开的类型也能转）
             //   · 其它（AI 回复 / 我的消息 / 工具行）→ 转发文本
-            actions.append(UIAction(title: "转发到其它会话", image: UIImage(systemName: "paperplane")) { _ in
+            actions.append(UIAction(title: L("转发到其它会话", "Forward to another chat"), image: UIImage(systemName: "paperplane")) { _ in
                 if let url = URL(string: "dsh://forward") {
                     self.onOpenLink?(url)
                 }
@@ -828,13 +828,32 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         guard let entry = currentEntry else { return }
         switch entry.kind {
         case .toolCall, .collapsedSteps:
+            tapFeedback()
             onTapEntry?(entry.id)
         case .fileSummary:
             break          // 清单卡每一行有自己的点击区，整卡点击不做事
         case .fileOutput:
+            tapFeedback()
             onTapFile?(entry.id)
+        case .thinking:
+            // 思考行也能点：展开到「本轮过程」看全文（原来点它完全没反应）
+            tapFeedback()
+            onTapEntry?(entry.id)
         default:
             break
+        }
+    }
+
+    /// 点击反馈：轻触感 + 90ms 的轻微变暗。
+    /// 之前点工具行就是"直接弹 sheet"，没有任何按下感，容易以为没点中。
+    private func tapFeedback() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        UIView.animate(withDuration: 0.06) {
+            self.contentView.alpha = 0.55
+        } completion: { _ in
+            UIView.animate(withDuration: 0.18) {
+                self.contentView.alpha = 1
+            }
         }
     }
 
