@@ -489,7 +489,12 @@ function applyBridge(ctx, config) {
   /// 这是**内部字段**，DSH 换版本可能变；所以整段 try/catch + 留痕，
   /// 失败也不影响答案已经正确返回这件事。
   function closeDesktopPanel(agent, callId) {
-    if (!agent || !callId) return;
+    if (!agent || !callId) {
+      // 没有 callId 说明这次提问不是 timed（没走 askTimed），
+      // 宿主侧没有 wait 可关 —— 只能靠前端自己的倒计时。
+      logLine({ step: "ask.desktop-close", ok: false, why: "not-timed", hasAgent: Boolean(agent), hasCallId: Boolean(callId) });
+      return;
+    }
     try {
       const uq = ctx.get?.("userQuestions") || ctx.userQuestions;
       const waits = uq?.waits;
