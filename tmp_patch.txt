@@ -1,3 +1,2 @@
-OK Core/Motion.swift :: stream-interval
-OK Store/AppModel.swift :: enqueue-call
-OK Store/AppModel.swift :: enqueue-fn
+MISS Store/AppModel.swift :: hb-interval
+OK Core/Motion.swift :: summaries

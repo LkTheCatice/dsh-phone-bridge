@@ -26,14 +26,14 @@ enum MotionLevel: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .efficiency:
-            return L("关闭过渡与模糊，列表插入、提示条、跳转都直接到位。最省电、最不容易卡。",
-                     "No transitions or blur — inserts, toasts and jumps land instantly. Cheapest and smoothest on old devices.")
+            return L("无过渡、无模糊；流式文字约每 0.12 秒成段出现。最省电，老机型最跟手。",
+                     "No transitions or blur; streaming text lands in ~0.12s chunks. Cheapest and smoothest on older phones.")
         case .balanced:
-            return L("默认。保留必要的过渡（提示条、横幅），其它即时生效。",
-                     "Default. Keeps the transitions that carry meaning (toasts, banners); everything else is instant.")
+            return L("默认。保留提示条与横幅的过渡；流式文字约每 0.03 秒更新。",
+                     "Default. Toasts and banners keep their transitions; streaming text updates every ~0.03s.")
         case .quality:
-            return L("过渡更从容：弹性回弹、轻微缩放、材质模糊。比均衡更「贵」一点。",
-                     "More generous motion: springs, slight scale, blur materials. A bit more expensive than Balanced.")
+            return L("过渡更从容（弹簧回弹、轻微缩放）；流式文字接近逐字。",
+                     "More generous motion (springs, slight scale); streaming text is nearly per-character.")
         }
     }
 }

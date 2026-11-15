@@ -1509,8 +1509,9 @@ final class AppModel: ObservableObject {
                 }
             }
 
-            // ② 每 10 秒：无条件心跳（计数在 10 秒窗口内累计）
-            guard watchdogStats.ticks % 40 == 0 else { return }
+            // · 每 60 秒：打一条带计数的诊断（0.25s × 240）。
+            //   原来 10 秒一条，一天一万七千行，纯噪音；看趋势 60 秒足够。
+            guard watchdogStats.ticks % 240 == 0 else { return }
             let b = watchdogStats.bodies
             let f = watchdogStats.follows
             let s = watchdogStats.submits
