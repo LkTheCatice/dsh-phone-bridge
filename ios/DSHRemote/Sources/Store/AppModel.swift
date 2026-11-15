@@ -1268,21 +1268,21 @@ final class AppModel: ObservableObject {
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
     static func toolLabel(_ name: String) -> String {
         switch name {
-        case "pwsh", "bash", "shell", "terminal", "terminal_bash": return L("运行命令", "Ran a command")
+        case "pwsh", "bash", "shell", "terminal", "terminal_bash": return L("运行命令", "Ran")
         case "read", "read_image": return L("读取", "Read")
         case "write", "edit", "str_replace_editor", "str_replace": return L("写入", "Wrote")
-        case "present": return L("展示", "Presented")
+        case "present": return L("展示", "Showed")
         case "skill": return L("技能", "Skill")
-        case "todo_write": return L("任务清单", "Todo list")
-        case "subagent", "subagent_fork", "send_message", "list_agents": return L("子代理", "Subagent")
-        case "workflow": return L("编排", "Workflow")
+        case "todo_write": return L("任务清单", "Todos")
+        case "subagent", "subagent_fork", "send_message", "list_agents": return L("子代理", "Agent")
+        case "workflow": return L("编排", "Flow")
         case "web_search", "web_fetch": return L("联网", "Web")
         case "ask_user_question": return L("提问", "Asked")
-        case "load_workspace_dependencies": return L("环境准备", "Prepared env")
+        case "load_workspace_dependencies": return L("环境准备", "Env")
         default:
-            if name.hasPrefix("schedule") { return L("定时任务", "Scheduled job") }
-            if name.hasPrefix("job") { return L("后台任务", "Background job") }
-            if name.hasPrefix("video") { return L("视频分析", "Video analysis") }
+            if name.hasPrefix("schedule") { return L("定时任务", "Scheduled") }
+            if name.hasPrefix("job") { return L("后台任务", "Background") }
+            if name.hasPrefix("video") { return L("视频分析", "Video") }
             return name
         }
     }

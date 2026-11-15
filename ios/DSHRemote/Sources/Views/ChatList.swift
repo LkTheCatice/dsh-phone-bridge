@@ -747,6 +747,16 @@ final class MessageCell: UICollectionViewCell, UITextViewDelegate {
         }
     }
 
+    /// 工具行/思考行的段落样式：悬挂缩进 + 末行省略号。
+    /// 缩进量取 "> " 的宽度（等宽 12pt 两个字符 ≈ 15pt）。
+    static let hangingStyle: NSParagraphStyle = {
+        let p = NSMutableParagraphStyle()
+        p.firstLineHeadIndent = 0
+        p.headIndent = 15
+        p.lineBreakMode = .byTruncatingTail
+        return p
+    }()
+
     private var quotableText: String {
         guard let entry = currentEntry else { return "" }
         switch entry.kind {
@@ -1260,7 +1270,7 @@ enum MessageRender {
                 ? String(entry.text.prefix(charLimit))
                 : entry.text
             // 标签并进正文，字形/灰度与工具行一致
-            let text = "思考 · " + head
+            let text = L("思考 · ", "Thinking · ") + head
             // 属性必须**和工具行完全一致**：同样的字体/颜色，并且**不设 paragraphStyle**。
             // 之前这里多了一个 lineSpacing = 1，行高比工具行高 1pt —— 就是用户看到的
             // "思考行和别的 log 有轻微差别"。行数上限与省略号交给 cell 的
@@ -1270,6 +1280,8 @@ enum MessageRender {
                 attributes: [
                     .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel,
+                    // 悬挂缩进：英文句子换行后第二行对齐到正文，而不是顶到 "> " 左边
+                    .paragraphStyle: Self.hangingStyle,
                 ]
             )
         case .toolCall:
@@ -1282,6 +1294,8 @@ enum MessageRender {
                 attributes: [
                     .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel,
+                    // 同上："> 运行命令 · 很长的英文描述" 折行时保持缩进
+                    .paragraphStyle: Self.hangingStyle,
                 ]
             )
         case .fileOutput:
