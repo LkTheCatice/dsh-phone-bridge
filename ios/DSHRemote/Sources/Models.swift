@@ -48,6 +48,25 @@ struct SessionRow: Identifiable, Hashable {
         return date.formatted(date: .numeric, time: .omitted)
     }
 
+    /// 从 cwd 里取最后一段目录名。
+    ///
+    /// 不能用 `URL(fileURLWithPath:)`：电脑是 Windows，cwd 形如
+    /// `D:\Documents\deepseek-harness\default-workspace`，URL 会把反斜杠当成
+    /// 文件名的普通字符，`lastPathComponent` 返回整串 —— 于是分组标题
+    /// 显示成一条完整路径（实拍反馈）。
+    static func folderName(from cwd: String?) -> String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        let parts = cwd
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/", omittingEmptySubsequences: true)
+        guard let last = parts.last else {
+            // 盘符根目录（"D:" / "D:/"）没有最后一段，返回盘符
+            let trimmed = cwd.trimmingCharacters(in: CharacterSet(charactersIn: "\\/"))
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return String(last)
+    }
+
     static func parse(_ dict: [String: Any]) -> SessionRow? {
         guard let id = dict["id"] as? String ?? dict["sessionId"] as? String, !id.isEmpty else {
             return nil
@@ -61,7 +80,7 @@ struct SessionRow: Identifiable, Hashable {
             running: (dict["running"] as? Bool) ?? false,
             updatedAt: stamp,
             // 预计算：UI 每行都要用，别在 body 里解析 URL
-            cwdName: cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
+            cwdName: SessionRow.folderName(from: cwd)
         )
         row.favorite = (dict["favorite"] as? Bool) ?? false
         row.favoriteAt = (dict["favoriteAt"] as? NSNumber)?.doubleValue

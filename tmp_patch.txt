@@ -1,4 +1,1 @@
-OK Views/SessionListSheet.swift :: state-fav-filter
-OK Views/SessionListSheet.swift :: filter-favorites
-OK Views/SessionListSheet.swift :: swipe-favorite
-OK Views/SessionListSheet.swift :: row-star
+OK Models.swift :: parse-cwdname

@@ -34,6 +34,9 @@ struct SessionListSheet: View {
     /// 未分组的标题（会话没有 cwd，或者 cwd 解析不出目录名）
     private var noFolderTitle: String { L("未分组", "No folder") }
 
+    /// 「已归档」区块的折叠键（不是真实文件夹名，用个不会撞的哨兵）
+    private static let archivedKey = "__archived__"
+
     /// 把当前过滤结果按工作区文件夹分组。
     ///
     /// 之前是**一整个平铺列表** —— 会话一多就分不清哪个是哪个项目的，
@@ -43,7 +46,8 @@ struct SessionListSheet: View {
     private var grouped: [(title: String, rows: [SessionRow])] {
         var buckets: [String: [SessionRow]] = [:]
         for row in filtered {
-            let name = (row.cwdName ?? "").trimmingCharacters(in: .whitespaces)
+            let name = (row.cwdName ?? SessionRow.folderName(from: row.cwd) ?? "")
+                .trimmingCharacters(in: .whitespaces)
             buckets[name.isEmpty ? noFolderTitle : name, default: []].append(row)
         }
         return buckets
@@ -208,6 +212,7 @@ struct SessionListSheet: View {
                 // 下面还挂着一堆已归档会话，看起来像"收藏里混进了归档"（实拍反馈）。
                 if !sessionList.archived.isEmpty && !favoritesOnly && search.isEmpty {
                     Section {
+                        if !isCollapsed(Self.archivedKey) {
                         ForEach(sessionList.archived) { session in
                             Button {
                                 model.selectedSessionId = session.id
@@ -236,8 +241,22 @@ struct SessionListSheet: View {
                                 .tint(.accentColor)
                             }
                         }
+                        }
                     } header: {
-                        Text(L("已归档 \(sessionList.archived.count)", "Archived (\(sessionList.archived.count))"))
+                        Button {
+                            toggleFolder(Self.archivedKey)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isCollapsed(Self.archivedKey) ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 10)
+                                Text(L("已归档 \(sessionList.archived.count)", "Archived (\(sessionList.archived.count))"))
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
