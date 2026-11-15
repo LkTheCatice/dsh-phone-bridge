@@ -706,19 +706,28 @@ function applyBridge(ctx, config) {
   }
 
   try {
-    ctx.on("user-questions/request", async (request, next) => {
+    if (typeof ctx.on !== "function") throw new Error("ctx.on 不可用");
+    const off = ctx.on("user-questions/request", async function (request, next) {
+      // 记一行：证明这条 waterfall 真的到我们这儿了（排查时最关键的一条）
+      logLine({
+        step: "ask.hook",
+        sessions: streamClients.size,
+        qs: Array.isArray(request?.questions) ? request.questions.length : -1,
+        hasNext: typeof next === "function",
+      });
       if (streamClients.size === 0) return next();
       try {
         const answer = await waitForPhoneAnswer(request);
         if (answer) return answer;
-      } catch {
-        /* 出错就当没接，交回桌面 */
+      } catch (error) {
+        logLine({ step: "ask.hook.error", msg: String(error?.message || error) });
       }
       return next();
     });
-    console.log("[phone-bridge] 提问应答者已注册（手机可代答 ask_user_question）");
+    logLine({ step: "ask.registered", off: typeof off === "function" });
   } catch (error) {
-    console.warn("[phone-bridge] 提问应答者注册失败:", error?.message || error);
+    // 注册失败一定要留痕：console 输出在 DSH 里看不到
+    logLine({ step: "ask.register-failed", msg: String(error?.message || error) });
   }
 
   ctx.inject(["agents"], (scope) => {
