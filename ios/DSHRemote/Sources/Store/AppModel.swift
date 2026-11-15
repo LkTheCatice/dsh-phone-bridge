@@ -826,7 +826,9 @@ final class AppModel: ObservableObject {
                 at: Self.frameDate(frame),
                 running: true,
                 turn: turn,
-                summary: ToolSummary.make(from: detail)
+                // ask_user_question 只显示 "Asked" 的话，问题本身在手机上根本看不见。
+                // 摘要位置直接放问题正文，选项留在工具详情里。
+                summary: Self.askSummary(from: frame["args"]) ?? ToolSummary.make(from: detail)
             ))
 
         case "tool.result":
@@ -1315,6 +1317,18 @@ final class AppModel: ObservableObject {
     }
 
     /// 把工具名翻成电脑端那套中文动作词（"运行命令 / 读取 / 写入"…）
+    /// 从 ask_user_question 的参数里取第一句问题
+    static func askSummary(from args: Any?) -> String? {
+        guard let dict = args as? [String: Any],
+              let questions = dict["questions"] as? [[String: Any]],
+              let first = questions.first,
+              let text = first["question"] as? String,
+              !text.isEmpty
+        else { return nil }
+        let more = questions.count > 1 ? " (+" + String(questions.count - 1) + ")" : ""
+        return text + more
+    }
+
     static func toolLabel(_ name: String) -> String {
         switch name {
         case "pwsh", "bash", "shell", "terminal", "terminal_bash": return L("运行命令", "Ran")
