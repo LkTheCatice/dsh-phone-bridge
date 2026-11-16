@@ -53,6 +53,9 @@ targets:
           NSAllowsLocalNetworking: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          # 视频全屏要能横过来；平时由 AppDelegate 锁回竖屏
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIApplicationSupportsIndirectInputEvents: true
     settings:
       base:

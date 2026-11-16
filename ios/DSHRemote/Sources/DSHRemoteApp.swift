@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct DSHRemoteApp: App {
+    /// 视频全屏要能横过来：方向由 OrientationGate 控制（见 VideoPlayerViews.swift）
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {

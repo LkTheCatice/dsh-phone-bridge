@@ -14,6 +14,9 @@ struct RemoteVideo: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var player: AVPlayer?
+    /// 全屏播放用：本地文件 URL
+    @State private var videoURL: URL?
+    @State private var showFullscreen = false
     @State private var loading = true
     @State private var failed = false
     /// 探到的大小（0 = 未知）
@@ -31,9 +34,27 @@ struct RemoteVideo: View {
     var body: some View {
         Group {
             if let player {
-                VideoPlayer(player: player)
+                InlineVideoSurface(player: player)
                     .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                    // 行内不放系统控件：它的"全屏"在 .frame + clipShape 里点不动，
+                    // 改成整块可点 → 进我们自己的全屏播放器（能横过来）
+                    .contentShape(Rectangle())
+                    .onTapGesture { showFullscreen = true }
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(7)
+                            .background(.black.opacity(0.45), in: Circle())
+                            .padding(8)
+                            .allowsHitTesting(false)
+                    }
+                    .fullScreenCover(isPresented: $showFullscreen) {
+                        if let videoURL {
+                            FullScreenVideoSheet(url: videoURL)
+                        }
+                    }
                     .onDisappear { player.pause() }
             } else if failed {
                 card {
@@ -160,6 +181,7 @@ struct RemoteVideo: View {
             let created = AVPlayer(playerItem: item)
             created.isMuted = false
             player = created
+            videoURL = url          // 全屏播放器要用同一个本地文件
             loading = false
         } catch {
             failed = true
