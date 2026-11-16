@@ -1,4 +1,0 @@
-OK Sources/Views/RemoteMedia.swift :: inline-to-surface
-OK Sources/Views/RemoteMedia.swift :: state-url
-OK Sources/DSHRemoteApp.swift :: app-delegate
-OK project.yml :: plist-orientations
