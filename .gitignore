@@ -41,3 +41,4 @@ docs/deck/
 _attic/
 __pycache__/
 *.pyc
+tmp_*.txt
